@@ -25,7 +25,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       title: 'CLU • Créateur de lignes urbaines',
-      link: [{ rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }],
+      link: [{ rel: 'icon', type: 'image/x-icon', href: './favicon.ico' }],
     },
   },
 
@@ -44,6 +44,7 @@ export default defineNuxtConfig({
   build: {
     transpile: ['vue-i18n'],
   },
+
   vite: {
     vue: {
       script: {
@@ -55,7 +56,7 @@ export default defineNuxtConfig({
     css: {
       preprocessorOptions: {
         scss: {
-          api: 'modern-compiler', // or "modern"
+          api: 'modern-compiler',
         },
       },
     },
@@ -65,16 +66,13 @@ export default defineNuxtConfig({
     typedPages: true,
   },
 
-  // uncomment to disable SSR. This will basically make the app a SPA, like a normal Vue app, but with all the Nuxt goodies
   ssr: false,
 
-  // global CSS files
   css: [
     '@unocss/reset/tailwind-compat.css',
     '~/assets/style/custom.css',
   ],
 
-  // plugin configurations
   modules: [
     '@vueuse/nuxt',
     '@unocss/nuxt',
@@ -109,5 +107,6 @@ export default defineNuxtConfig({
       from: '/utils/passthrough.ts',
     },
   },
+
   compatibilityDate: '2024-07-20',
 })
