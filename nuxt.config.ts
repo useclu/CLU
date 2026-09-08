@@ -25,7 +25,29 @@ export default defineNuxtConfig({
   app: {
     head: {
       title: 'CLU • Créateur de lignes urbaines',
-      link: [{ rel: 'icon', type: 'image/x-icon', href: './favicon.ico' }],
+
+      link: [
+        {
+          rel: 'icon',
+          type: 'image/x-icon',
+          href: './favicon.ico',
+        },
+      ],
+
+      script: [
+        {
+          src: 'https://www.googletagmanager.com/gtag/js?id=G-246N628L35',
+          async: true,
+        },
+        {
+          innerHTML: `
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-246N628L35');
+          `,
+        },
+      ],
     },
   },
 
@@ -52,7 +74,9 @@ export default defineNuxtConfig({
         propsDestructure: true,
       },
     },
+
     plugins: [ViteYaml()],
+
     css: {
       preprocessorOptions: {
         scss: {
@@ -102,6 +126,7 @@ export default defineNuxtConfig({
         },
       },
     },
+
     importPT: {
       as: 'Passthrough',
       from: '/utils/passthrough.ts',
