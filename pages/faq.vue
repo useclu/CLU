@@ -12,7 +12,7 @@ definePageMeta({
     <Message severity="success" pt:text:class="flex-grow">
       <div class="flex flex-row items-center justify-between w-full">
         <p class="text-xl font-bold">
-          L’alpha publique est désormais ouverte !
+          CLU est disponible !
         </p>
         <Button severity="success" size="small" label="Accéder à l’éditeur" @click="navigateTo('/editor')" />
       </div>
@@ -24,206 +24,202 @@ definePageMeta({
           Foire aux questions
         </h1>
       </template>
+
       <Accordion multiple>
         <AccordionPanel value="0">
-          <AccordionHeader>À quoi sert ce projet ?</AccordionHeader>
+          <AccordionHeader>À quoi sert CLU ?</AccordionHeader>
           <AccordionContent>
             <p>
-              BULB permet à n’importe qui de concevoir et créer son propre plan de ligne de transports en commun.
+              CLU — Créateur de Lignes Urbaines — permet de concevoir et personnaliser des plans de lignes
+              de transports en commun directement depuis un navigateur.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="1">
-          <AccordionHeader>Quand sera-t-il disponible ?</AccordionHeader>
-          <AccordionContent>
-            <p>
-              Le projet est désormais ouvert en alpha publique ! Vous pouvez y accéder en cliquant sur le bouton en haut
-              de cette page.
-            </p>
-          </AccordionContent>
-        </AccordionPanel>
-        <AccordionPanel value="2">
-          <AccordionHeader>Peut-on créer des lignes avec un indices personnalisé ?</AccordionHeader>
-          <AccordionContent>
-            <p>
-              Oui, il est possible de créer n’importe quel indice de ligne et de l’utiliser dans les correspondances
-              également. (Exemple le RER F, le métro 25 ou le tramway T26)
-            </p>
-            <br>
-            <p>
-              À noter que ces indices personnalisés sont en cours de développement, et répondent actuellement à la
-              charte graphique
-              de la RATP. Certains problème graphiques peuvent survenir lors de l’utilisation d’indices personnalisés.
-            </p>
-          </AccordionContent>
-        </AccordionPanel>
-        <AccordionPanel value="3">
-          <AccordionHeader>Pourra-t-on utiliser ses propres pictogrammes ?</AccordionHeader>
-          <AccordionContent>
-            <p>
-              Oui. Cette fonctionnalité n’est pas prévue pour la première version, mais elle sera ajoutée dans une mise
-              à jour future.
-            </p>
-          </AccordionContent>
-        </AccordionPanel>
-        <AccordionPanel value="4">
-          <AccordionHeader>Pourra-t-on utiliser une autre charte que celle de la RATP ?</AccordionHeader>
-          <AccordionContent>
-            <p>
-              Oui. Pour la première version, il faudra faire avec la charte de la RATP, mais il est prévu d’ajouter à
-              minima celles de la SNCF et de IDFM. D’autres chartes pourront également être ajoutées par la suite.
-            </p>
-            <br>
-            <p>
-              De par la structure actuelle du projet, cette fonctionnalité n’est pas considérée comme prioritaire pour
-              le moment.
-            </p>
-          </AccordionContent>
-        </AccordionPanel>
-        <AccordionPanel value="5">
           <AccordionHeader>Quels modes de transport sont disponibles ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Tous. Plus précisément les navettes fluviales, les bus, les téléphériques, les métros, les RER, les
-              Transiliens, les tramways, et même les vélos.
-            </p>
-            <br>
-            <p>
-              Il est bon de notifier que pour les plans de bus, il n’est pas prévu de générer une carte avec les rues et
-              les arrêts, mais uniquement une liste des arrêts.
-            </p>
-            <br>
-            <p>
-              Chaque mode de transport pourra avoir un thermomètre de ligne visuellement différent, mais cette
-              fonctionnalité n’est pas encore disponible.
+              CLU permet de représenter différents modes de transport, notamment les métros, RER,
+              Transiliens, tramways, bus, téléphériques, navettes fluviales et vélos.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
+        <AccordionPanel value="2">
+          <AccordionHeader>Peut-on créer plusieurs lignes sur un même plan ?</AccordionHeader>
+          <AccordionContent>
+            <p>
+              Oui. CLU permet de construire des plans comprenant plusieurs lignes et de représenter
+              leurs arrêts et correspondances communs.
+            </p>
+          </AccordionContent>
+        </AccordionPanel>
+
+        <AccordionPanel value="3">
+          <AccordionHeader>Peut-on créer des branches et des fourches ?</AccordionHeader>
+          <AccordionContent>
+            <p>
+              Oui. Les lignes peuvent comporter des branches, des fourches, des branches parallèles,
+              des boucles et différents niveaux afin de construire des schémas complexes.
+            </p>
+          </AccordionContent>
+        </AccordionPanel>
+
+        <AccordionPanel value="4">
+          <AccordionHeader>Peut-on créer un indice de ligne personnalisé ?</AccordionHeader>
+          <AccordionContent>
+            <p>
+              Oui. CLU permet de créer des indices personnalisés et de les utiliser sur les lignes
+              ainsi que dans les correspondances.
+            </p>
+          </AccordionContent>
+        </AccordionPanel>
+
+        <AccordionPanel value="5">
+          <AccordionHeader>Peut-on utiliser ses propres pictogrammes ?</AccordionHeader>
+          <AccordionContent>
+            <p>
+              Oui. Des pictogrammes personnalisés peuvent être utilisés pour adapter les modes
+              de transport et l’identité visuelle du plan.
+            </p>
+          </AccordionContent>
+        </AccordionPanel>
+
         <AccordionPanel value="6">
-          <AccordionHeader>Peut-on dessiner plusieurs plans ?</AccordionHeader>
+          <AccordionHeader>Existe-t-il des préréglages ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Oui, le site propose un système de sauvegarde et de chargement des projets. Vous pouvez commencer à
-              travailler sur une ligne, la sauvegarder et recommencer à zéro pour une nouvelle ligne. Une fois la
-              deuxième
-              ligne sauvegardée, vous pouvez charger la première pour la modifier à nouveau.
+              Oui. CLU propose différents préréglages permettant de partir rapidement d’une ligne
+              existante, notamment pour des lignes de métro, RER, Transilien et tramway franciliens.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="7">
-          <AccordionHeader>Est-il possible d’ajouter des branches et des boucles aux plans ?</AccordionHeader>
+          <AccordionHeader>Peut-on sauvegarder ses projets ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Oui, les plans peuvent contenir des fourches et des boucles. Ces nouveaux éléments sont en phase de tests
-              et peuvent comporter des bugs.
-            </p>
-            <br>
-            <p>
-              L’utilisation de ces éléments implique actuellement une expérience utilisateur médiocre. Cette
-              fonctionnalité sera améliorée avec le temps.
+              Oui. CLU permet de sauvegarder un projet afin de pouvoir le charger et continuer
+              à le modifier ultérieurement.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="8">
-          <AccordionHeader>Dans quels formats peut-on exporter les plans ?</AccordionHeader>
+          <AccordionHeader>Peut-on annuler une modification ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Actuellement, les plans sont générés au format PNG avec une forte résolution. Un export SVG ou PDF n’est
-              pas encore possible et peu de pistes existent actuellement.
+              Oui. CLU dispose d’un système d’annulation et de rétablissement permettant de revenir
+              sur les dernières modifications effectuées dans l’éditeur.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="9">
-          <AccordionHeader>Est-ce que le code sera rendu open-source ?</AccordionHeader>
+          <AccordionHeader>Le projet est-il open source ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Oui, le code est consultable sur le
+              Oui. Le code source de CLU est disponible sur le
               <Button
-                link as="a" href="https://github.com/SlamaFR/BULB" label="dépôt GitHub"
+                link
+                as="a"
+                href="https://github.com/useclu/CLU"
+                target="_blank"
+                rel="noopener noreferrer"
+                label="dépôt GitHub"
                 pt:root:class="important-p-0"
-              />
-              . Toutes les
-              ressources à l’exception de la police “Parisine” sont disponibles dessus.
+              />.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="10">
           <AccordionHeader>Puis-je contribuer au projet ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Oui, vous pouvez contribuer en proposant des améliorations, des corrections de bugs, ou même en ajoutant
-              des fonctionnalités.
+              Oui. Vous pouvez contribuer au projet, proposer des améliorations ou signaler
+              des problèmes depuis le dépôt GitHub de CLU.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="11">
-          <AccordionHeader>C’est payant ?</AccordionHeader>
+          <AccordionHeader>CLU est-il gratuit ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Non, ce projet est 100% gratuit et le restera pour toujours.
+              Oui. CLU est un projet gratuit et open source distribué sous licence MIT.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="12">
           <AccordionHeader>J’ai trouvé un bug ou une faute, comment la signaler ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Soit en me contactant via
+              Vous pouvez ouvrir un ticket sur le
               <Button
-                link as="a" href="https://x.com/SlamaFR" label="X (anciennement Twitter)"
+                link
+                as="a"
+                href="https://github.com/useclu/CLU/issues"
+                target="_blank"
+                rel="noopener noreferrer"
+                label="dépôt GitHub"
                 pt:root:class="important-p-0"
               />
-              , soit en ouvrant un ticket sur le
-              <Button
-                link as="a" href="https://github.com/SlamaFR/BULB" label="dépôt GitHub"
-                pt:root:class="important-p-0"
-              />
-              .
+              en décrivant le problème rencontré.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="13">
-          <AccordionHeader>Avec quelles technologies est fait ce projet ?</AccordionHeader>
+          <AccordionHeader>Sur quelles technologies repose CLU ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Ce projet est fait avec Nuxt.js 3 et PrimeVue 4.
+              CLU repose notamment sur Nuxt, Vue, TypeScript et PrimeVue.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="14">
-          <AccordionHeader>Le site ne fonctionne pas bien chez moi, que faire ?</AccordionHeader>
+          <AccordionHeader>Quel navigateur utiliser ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Il est fortement conseillé d’utiliser un navigateur basé sur Chromium (Google Chrome, Microsoft Edge,
-              Brave, Vivaldi, Opera, etc.) pour une meilleure expérience. Les autres navigateurs (Firefox et Safari) ne
-              sont pas officiellement supportés.
-            </p>
-            <br>
-            <p>
-              Il est également conseillé d’utiliser une version récente de votre navigateur pour éviter les problèmes de
-              compatibilité.
+              Pour une expérience optimale, il est recommandé d’utiliser une version récente
+              d’un navigateur basé sur Chromium, comme Google Chrome, Microsoft Edge, Brave,
+              Vivaldi ou Opera.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="15">
           <AccordionHeader>Le rendu final est anormal, que faire ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Si lors de l’exportation, le rendu du plan est anormal, il est possible que le navigateur ne supporte pas
-              la génération d’image. Dans ce cas, il est conseillé de changer de navigateur pour régler le problème.
-            </p>
-            <br>
-            <p>
-              Si vous observez d’autres problèmes tels qu’une image rognée ou une police incorrecte, il s’agit de bugs
-              qui peuvent survenir et qui n’ont pas encore été traités.
+              Si le rendu exporté présente un problème, essayez d’abord avec une version récente
+              d’un navigateur Chromium. Si le problème persiste, vous pouvez le signaler sur
+              le dépôt GitHub de CLU en précisant les étapes permettant de le reproduire.
             </p>
           </AccordionContent>
         </AccordionPanel>
+
         <AccordionPanel value="16">
-          <AccordionHeader>Le site est-il responsive ?</AccordionHeader>
+          <AccordionHeader>Le site fonctionne-t-il sur mobile ?</AccordionHeader>
           <AccordionContent>
             <p>
-              Partiellement. Il est recommandé d’utiliser un ordinateur pour une expérience optimale.
+              CLU est principalement conçu pour être utilisé sur ordinateur. Un écran suffisamment
+              grand est recommandé pour profiter confortablement de l’éditeur.
+            </p>
+          </AccordionContent>
+        </AccordionPanel>
+
+        <AccordionPanel value="17">
+          <AccordionHeader>D’où vient CLU ?</AccordionHeader>
+          <AccordionContent>
+            <p>
+              CLU est basé sur le projet open source BULB de SlamaFR, lui-même issu de Nightrunner
+              de notKamui. CLU poursuit cette base avec de nombreuses modifications et fonctionnalités
+              supplémentaires.
             </p>
           </AccordionContent>
         </AccordionPanel>

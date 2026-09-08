@@ -5,18 +5,13 @@ import { ref } from 'vue'
 const SOCIALS = [
   {
     label: 'X (fka Twitter)',
-    value: 'https://x.com/SlamaFR',
+    value: 'https://x.com/REReboots',
     icon: 'i-tabler-brand-x',
   },
   {
     label: 'GitHub',
-    value: 'https://github.com/SlamaFR/BULB',
+    value: 'https://github.com/useclu/CLU',
     icon: 'i-tabler-brand-github',
-  },
-  {
-    label: 'Discord',
-    value: 'https://bulb.slama.io/discord',
-    icon: 'i-tabler-brand-discord',
   },
 ]
 

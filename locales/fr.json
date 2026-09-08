@@ -124,7 +124,7 @@
       "browser_check": {
         "dismiss": "J’ai compris",
         "header": "Navigateur non pris en charge",
-        "summary_1": "Il semblerait que vous utilisiez <b>{browserName}</b> comme navigateur. Ce dernier n’est pas officiellement supporté par BULB. Si vous poursuivez, certains comportements inattendus pourraient survenir, et vous pourriez rencontrer des problèmes graphiques.",
+        "summary_1": "Il semblerait que vous utilisiez <b>{browserName}</b> comme navigateur. Ce dernier n’est pas officiellement supporté par CLU. Si vous poursuivez, certains comportements inattendus pourraient survenir, et vous pourriez rencontrer des problèmes graphiques.",
         "summary_2": "Pour une expérience optimale, il est recommandé d’utiliser un navigateur basé sur Chromium tel que Google Chrome, Microsoft Edge, Opera, Brave, etc.",
         "supported_browsers": "Navigateurs supportés",
         "unsupported_browsers": "Navigateurs non supportés"
@@ -181,7 +181,7 @@
         "close": "Fermer",
         "disable_and_close": "Désactiver et fermer",
         "header": "Joyeuses fêtes de fin d’année",
-        "summary": "À l'occasion des fêtes, la neige débarque sur BULB. Vous pouvez la désactiver à tout moment depuis la barre supérieure."
+        "summary": "À l'occasion des fêtes, la neige débarque sur CLU. Vous pouvez la désactiver à tout moment depuis la barre supérieure."
       },
       "fork_properties": {
         "directional_arrows": {
@@ -227,7 +227,7 @@
       "new_update_available": {
         "header": "Nouvelle mise à jour disponible",
         "later": "Plus tard",
-        "message": "La version {version} de BULB est maintenant disponible. Voulez-vous recharger la page pour mettre à jour ? Aucune donnée ne sera perdue.",
+        "message": "La version {version} de CLU est maintenant disponible. Voulez-vous recharger la page pour mettre à jour ? Aucune donnée ne sera perdue.",
         "update": "Mettre à jour"
       },
       "ornament_editor": {
@@ -315,12 +315,9 @@
         "terminus": "Terminus"
       },
       "troubleshooting": {
-        "github": "ouvrir un ticket sur GitHub",
         "header": "Dépannage",
-        "notice": "Les information présentées ci-dessous seront utiles pour vous aider en cas de dysfonctionnement de BULB. En cas de bug, vous pouvez {github} ou {twitter}, en précisant les informations ci-dessous.",
         "project": "Projet",
-        "technical_details": "Détails techniques",
-        "twitter": "me contacter sur Twitter (X)"
+        "technical_details": "Détails techniques"
       },
       "use_full_preset": {
         "accept": "Charger le préréglage",
@@ -364,17 +361,17 @@
       },
       "title": "Éditeur de plan",
       "toolbox": {
-      "area_separator": "Séparation ville / zone",
-      "branch": "Branche",
-      "delete": "Supprimer",
-      "fork": "Fourche",
-      "loop": "Demi-tour",
-      "parallel_branches": "Branches parallèles",
-      "spacer": "Espacement",
-      "stop": "Arrêt",
-      "untitled_stop": "Arrêt sans nom"
-    },
-      "watermark": "Créé à l’aide de BULB"
+        "area_separator": "Séparation ville / zone",
+        "branch": "Branche",
+        "delete": "Supprimer",
+        "fork": "Fourche",
+        "loop": "Demi-tour",
+        "parallel_branches": "Branches parallèles",
+        "spacer": "Espacement",
+        "stop": "Arrêt",
+        "untitled_stop": "Arrêt sans nom"
+      },
+      "watermark": "Créé à l’aide de CLU"
     },
     "menu": {
       "custom_indices": "Indices personnalisés",

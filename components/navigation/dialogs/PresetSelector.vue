@@ -265,7 +265,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
         <div class="mode-card-header">
           <div class="mode-card-heading">
             <div class="mode-icon">
-              <i class="i-tabler-tram" />
+              <i class="i-tabler-train" />
             </div>
 
             <div>

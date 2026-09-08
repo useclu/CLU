@@ -1279,7 +1279,7 @@ function deleteAnnotation(
           "
         >
           <div class="flex flex-row gap-.5">
-            <span>BULB •</span>
+            <span>CLU •</span>
 
           <span v-if="presetBased">
             PBP •

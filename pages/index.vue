@@ -6,5 +6,5 @@ onMounted(() => navigateTo('/editor', { replace: true }))
 </script>
 
 <template>
-  BULB
+  CLU
 </template>
