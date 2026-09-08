@@ -364,15 +364,16 @@
       },
       "title": "Éditeur de plan",
       "toolbox": {
-        "branch": "Branche",
-        "delete": "Supprimer",
-        "fork": "Fourche",
-        "loop": "Demi-tour",
-        "parallel_branches": "Branches parallèles",
-        "spacer": "Espacement",
-        "stop": "Arrêt",
-        "untitled_stop": "Arrêt sans nom"
-      },
+      "area_separator": "Séparation ville / zone",
+      "branch": "Branche",
+      "delete": "Supprimer",
+      "fork": "Fourche",
+      "loop": "Demi-tour",
+      "parallel_branches": "Branches parallèles",
+      "spacer": "Espacement",
+      "stop": "Arrêt",
+      "untitled_stop": "Arrêt sans nom"
+    },
       "watermark": "Créé à l’aide de BULB"
     },
     "menu": {

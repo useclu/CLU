@@ -45,34 +45,36 @@ export default function useLoadProject() {
   }
 
   function load(project: Project, loadCustomIndices: boolean) {
-    checkVersion(project.version, projectMinimumVersion)
+  checkVersion(project.version, projectMinimumVersion)
 
-    presetBased.value = project.presetBased
-    version.value = project.version
-    line.value.index = project.line.index
-    line.value.mode = project.line.mode
-    line.value.color = project.line.color
-    line.value.lineThickness = project.line.lineThickness
-    line.value.lineStyle = project.line.lineStyle
-    line.value.dotsColorPolicy = project.line.dotsColorPolicy
-    line.value.fullyAccessible = project.line.fullyAccessible
-    line.value.mapSize = project.line.mapSize
-    line.value.topology = project.line.topology
+  presetBased.value = project.presetBased
+  version.value = project.version
+  line.value.index = project.line.index
+  line.value.mode = project.line.mode
+  line.value.color = project.line.color
+  line.value.lineThickness = project.line.lineThickness
+  line.value.lineStyle = project.line.lineStyle
+  line.value.dotsColorPolicy = project.line.dotsColorPolicy
+  line.value.fullyAccessible = project.line.fullyAccessible
+  line.value.mapSize = project.line.mapSize
+  line.value.topology = project.line.topology
+  line.value.customModePictograms
+    = project.line.customModePictograms ?? {}
 
-    if (loadCustomIndices) {
-      const existingIndicesIds = indicesStore.indices.value.map(it => it.id)
-      const newIndices = project.customIndices.filter(it => !existingIndicesIds.includes(it.id))
+  if (loadCustomIndices) {
+    const existingIndicesIds = indicesStore.indices.value.map(it => it.id)
+    const newIndices = project.customIndices.filter(it => !existingIndicesIds.includes(it.id))
 
-      indicesStore.indices.value.push(...newIndices)
-    }
-
-    toast.add({
-      summary: 'ui.toasts.load.success.title',
-      detail: 'ui.toasts.load.success.detail',
-      severity: 'success',
-      life: 5000,
-    })
+    indicesStore.indices.value.push(...newIndices)
   }
+
+  toast.add({
+    summary: 'ui.toasts.load.success.title',
+    detail: 'ui.toasts.load.success.detail',
+    severity: 'success',
+    life: 5000,
+  })
+}
 
   const reader = new FileReader()
   reader.onload = (ev) => {

@@ -20,6 +20,7 @@ import LINE_15 from '~/assets/svg/lines/metro/metro_15.svg'
 import LINE_16 from '~/assets/svg/lines/metro/metro_16.svg'
 import LINE_17 from '~/assets/svg/lines/metro/metro_17.svg'
 import LINE_18 from '~/assets/svg/lines/metro/metro_18.svg'
+import LINE_19 from '~/assets/svg/lines/metro/metro_19.svg'
 
 const {
   line,
@@ -69,13 +70,21 @@ const picto = computed(() => {
       return LINE_17
     case '18':
       return LINE_18
+    case '19':
+      return LINE_19
   }
+
   return null
 })
 </script>
 
 <template>
-  <img v-if="picto" :src="picto" alt="metro" class="picto">
+  <img
+    v-if="picto"
+    :src="picto"
+    alt="metro"
+    class="picto"
+  >
 </template>
 
 <style scoped lang="scss">

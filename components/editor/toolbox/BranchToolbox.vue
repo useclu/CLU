@@ -8,7 +8,7 @@ import useElementGrabbing from '~/composables/useElementGrabbing'
 interface Element {
   label: string
   icon: string
-  type: 'STOP' | 'SPACER'
+  type: 'STOP' | 'SPACER' | 'AREA_SEPARATOR'
 }
 
 const { grab, release } = useElementGrabbing()
@@ -23,6 +23,11 @@ const elements = ref<Element[]>([
     label: 'ui.map_editor.toolbox.spacer',
     icon: 'i-bulb-spacer',
     type: 'SPACER',
+  },
+  {
+    label: 'ui.map_editor.toolbox.area_separator',
+    icon: 'i-bulb-spacer',
+    type: 'AREA_SEPARATOR',
   },
 ])
 
@@ -41,14 +46,37 @@ function clone(element: Element): BranchElement {
           preventSubtitleOverlapping: true,
           terminus: false,
           closed: false,
+          future: false,
+          outOfFareZone: false,
           connections: [],
+          nameStyle: {
+            bold: true,
+            italic: false,
+            underline: false,
+            color: null,
+            image: null,
+            imageSize: 1,
+          },
         },
       }
+
     case 'SPACER':
       return {
         id: uuidv4(),
         $spacer: {
           size: 5,
+        },
+      }
+
+    case 'AREA_SEPARATOR':
+      return {
+        id: uuidv4(),
+        $areaSeparator: {
+          cityName: 'Ville',
+          zoneName: 'Zone 1',
+          autoSpacing: true,
+          spacing: 3,
+          height: 10,
         },
       }
   }
@@ -69,15 +97,23 @@ function onStart(e: DraggableEvent<Element>) {
     @start="e => onStart(e as DraggableEvent<Element>)"
     @end="release()"
   >
-    <div v-for="element in elements" :key="element.label" class="toolbox-item">
+    <div
+      v-for="element in elements"
+      :key="element.label"
+      class="toolbox-item"
+    >
       <div class="item hidden">
         <div class="flex flex-col items-center">
           <i :class="element.icon" />
           <span>{{ $t(element.label) }}</span>
         </div>
       </div>
+
       <div class="preview h-full flex items-center">
-        <BranchElement :model-value="clone(element)" :reverse="false" />
+        <BranchElement
+          :model-value="clone(element)"
+          :reverse="false"
+        />
       </div>
     </div>
   </VueDraggable>

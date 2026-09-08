@@ -2,18 +2,21 @@ import { useEventBus } from '@vueuse/core'
 import { onMounted, onUnmounted } from 'vue'
 import { ElementGrabbingSignal } from '~/utils/symbols'
 
-type ElementType = 'STOP' | 'SPACER' | null
+type ElementType = 'STOP' | 'SPACER' | 'AREA_SEPARATOR' | null
 
 interface ElementGrabbingEvent {
   type: ElementType
 }
 
-export default function useElementGrabbing(onGrab: (event: ElementGrabbingEvent) => void = () => {}) {
+export default function useElementGrabbing(
+  onGrab: (event: ElementGrabbingEvent) => void = () => {},
+) {
   const eventBus = useEventBus<ElementGrabbingEvent>(ElementGrabbingSignal)
 
   onMounted(() => {
     eventBus.on(onGrab)
   })
+
   onUnmounted(() => {
     eventBus.off(onGrab)
   })

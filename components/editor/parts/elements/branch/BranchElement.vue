@@ -1,13 +1,33 @@
 <script setup lang="ts">
-import { isSpacer, isStop } from '~/utils/types'
+import AreaSeparator from './children/AreaSeparator.vue'
+import { isAreaSeparator, isSpacer, isStop } from '~/utils/types'
 
-const { reverse } = defineProps<{
+const {
+  reverse,
+  branch,
+} = defineProps<{
   reverse: boolean
+  branch: Branch
 }>()
+
 const element = defineModel<BranchElement>({ required: true })
 </script>
 
 <template>
-  <Stop v-if="isStop(element)" v-model="element" :reverse="reverse" />
-  <Spacer v-else-if="isSpacer(element)" v-model="element" />
+  <Stop
+    v-if="isStop(element)"
+    v-model="element"
+    :reverse="reverse"
+    :branch="branch"
+  />
+
+  <Spacer
+    v-else-if="isSpacer(element)"
+    v-model="element"
+  />
+
+  <AreaSeparator
+    v-else-if="isAreaSeparator(element)"
+    v-model="element"
+  />
 </template>

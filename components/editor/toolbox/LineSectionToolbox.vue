@@ -6,7 +6,12 @@ import { VueDraggable } from 'vue-draggable-plus'
 interface Element {
   label: string
   icon: string
-  type: 'BRANCH' | 'FORK' | 'PARALLEL_BRANCHES' | 'LOOP'
+  type:
+    | 'BRANCH'
+    | 'FORK'
+    | 'VERTICAL_SEGMENT'
+    | 'PARALLEL_BRANCHES'
+    | 'LOOP'
 }
 
 const elements = ref<Element[]>([
@@ -19,6 +24,11 @@ const elements = ref<Element[]>([
     label: 'ui.map_editor.toolbox.fork',
     icon: 'i-bulb-fork',
     type: 'FORK',
+  },
+  {
+    label: 'Segment vertical',
+    icon: 'i-tabler-arrows-vertical',
+    type: 'VERTICAL_SEGMENT',
   },
   {
     label: 'ui.map_editor.toolbox.parallel_branches',
@@ -45,6 +55,7 @@ function clone(element: Element): LineElement {
           elements: [],
         },
       }
+
     case 'FORK':
       return {
         id: uuidv4(),
@@ -55,6 +66,17 @@ function clone(element: Element): LineElement {
           offsetMultiplier: 1,
         },
       }
+
+    case 'VERTICAL_SEGMENT':
+      return {
+        id: uuidv4(),
+        $verticalSegment: {
+          levelChange: 1,
+          side: 'RIGHT',
+          stops: [],
+        },
+      }
+
     case 'PARALLEL_BRANCHES':
       return {
         id: uuidv4(),
@@ -96,6 +118,7 @@ function clone(element: Element): LineElement {
           ],
         },
       }
+
     case 'LOOP':
       return {
         id: uuidv4(),
@@ -109,25 +132,42 @@ function clone(element: Element): LineElement {
 </script>
 
 <template>
-  <VueDraggable
-    v-model="elements"
-    class="toolbox-section"
-    :group="{ name: 'sectionElements', pull: 'clone', put: false }"
-    :clone="clone"
-    :sort="false"
-  >
-    <div v-for="element in elements" :key="element.label" class="toolbox-item">
-      <div class="item hidden">
-        <div class="flex flex-col items-center">
-          <i :class="element.icon" />
-          <span>{{ $t(element.label) }}</span>
+  <div class="toolbox-section">
+    <VueDraggable
+      v-model="elements"
+      class="draggable-elements"
+      :group="{ name: 'sectionElements', pull: 'clone', put: false }"
+      :clone="clone"
+      :sort="false"
+    >
+      <div
+        v-for="element in elements"
+        :key="element.label"
+        class="toolbox-item"
+      >
+        <div class="item hidden">
+          <div class="flex flex-col items-center">
+            <i :class="element.icon" />
+
+            <span>
+              {{
+                element.type === 'VERTICAL_SEGMENT'
+                  ? element.label
+                  : $t(element.label)
+              }}
+            </span>
+          </div>
+        </div>
+
+        <div class="preview h-full flex items-center">
+          <SectionElement
+            dummy
+            :model-value="clone(element)"
+          />
         </div>
       </div>
-      <div class="preview h-full flex items-center">
-        <SectionElement dummy :model-value="clone(element)" />
-      </div>
-    </div>
-  </VueDraggable>
+    </VueDraggable>
+  </div>
 </template>
 
 <style scoped lang="scss">
@@ -136,40 +176,49 @@ function clone(element: Element): LineElement {
   flex-direction: row;
   align-items: center;
   gap: .5rem;
+}
 
-  .toolbox-item {
-    cursor: grab;
-    background-color: white;
-    border: 1px solid var(--p-slate-200);
-    border-radius: .375rem;
-    min-width: 5rem;
-    padding: .5rem;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+.draggable-elements {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: .5rem;
+}
 
-    span {
-      font-size: 1rem;
-      user-select: none;
-    }
+.toolbox-item {
+  cursor: grab;
+  background-color: white;
+  border: 1px solid var(--p-slate-200);
+  border-radius: .375rem;
+  min-width: 5rem;
+  padding: .5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition:
+    box-shadow .2s ease-in-out,
+    transform .2s ease-in-out;
 
-    &:active {
-      cursor: grabbing;
-    }
+  span {
+    font-size: 1rem;
+    user-select: none;
+  }
 
-    &:hover {
-      box-shadow: 0 0 1em 0 rgba(0, 0, 0, 0.25);
-      transform: scale(1.05);
-    }
+  &:active {
+    cursor: grabbing;
+  }
 
-    & .item {
-      display: block;
-    }
+  &:hover {
+    box-shadow: 0 0 1em 0 rgb(0 0 0 / 25%);
+    transform: scale(1.05);
+  }
 
-    & .preview {
-      display: none;
-    }
+  & .item {
+    display: block;
+  }
+
+  & .preview {
+    display: none;
   }
 }
 </style>

@@ -14,6 +14,7 @@ declare global {
     | 'TRAIN_RER'
     | 'TRAM'
     | 'VELO'
+
   type Service =
     'FUNICULAR'
     | 'MAIN_STATION'
@@ -31,8 +32,21 @@ declare global {
     | 'ORLYVAL_LARGE_2'
     | 'CDG_EXPRESS'
 
-  type BusLine = 'tzen1' | 'tzen2' | 'tzen3' | 'tzen4' | 'tzen5' | 'tzen6' | 'tvm' | '393' | string
-  type CableLine = '1' | string
+  type BusLine =
+    'tzen1'
+    | 'tzen2'
+    | 'tzen3'
+    | 'tzen4'
+    | 'tzen5'
+    | 'tzen6'
+    | 'tvm'
+    | '393'
+    | string
+
+  type CableLine =
+    '1'
+    | string
+
   type MetroLine =
     '1'
     | '2'
@@ -55,11 +69,49 @@ declare global {
     | '17'
     | '18'
     | string
-  type RerLine = 'A' | 'B' | 'C' | 'D' | 'E' | string
-  type TrainLine = 'H' | 'J' | 'K' | 'L' | 'N' | 'P' | 'R' | 'U' | 'V' | string
-  type TramLine = '1' | '2' | '3a' | '3b' | '4' | '5' | '6' | '7' | '8' | '11' | '12' | '13' | '14' | string
 
-  type IndexShape = 'CIRCLE' | 'ROUNDED_SQUARE' | 'LINES' | 'RECTANGLE' | 'CUT_RECTANGLE'
+  type RerLine =
+    'A'
+    | 'B'
+    | 'C'
+    | 'D'
+    | 'E'
+    | string
+
+  type TrainLine =
+    'H'
+    | 'J'
+    | 'K'
+    | 'L'
+    | 'N'
+    | 'P'
+    | 'R'
+    | 'U'
+    | 'V'
+    | string
+
+  type TramLine =
+    '1'
+    | '2'
+    | '3a'
+    | '3b'
+    | '4'
+    | '5'
+    | '6'
+    | '7'
+    | '8'
+    | '11'
+    | '12'
+    | '13'
+    | '14'
+    | string
+
+  type IndexShape =
+    'CIRCLE'
+    | 'ROUNDED_SQUARE'
+    | 'LINES'
+    | 'RECTANGLE'
+    | 'CUT_RECTANGLE'
 
   interface ColorChoice {
     value: string
@@ -111,9 +163,20 @@ declare global {
 
   /* ///////////// LINE ///////////// */
 
-  type OrnamentType = 'AIRPORT' | 'AIRPORT_NAME' | 'TEXT'
-  type OrnamentPosition = 'RIGHT' | 'BOTTOM'
-  type Airport = 'CDG' | 'ORY' | 'BOTH' | 'GENERIC'
+  type OrnamentType =
+    'AIRPORT'
+    | 'AIRPORT_NAME'
+    | 'TEXT'
+
+  type OrnamentPosition =
+    'RIGHT'
+    | 'BOTTOM'
+
+  type Airport =
+    'CDG'
+    | 'ORY'
+    | 'BOTH'
+    | 'GENERIC'
 
   interface AirportOrnament {
     id: string
@@ -139,14 +202,62 @@ declare global {
     }
   }
 
-  type Ornament = AirportOrnament | AirportNameOrnament | TextOrnament
+  type Ornament =
+    | AirportOrnament
+    | AirportNameOrnament
+    | TextOrnament
+
+  type TransferMode =
+    'WALK'
+    | 'BIKE'
+    | 'CAR'
+    | 'BUS'
+    | 'OTHER'
+
+  interface TransferDetails {
+    mode: TransferMode
+    durationMinutes: number | null
+    label?: string
+  }
+
+  /*
+   * Logo personnalisé remplaçant visuellement
+   * l'indice BULB d'une ligne précise.
+   *
+   * "image" contient l'image sous forme de Data URL.
+   *
+   * "imageSize" permet de régler sa taille
+   * indépendamment des autres lignes.
+   *
+   * Ce logo appartient à un seul
+   * ModeConnectionElement.
+   */
+  interface ConnectionLinePictogram {
+    image: string
+    imageSize: number
+  }
 
   interface ModeConnectionElement {
     id: string
     $modeConnectionElement: {
       lineIndex: LineIndex | null
       walk: boolean
+      transfer?: TransferDetails | null
       ornament: Ornament | null
+
+      /*
+       * Surcharge visuelle de l'indice de cette ligne.
+       *
+       * Si elle existe, le logo personnalisé remplace
+       * l'affichage du LineIndex sur le plan.
+       *
+       * Si elle est absente ou null, BULB affiche
+       * normalement le LineIndex sélectionné.
+       *
+       * Optionnel pour préserver la compatibilité
+       * avec les anciens projets.
+       */
+      customPictogram?: ConnectionLinePictogram | null
     }
   }
 
@@ -158,12 +269,75 @@ declare global {
     }
   }
 
+  /*
+   * Ancien système de logo / ligne personnalisée.
+   *
+   * Conservé temporairement pour permettre
+   * l'ouverture des projets qui en contiennent
+   * encore pendant la migration vers les logos
+   * directement rattachés aux ModeConnectionElement.
+   *
+   * "mode" correspond au mode de transport.
+   *
+   * "image" contient le logo sous forme de Data URL.
+   *
+   * "imageSize" permet de régler sa taille.
+   */
+  interface CustomConnection {
+    id: string
+    mode: Mode
+    label: string | null
+    image: string
+    imageSize: number
+  }
+
+  /*
+   * Pictogramme personnalisé propre à une
+   * correspondance précise.
+   *
+   * Il s'agit du pictogramme DU MODE,
+   * et non de l'indice d'une ligne.
+   *
+   * L'image est enregistrée sous forme de Data URL
+   * directement dans le projet.
+   *
+   * Si ce pictogramme n'existe pas, BULB utilise
+   * automatiquement le pictogramme global du mode,
+   * puis son pictogramme d'origine.
+   */
+  interface ConnectionModePictogram {
+    image: string
+  }
+
   interface ModeConnection {
     id: string
     $modeConnection: {
       mode: Mode | null
       elements: ModeConnectionElement[]
       walk: boolean
+      transfer?: TransferDetails | null
+
+      /*
+       * Surcharge locale du pictogramme de transport
+       * uniquement pour cette correspondance.
+       *
+       * Optionnel afin de conserver la compatibilité
+       * avec tous les anciens projets.
+       */
+      customPictogram?: ConnectionModePictogram | null
+
+      /*
+       * Ancien système intermédiaire de lignes
+       * et logos personnalisés.
+       *
+       * Conservé temporairement pendant la migration.
+       *
+       * Les nouvelles lignes personnalisées doivent
+       * maintenant être représentées par un véritable
+       * ModeConnectionElement possédant éventuellement
+       * son propre customPictogram.
+       */
+      customConnections?: CustomConnection[]
     }
   }
 
@@ -172,10 +346,33 @@ declare global {
     $serviceConnection: {
       elements: ServiceConnectionElement[]
       walk: boolean
+      transfer?: TransferDetails | null
     }
   }
 
-  type Connection = ModeConnection | ServiceConnection
+  type Connection =
+    | ModeConnection
+    | ServiceConnection
+
+  /*
+   * Style personnalisé du nom d'un arrêt.
+   *
+   * "image" contient le logo ou l'image personnalisée
+   * sous forme de Data URL.
+   *
+   * "imageSize" permet de régler sa taille d'affichage.
+   *
+   * nameStyle reste optionnel dans Stop afin de conserver
+   * la compatibilité avec les anciens projets.
+   */
+  interface StopNameStyle {
+    bold: boolean
+    italic: boolean
+    underline: boolean
+    color: string | null
+    image: string | null
+    imageSize: number
+  }
 
   interface Stop {
     id: string
@@ -188,8 +385,33 @@ declare global {
       interestPoint: boolean
       terminus: boolean
       closed: boolean
+      future: boolean
       reverse: boolean
+
+      /*
+       * Affichage vertical spécifique de l'arrêt.
+       *
+       * Lorsqu'il est activé, le symbole classique
+       * est remplacé par une capsule verticale.
+       *
+       * Optionnel afin que les anciens projets
+       * conservent automatiquement l'affichage normal.
+       */
+      vertical?: boolean
+
       connections: Connection[]
+
+      /*
+       * Ancien emplacement des correspondances
+       * personnalisées.
+       *
+       * Conservé pour la compatibilité avec les
+       * projets créés avant leur intégration directe
+       * dans ModeConnection.
+       */
+      customConnections?: CustomConnection[]
+
+      nameStyle?: StopNameStyle
     }
   }
 
@@ -200,7 +422,61 @@ declare global {
     }
   }
 
-  type BranchElement = Stop | Spacer
+  /*
+   * Séparation verticale de ville / zone.
+   *
+   * Cet élément est indépendant d'un arrêt afin de pouvoir être placé
+   * librement entre deux stations dans une branche.
+   *
+   * Exemple visuel :
+   *
+   *     NOM DE LA VILLE
+   *         ZONE 5
+   *           ⋮
+   *           ⋮
+   *           ⋮
+   */
+  interface AreaSeparator {
+    id: string
+    $areaSeparator: {
+      cityName: string
+      zoneName: string | null
+      autoSpacing: boolean
+      spacing: number
+      height: number
+    }
+  }
+
+  type BranchElement =
+    | Stop
+    | Spacer
+    | AreaSeparator
+
+  /*
+   * Ligne supplémentaire affichée sur une branche.
+   *
+   * La ligne principale du projet reste stockée
+   * dans Project.line afin de conserver le
+   * fonctionnement historique de CLU.
+   *
+   * Une branche peut ainsi accueillir plusieurs
+   * identités de lignes sans transformer tout le
+   * projet en plusieurs Line indépendantes.
+   *
+   * "mode" indique le moyen de transport.
+   *
+   * "index" accepte aussi bien un indice natif
+   * qu'un indice personnalisé créé dans CLU.
+   *
+   * "color" permet à cette ligne de conserver
+   * sa propre couleur sur le tracé.
+   */
+  interface BranchAdditionalLine {
+    id: string
+    mode: Mode
+    index: LineIndex | null
+    color: string
+  }
 
   interface Branch {
     id: string
@@ -210,8 +486,23 @@ declare global {
       marginRight?: number
       invertedElements: boolean
       elements: BranchElement[]
+
+      /*
+       * Lignes supplémentaires fusionnées avec
+       * la ligne principale sur cette branche.
+       *
+       * Cette propriété reste optionnelle :
+       * un ancien projet ne possédant pas
+       * additionalLines continue donc de
+       * fonctionner exactement comme avant.
+       */
+      additionalLines?: BranchAdditionalLine[]
     }
   }
+
+  type ForkStyle =
+    | 'ORIGINAL'
+    | 'ROUNDED'
 
   interface Fork {
     id: string
@@ -221,6 +512,76 @@ declare global {
       linksOffset: [number, number]
       offsetMultiplier?: number
       directionalArrows?: 'CW' | 'CCW'
+
+      /*
+       * Style visuel de la bifurcation.
+       *
+       * ORIGINAL = géométrie historique de BULB.
+       * ROUNDED = bifurcation avec raccords à angles arrondis.
+       *
+       * Optionnel afin que les anciens projets utilisent
+       * automatiquement le style ORIGINAL.
+       */
+      forkStyle?: ForkStyle
+    }
+  }
+
+  /*
+   * Segment vertical de ligne.
+   *
+   * Cet élément permet de faire passer le tracé
+   * d'un niveau horizontal à un autre.
+   *
+   * levelChange :
+   * - valeur négative = déplacement vers le haut
+   * - valeur positive = déplacement vers le bas
+   *
+   * Exemple :
+   *
+   *   levelChange: -1
+   *
+   *   ─────────╮
+   *            │
+   *            ╰─────────
+   *
+   * Les anciennes propriétés "height" et "direction"
+   * restent temporairement optionnelles pendant la
+   * migration du prototype existant.
+   */
+  type VerticalSegmentDirection =
+    | 'UP'
+    | 'DOWN'
+    | 'BOTH'
+
+  type VerticalSegmentSide =
+    | 'LEFT'
+    | 'RIGHT'
+
+  interface VerticalSegment {
+    id: string
+    $verticalSegment: {
+      levelChange?: number
+
+      /*
+       * Côté sur lequel se trouve la partie verticale.
+       *
+       * LEFT = partie verticale côté gauche.
+       * RIGHT = partie verticale côté droit.
+       *
+       * Optionnel afin que les anciens projets utilisent
+       * automatiquement RIGHT.
+       */
+      side?: VerticalSegmentSide
+
+      /*
+       * Anciennes propriétés du prototype.
+       * Elles seront supprimées une fois les composants
+       * migrés vers levelChange.
+       */
+      height?: number
+      direction?: VerticalSegmentDirection
+
+      stop?: Stop
     }
   }
 
@@ -241,7 +602,12 @@ declare global {
     }
   }
 
-  type LineElement = Branch | Fork | ParallelBranches | Loop
+  type LineElement =
+    | Branch
+    | Fork
+    | VerticalSegment
+    | ParallelBranches
+    | Loop
 
   interface LineSection {
     id: string
@@ -267,10 +633,36 @@ declare global {
     }
   }
 
-  type LineIndex = BuiltinLineIndex | CustomLineIndex
+  type LineIndex =
+    | BuiltinLineIndex
+    | CustomLineIndex
 
-  type LineStyle = 'PLAIN' | 'STRIPED'
-  type DotsColorPolicy = 'INHERIT' | 'WHITE'
+  type LineStyle =
+    'PLAIN'
+    | 'STRIPED'
+
+  type DotsColorPolicy =
+    'INHERIT'
+    | 'WHITE'
+
+  /*
+   * Format graphique des noms de stations.
+   *
+   * RATP :
+   * - noms bleus et gras ;
+   * - terminus bleus et gras.
+   *
+   * SNCF :
+   * - noms noirs et de graisse normale ;
+   * - terminus noirs et gras.
+   *
+   * La propriété reste optionnelle dans Line
+   * afin de préserver la compatibilité avec
+   * les anciens projets.
+   */
+  type FormatStyle =
+    | 'RATP'
+    | 'SNCF'
 
   interface Line {
     mode: Mode | null
@@ -282,6 +674,7 @@ declare global {
     mapSize: number | null
     fullyAccessible: boolean
     frameTerminusNames: boolean
+    formatStyle?: FormatStyle
     topology: LineSection[]
   }
 
@@ -309,7 +702,11 @@ declare global {
     inverted: ComputedRef<boolean>
   }
 
-  type ChangelogEntryType = 'ADDED' | 'CHANGED' | 'FIXED' | 'REMOVED'
+  type ChangelogEntryType =
+    'ADDED'
+    | 'CHANGED'
+    | 'FIXED'
+    | 'REMOVED'
 
   interface ChangelogVersion {
     version: string

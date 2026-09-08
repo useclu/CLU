@@ -12,45 +12,72 @@ const {
   inner?: boolean
   fluid?: boolean
 }>()
+
 const section = defineModel<LineSection>({ required: true })
+
 const toast = useToast()
 
 const elements = computed({
   get: () => section.value.$lineSection.elements,
   set: val => section.value.$lineSection.elements = val,
 })
-const offset = computed(() => `calc(${section.value.$lineSection.levelOffset} * -2.75em)`)
 
-type Action = 'ADD' | 'REMOVE' | 'UPDATE'
+const offset = computed(() =>
+  `calc(${section.value.$lineSection.levelOffset ?? 0} * -2.75em)`,
+)
+
+type Action =
+  | 'ADD'
+  | 'REMOVE'
+  | 'UPDATE'
+
 function mergeAdjacentBranches() {
   const elements = section.value.$lineSection.elements
   let hasMerged = false
+
   for (let i = 0; i < elements.length - 1; i++) {
     const a = elements[i]
     const b = elements[i + 1]
+
     if (isBranch(a) && isBranch(b)) {
       hasMerged = true
-      a.$branch.elements.push(...b.$branch.elements)
+
+      a.$branch.elements.push(
+        ...b.$branch.elements,
+      )
+
       elements.splice(i + 1, 1)
+
       i--
     }
   }
+
   return hasMerged
 }
 
-function onAction(action: Action, event: SortableEvent) {
+function onAction(
+  action: Action,
+  event: SortableEvent,
+) {
   if (mergeAdjacentBranches()) {
-    if (action === 'ADD' && event.pullMode === 'clone') {
+    if (
+      action === 'ADD'
+      && event.pullMode === 'clone'
+    ) {
       toast.add({
-        summary: 'ui.toasts.adjacent_branches.title',
-        detail: 'ui.toasts.adjacent_branches.detail',
+        summary:
+          'ui.toasts.adjacent_branches.title',
+        detail:
+          'ui.toasts.adjacent_branches.detail',
         severity: 'warn',
         life: 10000,
       })
     } else {
       toast.add({
-        summary: 'ui.toasts.branch_merge.title',
-        detail: 'ui.toasts.branch_merge.detail',
+        summary:
+          'ui.toasts.branch_merge.title',
+        detail:
+          'ui.toasts.branch_merge.detail',
         severity: 'info',
         life: 5000,
       })
@@ -61,7 +88,8 @@ function onAction(action: Action, event: SortableEvent) {
 
 <template>
   <div
-    class="section" :class="{
+    class="section"
+    :class="{
       inner,
       fluid,
       empty: elements.length === 0,
@@ -111,9 +139,12 @@ function onAction(action: Action, event: SortableEvent) {
     width: 100%;
   }
 
-  .section:hover > &, &:hover, &.empty {
+  .section:hover > &,
+  &:hover,
+  &.empty {
     outline-color: var(--p-slate-300);
   }
+
   &.inner.empty {
     outline-color: var(--p-orange-500);
     background-color: var(--p-orange-100);
@@ -141,6 +172,7 @@ function onAction(action: Action, event: SortableEvent) {
   .inner > & {
     min-height: 2em;
   }
+
   :not(.inner) > & {
     min-height: 5em;
   }
@@ -149,6 +181,7 @@ function onAction(action: Action, event: SortableEvent) {
     &:first-child {
       padding-left: 1em;
     }
+
     &:last-child {
       padding-right: 1em;
     }

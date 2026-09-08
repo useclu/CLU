@@ -1,6 +1,7 @@
 import {
   BLEU_CLAIR,
   BLEU_FONCE,
+  GRIS_METRO_19,
   JAUNE_OCRE,
   JAUNE_VIF,
   LILAS,
@@ -38,4 +39,5 @@ export const METRO_LINES: IndexChoice<BuiltinLineIndex>[] = [
   { value: { mode: 'METRO', $builtinLineIndex: { index: '16' } }, label: 'Ligne 16', color: ROSE.value },
   { value: { mode: 'METRO', $builtinLineIndex: { index: '17' } }, label: 'Ligne 17', color: OLIVE_CLAIR.value },
   { value: { mode: 'METRO', $builtinLineIndex: { index: '18' } }, label: 'Ligne 18', color: TURQUOISE.value },
+  { value: { mode: 'METRO', $builtinLineIndex: { index: '19' } }, label: 'Ligne 19', color: GRIS_METRO_19.value },
 ]

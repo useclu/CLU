@@ -1,16 +1,315 @@
 ---
 changelog:
+  - version: 1.6.2-alpha
+    date: '2026-09-06T00:00:00.000Z'
+    entries:
+      ADDED:
+        - value: Finalisation du répertoire des indices personnalisés
+          details:
+            - Le répertoire permet de créer, consulter, modifier et supprimer des indices de lignes personnalisés
+            - Les indices sont organisés par famille de transport pour faciliter leur utilisation dans les plans et les correspondances
+            - Les catégories sont organisées dans l’ordre RER, Transilien, Tramway, Métro, Téléphérique, Bus, Busilien (BHNS), Noctilien, Navette fluviale et Vélo
+            - Chaque catégorie indique clairement les indices personnalisés déjà disponibles
+            - La création d’un nouvel indice reste basée sur le système d’indices natif de l’application afin de conserver les formes, couleurs, préfixes et suffixes disponibles
+        - value: Nouvelle gestion globale des pictogrammes de modes de transport
+          details:
+            - Les pictogrammes génériques des différents modes peuvent être remplacés par des images personnalisées
+            - Chaque mode dispose de son propre aperçu et indique si le pictogramme utilisé est celui par défaut ou un pictogramme personnalisé
+            - Un pictogramme personnalisé peut être modifié ou rétabli individuellement
+            - Une commande permet de rétablir l’ensemble des pictogrammes par défaut
+            - Les images personnalisées sont conservées directement avec les données locales du projet
+      CHANGED:
+        - value: Finalisation de la nouvelle identité CLU
+          details:
+            - Le projet utilise désormais le nom "CLU — Créateur de Lignes Urbaines"
+            - Remplacement de l’identité visuelle BULB par la nouvelle identité CLU dans l’interface principale
+            - Mise en place du nouveau logo CLU
+            - Le titre de l’application affiché dans l’onglet du navigateur devient "CLU • Créateur de Lignes Urbaines"
+            - Les noms techniques internes hérités de BULB sont conservés lorsqu’ils sont nécessaires au fonctionnement ou à la compatibilité du projet
+        - value: Refonte de la confirmation de création d’un nouveau projet
+          details:
+            - La fenêtre "Nouveau projet" adopte désormais l’identité visuelle de CLU
+            - L’avertissement concernant la perte des modifications non sauvegardées est davantage mis en évidence
+            - Les actions d’annulation et de confirmation sont plus clairement différenciées
+            - Le fonctionnement de réinitialisation du projet reste inchangé
+        - value: Refonte du sélecteur de préréglages
+          details:
+            - Modernisation de la présentation du choix des lignes prédéfinies
+            - Conservation de la distinction entre les préréglages disposant d’un modèle complet et ceux appliquant uniquement l’identité et les paramètres du mode choisi
+            - Les modèles complets peuvent toujours remplacer la topologie et les paramètres concernés après confirmation
+            - L’objectif est de rendre la sélection d’un modèle plus compréhensible sans modifier le fonctionnement des préréglages existants
+        - value: Refonte de la fenêtre de sauvegarde
+          details:
+            - Modernisation de la présentation de la sauvegarde dans le langage visuel de CLU
+            - Les actions et informations nécessaires à l’enregistrement du projet sont désormais mieux hiérarchisées
+            - Le système de sauvegarde existant et la compatibilité avec les projets restent conservés
+        - value: Réorganisation technique des fenêtres du menu Fichier
+          details:
+            - Les principales fenêtres du menu Fichier sont désormais gérées en dehors du menu contextuel lui-même
+            - La fermeture du menu Fichier ne provoque plus le démontage involontaire des fenêtres ouvertes
+            - Les fenêtres des indices personnalisés, des pictogrammes des modes et de sauvegarde sont maintenant pilotées par la barre supérieure
+            - Cette organisation rend le comportement des fenêtres plus fiable tout en conservant le même accès depuis le menu Fichier
+        - value: Refonte des propriétés des annotations
+          details:
+            - Nouvelle présentation cohérente avec l’interface CLU
+            - Les réglages du texte, du gras, de l’italique, du soulignement, de la couleur et de la taille sont regroupés de manière plus lisible
+            - Les annotations restent indépendantes de la topologie du plan et peuvent toujours être déplacées librement
+        - value: Refonte des propriétés des fourches
+          details:
+            - Réorganisation des réglages d’orientation et de géométrie
+            - Les différents profils de fourche sont présentés plus clairement
+            - Les réglages de décalage, de style et de flèches directionnelles sont conservés
+            - Les styles original et arrondi restent disponibles
+        - value: Refonte des propriétés des segments verticaux
+          details:
+            - Simplification de la fenêtre autour des paramètres réellement nécessaires à la géométrie du segment
+            - Le sens vertical permet toujours de définir une montée ou une descente
+            - Le côté gauche ou droit du segment reste configurable
+            - La gestion des arrêts sur les segments verticaux reste assurée par l’éditeur et n’est plus inutilement dupliquée dans cette fenêtre de propriétés
+        - value: Refonte des propriétés des branches parallèles
+          details:
+            - Nouvelle présentation des réglages d’alignement des branches parallèles
+            - Les alignements gauche, fluide et droite restent disponibles
+            - Les décalages de niveau des deux sections peuvent toujours être réglés indépendamment
+        - value: Refonte des propriétés des demi-tours
+          details:
+            - Modernisation de la configuration des boucles et demi-tours
+            - L’orientation gauche ou droite reste configurable
+            - Les deux décalages de liaison restent modifiables indépendamment
+        - value: Refonte des propriétés des branches
+          details:
+            - Réorganisation de l’espacement général et des marges de branche
+            - Conservation de l’option permettant d’inverser l’ordre visuel des éléments
+            - L’assistant WarpAdd reste directement accessible depuis les propriétés de la branche
+            - Les réglages existants sont conservés tout en étant présentés de manière plus claire
+        - value: Refonte des propriétés de la séparation Ville / Zone
+          details:
+            - Nouvelle présentation regroupant l’identité de la ville et de la zone, l’espacement et la hauteur
+            - Le nom de la zone reste facultatif
+            - L’espacement automatique peut toujours réserver la place nécessaire autour de la séparation
+            - La distance avec les éléments voisins peut être ajustée lorsque l’espacement automatique est actif
+            - La hauteur de la ligne verticale pointillée reste entièrement réglable
+        - value: Harmonisation générale des fenêtres de propriétés
+          details:
+            - Adoption d’un langage visuel commun entre les principaux outils de construction
+            - Utilisation de cartes et de groupes de paramètres afin de mieux distinguer les différentes fonctions
+            - Amélioration de la hiérarchie des titres, descriptions, commandes et actions
+            - Les refontes visuelles ont été réalisées en conservant les comportements et données déjà pris en charge par l’éditeur
+      FIXED:
+        - Correction de l’ouverture et de la manipulation des annotations afin d’éviter une erreur lors du relâchement du pointeur
+        - Correction du comportement de fermeture de la fenêtre de séparation Ville / Zone qui pouvait provoquer l’ouverture des propriétés de la branche située derrière
+        - Correction de l’intégration des principales fenêtres du menu Fichier afin qu’elles restent correctement montées lors de la fermeture du menu
+
+  - version: 1.6.1-alpha
+    date: '2026-09-05T00:00:00.000Z'
+    entries:
+      ADDED:
+        - value: Mise en place d’un véritable historique Avant / Après
+          details:
+            - Les boutons "Avant" et "Après" permettent désormais d’annuler et de rétablir les modifications du projet
+            - L’historique repose sur des instantanés complets de l’état du projet afin de prendre en compte les modifications effectuées dans les différents éditeurs
+            - Les changements rapprochés sont regroupés afin d’éviter de créer inutilement un état pour chaque petite modification
+            - Jusqu’à 100 états peuvent être conservés
+            - L’historique futur est réinitialisé lorsqu’une nouvelle modification est effectuée après une annulation
+        - value: Nouvelle barre d’outils flottante de l’éditeur
+          details:
+            - Les principaux éléments de construction sont désormais regroupés dans une capsule flottante située dans l’éditeur
+            - Les outils de structure comprennent Branche, Fourche, Segment vertical, Branches parallèles et Demi-tour
+            - Les éléments pouvant être placés comprennent Arrêt, Espacement, Séparation Ville / Zone et Annotation
+            - La corbeille est directement intégrée à la barre d’outils et visuellement différenciée
+            - L’objectif est de libérer l’espace autour du plan tout en gardant les outils de construction immédiatement accessibles
+      CHANGED:
+        - value: Transformation de l’interface principale autour de l’identité CLU
+          details:
+            - L’interface adopte progressivement l’identité "Créateur de Lignes Urbaines"
+            - La barre supérieure est réorganisée autour des actions essentielles de création et de navigation
+            - La navigation principale regroupe Fichier, Outils, Avant, Après, Éditeur de plan, Journal des modifications et le contrôle du thème
+            - L’objectif est de réduire les éléments permanents autour du plan et de donner davantage de place au travail de création
+        - value: Simplification de la page principale de l’éditeur
+          details:
+            - Suppression des anciens panneaux latéraux devenus inutiles avec la nouvelle organisation
+            - L’éditeur de plan occupe désormais l’essentiel de la zone disponible
+            - Les fonctions précédemment dispersées sont regroupées dans la barre supérieure, les fenêtres de configuration et la barre d’outils flottante
+        - value: Réorganisation du menu Fichier
+          details:
+            - Le menu est recentré sur les actions réellement utiles à la création et à la gestion d’un projet
+            - Accès aux indices personnalisés
+            - Accès aux pictogrammes personnalisés des modes
+            - Création d’un nouveau projet
+            - Ouverture d’un projet existant
+            - Utilisation d’un préréglage
+            - Sauvegarde du projet
+            - Exportation PNG
+            - Exportation PDF
+            - Suppression de l’ancienne entrée de dépannage devenue inutile dans cette organisation
+        - value: Refonte des paramètres généraux du plan
+          details:
+            - Les réglages sont regroupés dans des cartes thématiques plus faciles à parcourir
+            - Une section "Identité de la ligne" regroupe les informations principales du service représenté
+            - Une section "Style du plan" rassemble les choix influençant le rendu graphique
+            - Une section "Options" regroupe les comportements complémentaires
+            - Une section "Dimensions" centralise les paramètres de taille du document
+            - Cette organisation devient la base visuelle utilisée pour les autres fenêtres de CLU
+        - value: Refonte de l’éditeur d’arrêt
+          details:
+            - Les nombreuses propriétés d’un arrêt sont réorganisées en groupes plus lisibles
+            - Les informations générales et l’apparence du nom sont clairement séparées
+            - Les paramètres liés au comportement et au rendu de l’arrêt disposent de leur propre section
+            - L’accès aux correspondances est mieux intégré à l’ensemble
+            - Les nouvelles options comme les arrêts futurs, hors plan et les personnalisations du nom restent disponibles
+        - value: Refonte de l’éditeur de correspondances
+          details:
+            - Modernisation des différents composants servant à créer et modifier les correspondances
+            - Les informations sont organisées de manière plus cohérente entre les différents types de correspondances
+            - Pour les correspondances liées à un mode de transport, l’ordre de configuration devient Pictogramme, Mode, Lignes puis Déplacement
+            - Les fonctionnalités avancées de pictogrammes, lignes personnalisées, modes de déplacement et durée sont conservées
+        - value: Modernisation générale des commandes et fenêtres
+          details:
+            - Uniformisation progressive des espacements, bordures, cartes, en-têtes et actions
+            - Meilleure distinction entre les réglages principaux et les informations secondaires
+            - Les nouvelles interfaces sont pensées pour rester utilisables aussi bien avec le thème clair que le thème sombre
+
+  - version: 1.6.0-alpha
+    date: '2026-09-04T00:00:00.000Z'
+    entries:
+      ADDED:
+        - value: Ajout de la Séparation Ville / Zone
+          details:
+            - Un nouvel élément peut être placé directement entre les arrêts d’une branche
+            - La séparation est représentée par une ligne verticale pointillée permettant de matérialiser un changement de commune, de secteur ou de zone
+            - Le nom de la ville peut être affiché au-dessus de la séparation
+            - Une zone facultative peut être affichée en complément
+            - La hauteur de la séparation est réglable
+            - Un système d’espacement automatique peut réserver la place nécessaire autour de l’élément
+            - La distance réservée avec les éléments voisins peut être personnalisée
+            - La séparation est enregistrée avec le projet comme les autres éléments de la ligne
+        - value: Enrichissement des correspondances avec un mode de déplacement
+          details:
+            - Une correspondance peut désormais indiquer comment le voyageur doit effectuer la liaison
+            - Les modes disponibles comprennent Marche, Vélo, Voiture, Bus et Autre
+            - Une durée facultative peut accompagner le mode de déplacement
+            - Le système reste compatible avec les anciennes correspondances à pied créées avec le fonctionnement historique de BULB
+        - value: Ajout des arrêts futurs ou en projet
+          details:
+            - Un arrêt peut être marqué comme futur ou en projet directement depuis ses propriétés
+            - Ces arrêts disposent d’un rendu graphique spécifique afin de les distinguer des stations déjà en service
+            - L’information est conservée individuellement pour chaque arrêt
+        - value: Personnalisation avancée du nom de chaque arrêt
+          details:
+            - Le nom d’un arrêt peut être affiché en gras
+            - Le nom peut être affiché en italique
+            - Le nom peut être souligné
+            - Une couleur personnalisée peut être appliquée individuellement
+            - Une image ou un logo local facultatif peut être affiché à proximité du nom
+            - La taille de cette image peut être réglée
+            - Les personnalisations restent propres à chaque station et n’imposent pas leur apparence aux autres arrêts
+        - value: Ajout de véritables annotations libres
+          details:
+            - Du texte libre peut être placé directement sur le plan indépendamment des branches et des arrêts
+            - Les annotations n’influencent pas la topologie ni l’espacement automatique de la ligne
+            - Elles peuvent être déplacées librement
+            - Le texte peut être personnalisé en gras, italique ou souligné
+            - La couleur et la taille du texte peuvent être modifiées
+            - Les annotations sont directement accessibles depuis la barre d’outils de l’éditeur
+        - value: Pictogrammes personnalisés dans les correspondances
+          details:
+            - Une correspondance liée à un mode peut recevoir son propre pictogramme personnalisé
+            - Les lignes présentes dans certaines correspondances peuvent utiliser une image d’indice personnalisée
+            - La taille des images personnalisées peut être ajustée
+            - Le système historique de correspondances personnalisées reste pris en charge afin de conserver la compatibilité avec les projets existants
+        - value: Détection automatique des correspondances communes
+          details:
+            - CLU peut détecter lorsque deux arrêts voisins possèdent exactement le même ensemble de correspondances
+            - Une liaison commune peut alors être représentée automatiquement entre ces stations
+            - L’ordre des correspondances et leurs identifiants internes n’empêchent pas la détection lorsque leur contenu est identique
+            - Les éléments Espacement et Séparation Ville / Zone placés entre les deux arrêts sont ignorés pour cette détection
+            - Cette automatisation évite de devoir reconstruire manuellement les liaisons communes
+        - value: Ajout de la gestion des arrêts hors tarification
+          details:
+            - Un arrêt peut être identifié comme situé hors de la zone tarifaire principale du plan
+            - CLU détecte les groupes consécutifs d’arrêts concernés
+            - Plusieurs groupes indépendants peuvent exister sur une même ligne
+            - Une zone grise facultative peut être affichée derrière les arrêts concernés
+            - Une mention personnalisable et déplaçable peut accompagner la zone
+            - Le tracé adopte une apparence micro-segmentée afin de rendre la portion immédiatement identifiable
+            - Les limites graphiques de la zone tiennent compte de l’étendue réelle des noms des premiers et derniers arrêts concernés
+            - Les nouvelles zones utilisent par défaut la mention "HORS TARIFICATION ÎLE-DE-FRANCE"
+        - value: Ajout des arrêts hors plan ou atténués
+          details:
+            - Un arrêt peut être marqué comme "hors plan / atténué"
+            - Cette propriété permet de représenter les portions qui ne font pas partie de la section principale mise en avant
+            - Une transition entre une portion normale et une portion hors plan utilise un trait gris continu
+            - Une liaison entre deux arrêts hors plan utilise un trait gris pointillé
+            - Le retour d’une portion hors plan vers une portion normale conserve une transition grise cohérente
+            - Les portions normales conservent le rendu standard de la ligne
+        - value: Ajout des formats graphiques RATP et SNCF
+          details:
+            - Un choix global permet d’adapter certaines conventions graphiques du plan au format souhaité
+            - Le format RATP conserve notamment les noms intermédiaires bleus et gras ainsi que le comportement historique des cadres de terminus
+            - Le format SNCF utilise des noms intermédiaires noirs avec une graisse normale
+            - Les terminus SNCF utilisent un texte noir et gras
+            - Les cadres de terminus sont masqués visuellement en mode SNCF
+            - Les réglages des cadres ne sont pas détruits lors du passage en SNCF et réapparaissent si le format RATP est réactivé
+            - Une couleur personnalisée appliquée directement à un arrêt reste prioritaire sur le format global
+        - value: Création d’une identité graphique spécifique aux plans Bus
+          details:
+            - Les lignes Bus disposent désormais d’une présentation adaptée à ce type de réseau
+            - Un bandeau supérieur permet de présenter clairement l’identité de la ligne, son indice et ses destinations
+            - Les informations d’accessibilité peuvent être intégrées à cette identité
+            - Les arrêts utilisent une représentation plus proche des plans de lignes de bus
+            - Les noms de stations sont inclinés afin d’améliorer leur densité et leur lisibilité
+            - Les correspondances sont organisées sous les noms d’arrêts
+            - Les terminus disposent d’un traitement plus marqué
+            - Le pictogramme du mode de transport peut accompagner l’indice de la ligne
+            - Cette famille graphique peut également servir aux modes Busilien (BHNS), Noctilien, Téléphérique, Navette fluviale et Vélo
+        - value: Création d’une identité graphique spécifique aux plans Tramway
+          details:
+            - Le Tramway dispose désormais d’un rendu distinct des autres familles de transport
+            - Le style "ANGLED" utilise des noms de stations inclinés et des cartouches de terminus adaptés à cette orientation
+            - Le style "HORIZONTAL" utilise des noms horizontaux et des cartouches de terminus sombres horizontaux
+            - Une identité supérieure spécifique au Tramway présente les informations principales de la ligne
+            - Le bandeau peut intégrer l’accessibilité et le pictogramme du mode Tramway
+            - L’indice affiché provient directement de l’indice réel de la ligne et n’est pas codé en dur
+        - value: Amélioration des fourches
+          details:
+            - Les fourches peuvent conserver leur géométrie historique ou adopter un rendu plus arrondi
+            - Le style peut être choisi indépendamment pour s’adapter au plan créé
+            - Les réglages existants d’orientation, de décalage et de flèches directionnelles sont conservés
+        - value: Extension des segments verticaux
+          details:
+            - Les segments verticaux peuvent participer à des structures plus complexes contenant plusieurs arrêts
+            - Une branche peut être déposée sur un segment vertical puis recevoir ses arrêts
+            - Les arrêts placés sur ces structures disposent d’un rendu adapté à l’orientation verticale
+      CHANGED:
+        - value: Adaptation progressive du rendu selon le mode de transport
+          details:
+            - Les modes Métro, RER et Transilien conservent une présentation proche du fonctionnement général historique
+            - Les familles Bus et Tramway disposent désormais de conventions visuelles spécifiques
+            - L’objectif est de permettre à un même éditeur de produire plusieurs familles de plans sans imposer un rendu unique à tous les transports
+        - value: Amélioration de la géométrie et du rendu des nouvelles fonctions
+          details:
+            - Ajustement du positionnement des zones hors tarification
+            - Amélioration des transitions des portions hors plan
+            - Ajustement du rendu des fourches arrondies
+            - Amélioration de l’intégration des arrêts dans les structures verticales
+      FIXED:
+        - Correction d’un artefact de couleur pouvant rester visible après une portion de ligne hors plan
+        - Correction de plusieurs problèmes de géométrie rencontrés avec les nouvelles fourches
+        - Correction des limites graphiques des zones hors tarification afin qu’elles correspondent aux noms des arrêts concernés
+
   - version: 1.5.2-alpha
     date: '2025-11-09T00:00:00.000Z'
     entries:
       FIXED:
         - Fix du rendu de la police qui pouvait être incorrect sur certains systèmes d’exploitation
+
   - version: 1.5.1-alpha
     date: '2025-11-08T00:00:00.000Z'
     entries:
       FIXED:
         - Fix de la police Parisine qui ne supportait pas certaines lettres latines avec accents ou cédilles
         - Activation de l’anticrénelage des polices
+
   - version: 1.5.0-alpha
     date: '2025-05-09T00:00:00.000Z'
     entries:
@@ -29,11 +328,13 @@ changelog:
       CHANGED:
         - Modification de la barre supérieure
         - Mise à jour de la mise en page de l’éditeur
+
   - version: 1.4.5-alpha
     date: '2025-01-06T00:00:00.000Z'
     entries:
       FIXED:
         - Fix de l’easter-egg de Noël toujours visible après la période des fêtes
+
   - version: 1.4.4-alpha
     date: '2024-12-29T00:00:00.000Z'
     entries:
@@ -44,6 +345,7 @@ changelog:
             - RER A et B
             - Tramway 3a
         - Fix de l’easter-egg de Noël
+
   - version: 1.4.3-alpha
     date: '2024-12-29T00:00:00.000Z'
     entries:
@@ -55,6 +357,7 @@ changelog:
         - Modification de l’easter-egg de Noël
         - Les champs numériques supportent désormais la virgule comme séparateur décimal
         - Les points d’arrêts ont été retravaillés
+
   - version: 1.4.2-alpha
     date: '2024-12-22T00:00:00.000Z'
     entries:
@@ -66,6 +369,7 @@ changelog:
             - Métro 17
             - Transiliens K et V
             - Tramways 3b, 7, 10 et 12
+
   - version: 1.4.1-alpha
     date: '2024-12-22T00:00:00.000Z'
     entries:
@@ -90,6 +394,7 @@ changelog:
         - value: Fix de certains préréglages
           details:
             - Métro 13
+
   - version: 1.4.0-alpha
     date: '2024-12-11T00:00:00.000Z'
     entries:
@@ -120,6 +425,7 @@ changelog:
       FIXED:
         - Fix du chargement de projets
         - Fix de la sauvegarde de projets utilisant des indices personnalisés
+
   - version: 1.3.2-alpha
     date: '2024-10-27T00:00:00.000Z'
     entries:
@@ -131,11 +437,13 @@ changelog:
             - Italien
       CHANGED:
         - Changement du drapeau pour la langue "Anglais"
+
   - version: 1.3.1-alpha
     date: '2024-10-17T00:00:00.000Z'
     entries:
       FIXED:
         - Fix de l’état sans-titre des noms d’arrêts
+
   - version: 1.3.0-alpha
     date: '2024-10-13T00:00:00.000Z'
     entries:
@@ -170,6 +478,7 @@ changelog:
       FIXED:
         - Fix d’un bug pouvant empêcher la propagation des propriétés
         - Fix d’un problème de chevauchement des objets
+
   - version: 1.2.0-alpha
     date: '2024-10-04T00:00:00.000Z'
     entries:
@@ -184,6 +493,7 @@ changelog:
       FIXED:
         - Fix des indices personnalisés coupés
         - Fix de liens incorrects
+
   - version: 1.1.3-alpha
     date: '2024-10-01T00:00:00.000Z'
     entries:
@@ -210,27 +520,32 @@ changelog:
         - Les décorations sont désormais désactivées sur les indices de petite taille
       FIXED:
         - Fix de l’alignement des correspondances
+
   - version: 1.1.2-alpha
     date: '2024-09-26T00:00:00.000Z'
     entries:
       FIXED:
         - Fix d’un problème de hitbox sur les branches
+
   - version: 1.1.1-alpha
     date: '2024-09-26T00:00:00.000Z'
     entries:
       ADDED:
         - Ajout d’un filigrane
         - Ajout d’un message de limitation de responsabilité
+
   - version: 1.1.0-alpha
     date: '2024-09-25T00:00:00.000Z'
     entries:
       FIXED:
         - Fix d’un problème de chevauchement des noms d’arrêts
+
   - version: 1.0.5-alpha
     date: '2024-09-23T00:00:00.000Z'
     entries:
       CHANGED:
         - Les fourches sont désormais arrondies au niveau des angles
+
   - version: 1.0.4-alpha
     date: '2024-09-19T00:00:00.000Z'
     entries:
@@ -238,6 +553,7 @@ changelog:
         - Ajout de la possibilité de choisir la taille du canevas
       FIXED:
         - Résolution d’un bug des sélecteurs permettant de choisir aucune option
+
   - version: 1.0.3-alpha
     date: '2024-09-17T00:00:00.000Z'
     entries:
@@ -245,6 +561,7 @@ changelog:
         - Ajout d’une verification du navigateur utilisé
       CHANGED:
         - Les lignes vides sont ignorées dans les noms d’arrêts
+
   - version: 1.0.2-alpha
     date: '2024-09-16T00:00:00.000Z'
     entries:
@@ -254,6 +571,7 @@ changelog:
         - Fix du chargement des projets
         - Fix de l’exportation des projets
         - Fix d’une typo dans les noms de couleurs
+
   - version: 1.0.1-alpha
     date: '2024-09-14T00:00:00.000Z'
     entries:
@@ -265,5 +583,6 @@ changelog:
         - Fix d’un problème de dépassement sur le dernier arrêt
         - Fix de la suppression d’un groupe de correspondances de type "Mode de transport"
         - Fix du chargement des projets
+
   - version: 1.0.0-alpha
     date: '2024-09-14T00:00:00.000Z'

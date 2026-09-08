@@ -14,32 +14,97 @@ const THICKNESSES: LineThicknessChoice[] = [
   { label: 'data.line_thickness.custom', value: '' },
 ]
 
-function findThicknessByValue(value: string | null) {
-  return THICKNESSES.find(thickness => thickness.value === value) ?? { label: 'data.line_thickness.custom', value: '' }
+const emit = defineEmits<{
+  openCustom: []
+}>()
+
+function findThicknessByValue(
+  value: string | null,
+): LineThicknessChoice {
+  return (
+    THICKNESSES.find(
+      thickness =>
+        thickness.value === value,
+    )
+    ?? {
+      label: 'data.line_thickness.custom',
+      value: '',
+    }
+  )
 }
 
-const thickness = defineModel<string | null>({ required: true })
-const selectedThickness = ref<LineThicknessChoice | null>(findThicknessByValue(thickness.value))
-const showCustomDialog = ref(false)
+const thickness =
+  defineModel<string | null>({
+    required: true,
+  })
 
-watch(selectedThickness, (val) => {
-  if (val && val.value === '') return
-  thickness.value = val?.value ?? null
-})
-watch(thickness, val => selectedThickness.value = findThicknessByValue(val))
-watch(showCustomDialog, (val) => {
-  if (!val) selectedThickness.value = findThicknessByValue(thickness.value)
-})
+const selectedThickness =
+  ref<LineThicknessChoice | null>(
+    findThicknessByValue(
+      thickness.value,
+    ),
+  )
 
-function handleClick(event: SelectChangeEvent) {
-  if (event.value.value === '') {
-    showCustomDialog.value = true
+/*
+ * =========================================================
+ * SYNCHRONISATION
+ * =========================================================
+ */
+
+watch(
+  thickness,
+  (value) => {
+    selectedThickness.value =
+      findThicknessByValue(value)
+  },
+)
+
+/*
+ * =========================================================
+ * SÉLECTION
+ * =========================================================
+ *
+ * Les épaisseurs prédéfinies sont appliquées directement.
+ *
+ * "Personnalisé" n'est pas une vraie valeur :
+ * il sert uniquement à demander au composant parent
+ * d'ouvrir la fenêtre d'édition personnalisée.
+ *
+ * Le Dialog n'est volontairement PLUS présent dans
+ * LineThicknessSelect.
+ *
+ * Cela permet au parent de placer le Dialog en dehors
+ * du Popover Outils afin qu'il ne soit pas détruit
+ * lorsque le Popover se ferme.
+ */
+
+function handleChange(
+  event: SelectChangeEvent,
+) {
+  const choice =
+    event.value as LineThicknessChoice | null
+
+  if (!choice) {
+    return
   }
-}
 
-function close() {
-  showCustomDialog.value = false
-  selectedThickness.value = findThicknessByValue(thickness.value)
+  if (choice.value === '') {
+    /*
+     * On restaure immédiatement l'affichage correspondant
+     * à la vraie épaisseur enregistrée.
+     */
+    selectedThickness.value =
+      findThicknessByValue(
+        thickness.value,
+      )
+
+    emit('openCustom')
+
+    return
+  }
+
+  thickness.value =
+    choice.value
 }
 </script>
 
@@ -49,35 +114,48 @@ function close() {
     :options="THICKNESSES"
     :placeholder="$t('components.line_thickness_select.placeholder')"
     class="flex-auto"
-    @change="handleClick"
+    @change="handleChange"
   >
     <template #value="slotProps">
-      <div v-if="slotProps.value" class="flex items-center gap-1">
-        <span>{{ $t(slotProps.value.label.toLowerCase()) }}</span>
-        <span class="opacity-50">{{ slotProps.value.value || thickness || '1' }}</span>
+      <div
+        v-if="slotProps.value"
+        class="flex items-center gap-1"
+      >
+        <span>
+          {{
+            $t(
+              slotProps.value.label.toLowerCase(),
+            )
+          }}
+        </span>
+
+        <span class="opacity-50">
+          {{
+            slotProps.value.value
+            || thickness
+            || '1'
+          }}
+        </span>
       </div>
     </template>
+
     <template #option="slotProps">
       <div class="flex items-center gap-1">
-        <span>{{ $t(slotProps.option.label.toLowerCase()) }}</span>
-        <span v-if="slotProps.option.value" class="opacity-50">{{ slotProps.option.value }}</span>
+        <span>
+          {{
+            $t(
+              slotProps.option.label.toLowerCase(),
+            )
+          }}
+        </span>
+
+        <span
+          v-if="slotProps.option.value"
+          class="opacity-50"
+        >
+          {{ slotProps.option.value }}
+        </span>
       </div>
     </template>
   </Select>
-
-  <Dialog
-    v-model:visible="showCustomDialog"
-    :header="$t('ui.dialogs.custom_line_thickness.header')"
-    modal
-  >
-    <InputGroup>
-      <BInputNumber v-model="thickness" class="w-full" />
-      <InputGroupAddon>
-        <span>em</span>
-      </InputGroupAddon>
-    </InputGroup>
-    <template #footer>
-      <Button :label="$t('ui.dialogs.custom_line_thickness.accept')" @click="close()" />
-    </template>
-  </Dialog>
 </template>

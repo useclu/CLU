@@ -24,7 +24,7 @@ const customTheme = definePreset(Aura, {
 export default defineNuxtConfig({
   app: {
     head: {
-      title: 'BULB • Beautiful Urban Line Builder',
+      title: 'CLU • Créateur de lignes urbaines',
       link: [{ rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }],
     },
   },
