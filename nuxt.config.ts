@@ -47,6 +47,11 @@ export default defineNuxtConfig({
             gtag('config', 'G-246N628L35');
           `,
         },
+        {
+          src: 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8786106294126792',
+          async: true,
+          crossorigin: 'anonymous',
+        },
       ],
     },
   },
