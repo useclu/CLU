@@ -1443,7 +1443,7 @@ function deleteAnnotation(
     "
   >
     <span>
-      CLU ° Créateur de lignes urbaines ° {{ date }}
+      https://useclu.pro ° Créateur de lignes urbaines ° {{ date }}
     </span>
   </div>
 </div>

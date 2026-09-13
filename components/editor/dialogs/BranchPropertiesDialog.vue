@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 import { useProject } from '~/stores/useProject'
 
@@ -12,6 +12,8 @@ const branch = defineModel<Branch>({
 })
 
 const project = useProject()
+
+const showWarpAddDialog = ref(false)
 
 const additionalLines = computed(
   () => branch.value.$branch.additionalLines ?? [],
@@ -479,15 +481,30 @@ function updateLineColor(
           </span>
         </div>
 
-        <Button
-          label="Fermer"
-          severity="secondary"
-          icon="i-tabler-x"
-          @click="visible = false"
-        />
+        <div class="footer-actions">
+          <Button
+            class="warpadd-footer-button"
+            label="Ouvrir WarpAdd"
+            icon="i-tabler-bolt"
+            severity="secondary"
+            @click="showWarpAddDialog = true"
+          />
+
+          <Button
+            label="Fermer"
+            severity="secondary"
+            icon="i-tabler-x"
+            @click="visible = false"
+          />
+        </div>
       </div>
     </template>
   </Dialog>
+
+  <WarpAddDialog
+    v-model="branch"
+    v-model:visible="showWarpAddDialog"
+  />
 </template>
 
 <style scoped lang="scss">
@@ -1255,6 +1272,23 @@ function updateLineColor(
   width: 100%;
 }
 
+.footer-actions {
+  display: flex;
+
+  align-items: center;
+
+  gap: .5rem;
+}
+
+:deep(.warpadd-footer-button) {
+  color: #16a34a;
+}
+
+:deep(.warpadd-footer-button .p-button-icon),
+:deep(.warpadd-footer-button .p-button-label) {
+  color: #16a34a;
+}
+
 .footer-hint {
   display: flex;
 
@@ -1308,6 +1342,14 @@ function updateLineColor(
 
   .dialog-footer {
     justify-content: flex-end;
+  }
+
+  .footer-actions {
+    width: 100%;
+  }
+
+  .footer-actions :deep(.p-button) {
+    flex: 1;
   }
 }
 </style>
