@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { modeToShape } from '~/data/modes'
 
 const emit = defineEmits<{
@@ -11,6 +11,82 @@ const index = defineModel<CustomLineIndexDescription>({
 })
 
 const visible = defineModel<boolean>('visible')
+
+const imageInput = ref<HTMLInputElement | null>(null)
+const imageError = ref<string | null>(null)
+
+const MAX_CUSTOM_INDEX_IMAGE_SIZE = 2 * 1024 * 1024
+
+const hasCustomImage = computed(() => Boolean(index.value.image))
+
+function isSupportedImage(file: File) {
+  const supportedMimeTypes = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/svg+xml',
+    'image/avif',
+  ])
+
+  if (supportedMimeTypes.has(file.type)) {
+    return true
+  }
+
+  return /\.(png|jpe?g|webp|svg|avif)$/i.test(file.name)
+}
+
+function openImagePicker() {
+  imageInput.value?.click()
+}
+
+function onImageSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+
+  input.value = ''
+  imageError.value = null
+
+  if (!file) {
+    return
+  }
+
+  if (!isSupportedImage(file)) {
+    imageError.value =
+      'Format non pris en charge. Utilise PNG, JPG/JPEG, WEBP, SVG ou AVIF.'
+    return
+  }
+
+  if (file.size > MAX_CUSTOM_INDEX_IMAGE_SIZE) {
+    imageError.value =
+      'Image trop lourde. La taille maximale est de 2 Mo.'
+    return
+  }
+
+  const reader = new FileReader()
+
+  reader.onload = () => {
+    if (typeof reader.result !== 'string') {
+      imageError.value =
+        'Impossible de lire cette image.'
+      return
+    }
+
+    index.value.image = reader.result
+    imageError.value = null
+  }
+
+  reader.onerror = () => {
+    imageError.value =
+      'Impossible de lire cette image.'
+  }
+
+  reader.readAsDataURL(file)
+}
+
+function removeImage() {
+  index.value.image = null
+  imageError.value = null
+}
 
 function filterShape(shape: ShapeChoice) {
   if (index.value.mode === 'BUS') {
@@ -200,6 +276,102 @@ function closeEditor() {
             </div>
           </div>
         </section>
+
+        <section class="editor-section">
+          <div class="section-header">
+            <div class="section-icon">
+              <i class="i-tabler-photo" />
+            </div>
+
+            <div>
+              <div class="section-title">
+                Image personnalisée
+              </div>
+
+              <div class="section-description">
+                Remplace la forme, le texte et la couleur de l’indice
+              </div>
+            </div>
+          </div>
+
+          <div class="section-content">
+            <input
+              ref="imageInput"
+              class="hidden-file-input"
+              type="file"
+              accept=".png,.jpg,.jpeg,.webp,.svg,.avif,image/png,image/jpeg,image/webp,image/svg+xml,image/avif"
+              @change="onImageSelected"
+            >
+
+            <div
+              class="image-upload-row"
+              :class="{ active: hasCustomImage }"
+            >
+              <div class="image-upload-copy">
+                <div class="image-upload-title">
+                  {{ hasCustomImage ? 'Image active' : 'Aucune image importée' }}
+                </div>
+
+                <div class="image-upload-description">
+                  {{
+                    hasCustomImage
+                      ? 'L’image remplace actuellement l’indice classique.'
+                      : 'Tu peux garder l’indice classique ou le remplacer par ton propre visuel.'
+                  }}
+                </div>
+              </div>
+
+              <div class="image-upload-actions">
+                <Button
+                  :label="hasCustomImage ? 'Remplacer' : 'Importer une image'"
+                  icon="i-tabler-upload"
+                  severity="secondary"
+                  outlined
+                  @click="openImagePicker"
+                />
+
+                <Button
+                  v-if="hasCustomImage"
+                  label="Retirer"
+                  icon="i-tabler-trash"
+                  severity="danger"
+                  text
+                  @click="removeImage"
+                />
+              </div>
+            </div>
+
+            <div
+              v-if="hasCustomImage"
+              class="image-file-preview"
+            >
+              <div class="image-file-preview-box">
+                <img
+                  :src="index.image ?? ''"
+                  alt="Aperçu de l’indice personnalisé"
+                >
+              </div>
+
+              <div class="image-file-preview-text">
+                <strong>Visuel personnalisé enregistré</strong>
+                <span>Il sera utilisé partout où cet indice personnalisé est affiché.</span>
+              </div>
+            </div>
+
+            <div
+              v-if="imageError"
+              class="image-error"
+            >
+              <i class="i-tabler-alert-circle" />
+              <span>{{ imageError }}</span>
+            </div>
+
+            <div class="image-help">
+              PNG, JPG/JPEG, WEBP, SVG ou AVIF · 2 Mo maximum.
+              L’image est enregistrée directement avec l’indice.
+            </div>
+          </div>
+        </section>
       </div>
 
       <!-- =====================================================
@@ -228,8 +400,12 @@ function closeEditor() {
               class="preview"
               :class="{
                 half:
-                  index.shape === 'RECTANGLE'
-                  || index.shape === 'CUT_RECTANGLE',
+                  !hasCustomImage
+                  && (
+                    index.shape === 'RECTANGLE'
+                    || index.shape === 'CUT_RECTANGLE'
+                  ),
+                'has-image': hasCustomImage,
               }"
             >
               <CustomLineIndex
@@ -238,7 +414,7 @@ function closeEditor() {
                 :prefix="index.prefix"
                 :suffix="index.suffix"
                 :color="index.color"
-                text-color="auto"
+                :image="index.image"
               />
             </div>
           </div>
@@ -260,7 +436,7 @@ function closeEditor() {
               </span>
 
               <strong class="detail-value">
-                {{ index.index || '—' }}
+                {{ hasCustomImage ? 'Image personnalisée' : (index.index || '—') }}
               </strong>
             </div>
           </div>
@@ -527,6 +703,136 @@ function closeEditor() {
 
 /*
  * =========================================================
+ * IMAGE PERSONNALISÉE
+ * =========================================================
+ */
+
+.hidden-file-input {
+  display: none;
+}
+
+.image-upload-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+
+  padding: .75rem;
+
+  border:
+    1px dashed
+    var(--p-content-border-color);
+
+  border-radius: .7rem;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--p-content-hover-background) 35%,
+      transparent
+    );
+}
+
+.image-upload-row.active {
+  border-style: solid;
+}
+
+.image-upload-copy {
+  min-width: 0;
+}
+
+.image-upload-title {
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.image-upload-description {
+  margin-top: .15rem;
+
+  color: var(--p-text-muted-color);
+
+  font-size: .66rem;
+  line-height: 1.35;
+}
+
+.image-upload-actions {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+
+  flex-shrink: 0;
+}
+
+.image-file-preview {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+}
+
+.image-file-preview-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 4rem;
+  height: 4rem;
+
+  flex-shrink: 0;
+
+  overflow: hidden;
+
+  border:
+    1px solid
+    var(--p-content-border-color);
+
+  border-radius: .65rem;
+
+  background: white;
+}
+
+.image-file-preview-box img {
+  display: block;
+
+  max-width: 100%;
+  max-height: 100%;
+
+  object-fit: contain;
+}
+
+.image-file-preview-text {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+
+  min-width: 0;
+
+  font-size: .68rem;
+}
+
+.image-file-preview-text span {
+  color: var(--p-text-muted-color);
+  line-height: 1.35;
+}
+
+.image-error {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+
+  color: var(--p-red-500);
+
+  font-size: .68rem;
+}
+
+.image-help {
+  color: var(--p-text-muted-color);
+
+  font-size: .63rem;
+  line-height: 1.4;
+}
+
+/*
+ * =========================================================
  * PRÉVISUALISATION
  * =========================================================
  */
@@ -574,6 +880,10 @@ function closeEditor() {
 
 .preview.half > div {
   font-size: .5em;
+}
+
+.preview.has-image {
+  width: min(calc(2em + 1.5rem), 100%);
 }
 
 .preview-details {
@@ -658,6 +968,16 @@ function closeEditor() {
 
   .section-content.two-columns {
     grid-template-columns: 1fr;
+  }
+
+  .image-upload-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .image-upload-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .preview-stage {

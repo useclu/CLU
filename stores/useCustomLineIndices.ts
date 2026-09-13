@@ -30,6 +30,7 @@ export const useCustomLineIndices = defineStore('customLineIndices', () => {
       index: '',
       suffix: '',
       color: '#000000',
+      image: null,
     }
     indices.value.push(newIndex)
 

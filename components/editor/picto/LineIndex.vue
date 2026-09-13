@@ -27,7 +27,8 @@ const transparent = computed(() => {
       return false
   }
 })
-const unknownCustomIndex = computed(() => ({
+
+const unknownCustomIndex = computed<CustomLineIndexDescription>(() => ({
   id: '',
   mode: 'METRO',
   shape: mode ? modeToShape(mode) : 'ROUNDED_SQUARE',
@@ -35,17 +36,30 @@ const unknownCustomIndex = computed(() => ({
   index: '?',
   suffix: '',
   color: '#000000',
+  image: null,
 }))
-const customIndex = computed(() => {
+
+const customIndex = computed<CustomLineIndexDescription>(() => {
   if (isCustom(index)) {
     return findIndexById(index.$customLineIndex.id) ?? unknownCustomIndex.value
   }
   return unknownCustomIndex.value
 })
+
+const hasCustomImage = computed(() =>
+  isCustom(index) && Boolean(customIndex.value.image),
+)
 </script>
 
 <template>
-  <div v-if="index !== null" :class="{ 'rounded bg-white': transparent }">
+  <div
+    v-if="index !== null"
+    :class="{
+      'rounded bg-white':
+        transparent
+        && !hasCustomImage,
+    }"
+  >
     <Bus v-if="isBuiltin(index) && index.mode === 'BUS'" :line="index.$builtinLineIndex.index" />
     <Cable v-if="isBuiltin(index) && index.mode === 'CABLE'" :line="index.$builtinLineIndex.index" />
     <Metro v-else-if="isBuiltin(index) && index.mode === 'METRO'" :line="index.$builtinLineIndex.index" />
@@ -59,6 +73,7 @@ const customIndex = computed(() => {
       :index="customIndex.index"
       :suffix="customIndex.suffix"
       :color="customIndex.color"
+      :image="customIndex.image"
     />
   </div>
 </template>

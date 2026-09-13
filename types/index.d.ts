@@ -152,6 +152,17 @@ declare global {
     shape: IndexShape
     mode: Mode
     color: string
+
+    /*
+     * Image personnalisée remplaçant visuellement
+     * la forme et le texte de l'indice.
+     *
+     * Stockée sous forme de Data URL afin qu'elle soit
+     * conservée avec les indices personnalisés.
+     *
+     * Optionnelle pour préserver tous les anciens indices.
+     */
+    image?: string | null
   }
 
   interface Project {

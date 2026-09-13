@@ -626,6 +626,36 @@ const busDestinations =
  * cartouche rectangulaire.
  */
 
+const busCustomIndex =
+  computed<CustomLineIndexDescription | null>(
+    () => {
+      const index =
+        line.value.index
+
+      if (
+        index === null
+        || !isCustom(index)
+      ) {
+        return null
+      }
+
+      return (
+        findIndexById(
+          index
+            .$customLineIndex
+            .id,
+        )
+        ?? null
+      )
+    },
+  )
+
+const busCustomIndexImage =
+  computed(() =>
+    busCustomIndex.value?.image
+    ?? null,
+  )
+
 const busIndexText =
   computed(() => {
     const index =
@@ -654,15 +684,10 @@ const busIndexText =
      */
     if (isCustom(index)) {
       const customIndex =
-        findIndexById(
-          index
-            .$customLineIndex
-            .id,
-        )
+        busCustomIndex.value
 
       if (
-        customIndex
-        === undefined
+        customIndex === null
       ) {
         return '?'
       }
@@ -1132,9 +1157,26 @@ function deleteAnnotation(
       -->
       <div
         class="bus-index-box"
-        :style="busIndexStyle"
+        :class="{
+          'has-custom-image':
+            Boolean(busCustomIndexImage),
+        }"
+        :style="
+          busCustomIndexImage
+            ? undefined
+            : busIndexStyle
+        "
       >
-        {{ busIndexText }}
+        <img
+          v-if="busCustomIndexImage"
+          :src="busCustomIndexImage"
+          class="bus-index-custom-image"
+          alt=""
+        >
+
+        <template v-else>
+          {{ busIndexText }}
+        </template>
       </div>
 
       <!--
@@ -1728,6 +1770,39 @@ function deleteAnnotation(
   line-height: 1;
 
   letter-spacing: -.02em;
+}
+
+/*
+ * Lorsqu'un indice personnalisé possède une image,
+ * elle remplace complètement le cartouche texte/couleur.
+ */
+.bus-index-box.has-custom-image {
+  min-width: 0;
+  width: auto;
+
+  padding: 0;
+
+  background: transparent !important;
+  color: inherit;
+
+  overflow: visible;
+}
+
+.bus-index-custom-image {
+  display: block;
+
+  width: auto;
+  max-width: 6em;
+
+  height: 100%;
+  max-height: 100%;
+
+  object-fit: contain;
+  object-position: center;
+
+  border: 0;
+
+  background: transparent;
 }
 
 /*

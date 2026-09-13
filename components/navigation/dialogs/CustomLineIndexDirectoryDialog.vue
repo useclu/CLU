@@ -188,8 +188,11 @@ function closeEditor() {
                 class="index-preview"
                 :class="{
                   half:
-                    index.shape === 'RECTANGLE'
-                    || index.shape === 'CUT_RECTANGLE',
+                    !index.image
+                    && (
+                      index.shape === 'RECTANGLE'
+                      || index.shape === 'CUT_RECTANGLE'
+                    ),
                 }"
               >
                 <CustomLineIndex
@@ -198,6 +201,7 @@ function closeEditor() {
                   :prefix="index.prefix"
                   :suffix="index.suffix"
                   :color="index.color"
+                  :image="index.image"
                   text-color="auto"
                 />
               </div>
