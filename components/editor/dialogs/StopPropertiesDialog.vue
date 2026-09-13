@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { breakpointsTailwind, useBreakpoints } from '@vueuse/core'
-import { computed, watch } from 'vue'
+import { v4 as uuidv4 } from 'uuid'
+import { computed, ref, watch } from 'vue'
 import { useProject } from '~/stores/useProject'
 import { cleanName } from '~/utils/text'
 
@@ -68,15 +69,44 @@ function ensureNameStyle() {
       color: null,
       image: null,
       imageSize: 1,
+      images: [],
     }
   }
 
-  if (stop.value.$stop.nameStyle.image === undefined) {
-    stop.value.$stop.nameStyle.image = null
+  const style = stop.value.$stop.nameStyle
+
+  if (style.image === undefined) {
+    style.image = null
   }
 
-  if (stop.value.$stop.nameStyle.imageSize === undefined) {
-    stop.value.$stop.nameStyle.imageSize = 1
+  if (style.imageSize === undefined) {
+    style.imageSize = 1
+  }
+
+  /*
+   * Migration transparente des anciens projets.
+   *
+   * Un ancien arrêt peut encore contenir :
+   *   image + imageSize
+   *
+   * Lors de sa première ouverture, on transforme cette image
+   * en premier élément du nouveau tableau multi-images.
+   *
+   * On conserve malgré tout les anciens champs afin de ne pas
+   * casser les autres parties du projet qui pourraient encore
+   * les lire.
+   */
+  if (style.images === undefined) {
+    style.images =
+      style.image
+        ? [
+            {
+              id: uuidv4(),
+              image: style.image,
+              imageSize: style.imageSize ?? 1,
+            },
+          ]
+        : []
   }
 }
 
@@ -119,17 +149,27 @@ const hasCustomNameColor = computed(
   () => nameStyle.value.color != null,
 )
 
-const customImage = computed(
-  () => nameStyle.value.image ?? null,
+const customImages = computed(
+  () => nameStyle.value.images ?? [],
 )
 
-const imageSize = computed({
-  get: () => nameStyle.value.imageSize ?? 1,
+/*
+ * null = ajout d'une nouvelle image.
+ * id   = remplacement d'une image existante.
+ */
+const imagePickerTargetId =
+  ref<string | null>(null)
 
-  set: (value: number) => {
-    nameStyle.value.imageSize = value
-  },
-})
+function syncLegacyImageFields() {
+  const firstImage =
+    nameStyle.value.images?.[0]
+
+  nameStyle.value.image =
+    firstImage?.image ?? null
+
+  nameStyle.value.imageSize =
+    firstImage?.imageSize ?? 1
+}
 
 function enableCustomNameColor() {
   if (!nameStyle.value.color) {
@@ -141,7 +181,11 @@ function resetNameColor() {
   nameStyle.value.color = null
 }
 
-function openImagePicker() {
+function openImagePicker(
+  imageId: string | null = null,
+) {
+  imagePickerTargetId.value = imageId
+
   const input = document.getElementById(
     `${stop.value.id}_nameImage`,
   ) as HTMLInputElement | null
@@ -154,11 +198,13 @@ function onImageSelected(event: Event) {
   const file = input.files?.[0]
 
   if (!file) {
+    imagePickerTargetId.value = null
     return
   }
 
   if (!file.type.startsWith('image/')) {
     input.value = ''
+    imagePickerTargetId.value = null
     return
   }
 
@@ -166,10 +212,35 @@ function onImageSelected(event: Event) {
 
   reader.onload = () => {
     if (typeof reader.result !== 'string') {
+      imagePickerTargetId.value = null
       return
     }
 
-    nameStyle.value.image = reader.result
+    const targetId =
+      imagePickerTargetId.value
+
+    if (targetId) {
+      const target =
+        nameStyle.value.images?.find(
+          image => image.id === targetId,
+        )
+
+      if (target) {
+        target.image = reader.result
+      }
+    }
+    else {
+      nameStyle.value.images ??= []
+
+      nameStyle.value.images.push({
+        id: uuidv4(),
+        image: reader.result,
+        imageSize: 1,
+      })
+    }
+
+    syncLegacyImageFields()
+    imagePickerTargetId.value = null
   }
 
   reader.readAsDataURL(file)
@@ -177,8 +248,44 @@ function onImageSelected(event: Event) {
   input.value = ''
 }
 
-function removeImage() {
-  nameStyle.value.image = null
+function removeImage(
+  imageId: string,
+) {
+  nameStyle.value.images =
+    (nameStyle.value.images ?? [])
+      .filter(
+        image => image.id !== imageId,
+      )
+
+  syncLegacyImageFields()
+}
+
+function onImageSizeInput(
+  imageId: string,
+  event: Event,
+) {
+  const input =
+    event.target as HTMLInputElement
+
+  const value =
+    Number.parseFloat(input.value)
+
+  if (!Number.isFinite(value)) {
+    return
+  }
+
+  const target =
+    nameStyle.value.images?.find(
+      image => image.id === imageId,
+    )
+
+  if (!target) {
+    return
+  }
+
+  target.imageSize = value
+
+  syncLegacyImageFields()
 }
 
 /*
@@ -1179,13 +1286,22 @@ function openConnectionsEditor() {
             <div class="field-heading">
               <div>
                 <div class="property-label">
-                  Logo / image du nom
+                  Logos / images du nom
                 </div>
 
                 <div class="field-description">
-                  Ajoute une image directement après le nom de l’arrêt.
+                  Ajoute autant d’images que nécessaire directement après le nom de l’arrêt.
                 </div>
               </div>
+
+              <Button
+                v-if="customImages.length > 0"
+                label="Ajouter"
+                severity="secondary"
+                size="small"
+                icon="i-tabler-photo-plus"
+                @click="openImagePicker()"
+              />
             </div>
 
             <input
@@ -1197,44 +1313,76 @@ function openConnectionsEditor() {
             >
 
             <div
-              v-if="customImage"
-              class="image-preview-container"
+              v-if="customImages.length > 0"
+              class="name-images-list"
             >
-              <div class="image-preview">
-                <img
-                  :src="customImage"
-                  alt="Aperçu du logo"
-                >
-              </div>
-
-              <div class="image-actions">
-                <div>
-                  <div class="image-title">
-                    Image personnalisée
-                  </div>
-
-                  <div class="field-description">
-                    Enregistrée dans le projet
-                  </div>
+              <div
+                v-for="(image, index) in customImages"
+                :key="image.id"
+                class="image-preview-container"
+              >
+                <div class="image-preview">
+                  <img
+                    :src="image.image"
+                    :alt="`Aperçu du logo ${index + 1}`"
+                  >
                 </div>
 
-                <div class="image-buttons">
-                  <Button
-                    label="Changer"
-                    severity="secondary"
-                    size="small"
-                    icon="i-tabler-photo"
-                    @click="openImagePicker"
-                  />
+                <div class="image-actions">
+                  <div>
+                    <div class="image-title">
+                      Image {{ index + 1 }}
+                    </div>
 
-                  <Button
-                    label="Supprimer"
-                    severity="danger"
-                    size="small"
-                    text
-                    icon="i-tabler-trash"
-                    @click="removeImage"
-                  />
+                    <div class="field-description">
+                      Enregistrée dans le projet
+                    </div>
+                  </div>
+
+                  <div class="image-buttons">
+                    <Button
+                      label="Changer"
+                      severity="secondary"
+                      size="small"
+                      icon="i-tabler-photo"
+                      @click="openImagePicker(image.id)"
+                    />
+
+                    <Button
+                      label="Supprimer"
+                      severity="danger"
+                      size="small"
+                      text
+                      icon="i-tabler-trash"
+                      @click="removeImage(image.id)"
+                    />
+                  </div>
+
+                  <div class="image-size-control">
+                    <div class="slider-heading">
+                      <label
+                        class="property-label"
+                        :for="`${stop.id}_nameImageSize_${image.id}`"
+                      >
+                        Taille
+                      </label>
+
+                      <span class="slider-value">
+                        {{ image.imageSize.toFixed(1) }}×
+                      </span>
+                    </div>
+
+                    <input
+                      :id="`${stop.id}_nameImageSize_${image.id}`"
+                      :value="image.imageSize"
+                      type="range"
+                      min="0.4"
+                      max="3"
+                      step="0.1"
+                      class="image-size-slider"
+                      @input="onImageSizeInput(image.id, $event)"
+                    >
+                  </div>
                 </div>
               </div>
             </div>
@@ -1243,7 +1391,7 @@ function openConnectionsEditor() {
               v-else
               type="button"
               class="image-empty-state"
-              @click="openImagePicker"
+              @click="openImagePicker()"
             >
               <div class="image-empty-icon">
                 <i class="i-tabler-photo-plus" />
@@ -1251,42 +1399,14 @@ function openConnectionsEditor() {
 
               <div>
                 <div class="image-empty-title">
-                  Choisir une image
+                  Ajouter une image
                 </div>
 
                 <div class="field-description">
-                  PNG, JPG, WEBP ou SVG
+                  PNG, JPG, WEBP ou SVG — plusieurs images possibles
                 </div>
               </div>
             </button>
-          </div>
-
-          <div
-            v-if="customImage"
-            class="property-field"
-          >
-            <div class="slider-heading">
-              <label
-                class="property-label"
-                :for="`${stop.id}_nameImageSize`"
-              >
-                Taille du logo
-              </label>
-
-              <span class="slider-value">
-                {{ imageSize.toFixed(1) }}×
-              </span>
-            </div>
-
-            <input
-              :id="`${stop.id}_nameImageSize`"
-              v-model.number="imageSize"
-              type="range"
-              min="0.4"
-              max="3"
-              step="0.1"
-              class="image-size-slider"
-            >
           </div>
         </div>
       </section>
@@ -2088,9 +2208,15 @@ function openConnectionsEditor() {
   gap: .5rem;
 }
 
+.name-images-list {
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
+}
+
 .image-preview-container {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: .75rem;
 
   padding: .65rem;
@@ -2150,6 +2276,14 @@ function openConnectionsEditor() {
   min-width: 0;
 
   flex: 1;
+}
+
+.image-size-control {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+
+  width: 100%;
 }
 
 .image-title {

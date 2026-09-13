@@ -366,12 +366,28 @@ declare global {
     | ServiceConnection
 
   /*
+   * Image personnalisée affichée directement après
+   * le nom d'un arrêt.
+   *
+   * Chaque image possède sa propre taille afin de pouvoir
+   * mélanger plusieurs logos de dimensions différentes.
+   */
+  interface StopNameImage {
+    id: string
+    image: string
+    imageSize: number
+  }
+
+  /*
    * Style personnalisé du nom d'un arrêt.
    *
-   * "image" contient le logo ou l'image personnalisée
-   * sous forme de Data URL.
+   * "images" est le nouveau système multi-images :
+   * il peut contenir autant de logos que nécessaire.
    *
-   * "imageSize" permet de régler sa taille d'affichage.
+   * Les anciens champs "image" et "imageSize" restent
+   * volontairement présents pour ouvrir sans casse les
+   * anciens projets et pour garder une compatibilité avec
+   * les composants qui n'auraient pas encore migré.
    *
    * nameStyle reste optionnel dans Stop afin de conserver
    * la compatibilité avec les anciens projets.
@@ -381,8 +397,20 @@ declare global {
     italic: boolean
     underline: boolean
     color: string | null
+
+    /*
+     * Ancien format mono-image.
+     */
     image: string | null
     imageSize: number
+
+    /*
+     * Nouveau format multi-images.
+     *
+     * Optionnel : lorsqu'il est absent, CLU peut encore
+     * lire automatiquement l'ancien champ "image".
+     */
+    images?: StopNameImage[]
   }
 
   interface Stop {

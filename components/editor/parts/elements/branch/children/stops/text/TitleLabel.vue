@@ -23,8 +23,41 @@ const effectiveStyle = computed<StopNameStyle>(() =>
     color: null,
     image: null,
     imageSize: 1,
+    images: [],
   },
 )
+
+const effectiveImages =
+  computed<StopNameImage[]>(() => {
+    /*
+     * Nouveau format multi-images.
+     *
+     * Si "images" existe, même vide, il est prioritaire.
+     * Cela permet notamment de supprimer la dernière image
+     * sans que l'ancien champ "image" réapparaisse.
+     */
+    if (effectiveStyle.value.images !== undefined) {
+      return effectiveStyle.value.images
+    }
+
+    /*
+     * Compatibilité avec les anciens projets qui ne
+     * possèdent encore que image + imageSize.
+     */
+    if (effectiveStyle.value.image) {
+      return [
+        {
+          id: 'legacy',
+          image: effectiveStyle.value.image,
+          imageSize:
+            effectiveStyle.value.imageSize
+            ?? 1,
+        },
+      ]
+    }
+
+    return []
+  })
 
 const formatStyle = computed<FormatStyle>(() =>
   line.value.formatStyle ?? 'RATP',
@@ -71,10 +104,17 @@ const titleStyle = computed(() => ({
       : 'none',
 }))
 
-const imageStyle = computed(() => ({
-  width: `${effectiveStyle.value.imageSize ?? 1}em`,
-  height: `${effectiveStyle.value.imageSize ?? 1}em`,
-}))
+function getImageStyle(
+  image: StopNameImage,
+) {
+  const size =
+    image.imageSize ?? 1
+
+  return {
+    width: `${size}em`,
+    height: `${size}em`,
+  }
+}
 </script>
 
 <template>
@@ -92,9 +132,10 @@ const imageStyle = computed(() => ({
     </Typography>
 
     <img
-      v-if="effectiveStyle.image"
-      :src="effectiveStyle.image"
-      :style="imageStyle"
+      v-for="image in effectiveImages"
+      :key="image.id"
+      :src="image.image"
+      :style="getImageStyle(image)"
       class="custom-image"
       alt=""
     >
@@ -134,7 +175,7 @@ const imageStyle = computed(() => ({
 
 /*
  * =========================================================
- * IMAGE PERSONNALISÉE
+ * IMAGES PERSONNALISÉES
  * =========================================================
  */
 
