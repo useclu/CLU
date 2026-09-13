@@ -15,6 +15,9 @@ const props = defineProps<{
   reverse: boolean
   accessible: boolean | 'undefined' | undefined
   nameStyle?: StopNameStyle
+  terminusArrow?: boolean
+  terminusArrowText?: string | null
+  branchStart?: boolean
 }>()
 
 const lineContext = inject<LineContext>(LineContextKey)!
@@ -55,12 +58,29 @@ const useTerminusFrame = computed(() =>
 <template>
   <StopTerminusLabel
     v-if="useTerminusFrame"
-    v-bind="props"
+    :value="props.value"
+    :place-name="props.placeName"
+    :subtitle="props.subtitle"
+    :interest-point="props.interestPoint"
+    :accessible="props.accessible"
+    :reverse="props.reverse"
+    :future="props.future"
+    :name-style="props.nameStyle"
+    :terminus-arrow="props.terminusArrow"
+    :terminus-arrow-text="props.terminusArrowText"
+    :branch-start="props.branchStart"
   />
 
   <StopRegularLabel
     v-else
-    v-bind="props"
+    :value="props.value"
+    :place-name="props.placeName"
+    :subtitle="props.subtitle"
+    :interest-point="props.interestPoint"
+    :accessible="props.accessible"
+    :reverse="props.reverse"
+    :future="props.future"
+    :name-style="props.nameStyle"
     :prevent-subtitle-overlapping="preventSubtitleOverlapping"
   />
 </template>

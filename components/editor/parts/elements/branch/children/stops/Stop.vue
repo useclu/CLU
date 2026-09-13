@@ -215,6 +215,8 @@ const isOffLine = computed(() =>
  */
 type MultiLineStopData = Stop['$stop'] & {
   lineIds?: string[]
+  terminusArrow?: boolean
+  terminusArrowText?: string | null
 }
 
 type StopBranchLine = {
@@ -228,6 +230,21 @@ type StopBranchLine = {
 const stopData = computed(() =>
   stop.value.$stop as MultiLineStopData,
 )
+
+const isFirstStopInBranch = computed(() => {
+  if (!branch) {
+    return false
+  }
+
+  const firstStop =
+    (branch.$branch.elements ?? [])
+      .find(
+        element =>
+          '$stop' in element,
+      )
+
+  return firstStop?.id === stop.value.id
+})
 
 /*
  * Même notion que dans StopPropertiesDialog :
@@ -452,17 +469,6 @@ const stopLineIds = computed(() => {
   )
 })
 
-/*
- * Aucun write automatique ici.
- *
- * Pendant un drag depuis la palette, Stop.vue peut être monté pour
- * le clone/ghost Sortable. Modifier lineIds à ce moment-là peut
- * déclencher des recalculs/remounts de Fork en plein drag.
- *
- * stopLineIds utilise donc simplement defaultStopLineId tant que
- * l'utilisateur n'a pas fait de choix explicite.
- */
-
 const stopLines = computed(() =>
   branchLines.value.filter(
     branchLine =>
@@ -627,6 +633,9 @@ provide<StopContext>(
           :reverse="inverted"
           :future="isFuture"
           :name-style="nameStyle"
+          :terminus-arrow="stopData.terminusArrow === true"
+          :terminus-arrow-text="stopData.terminusArrowText ?? null"
+          :branch-start="isFirstStopInBranch"
           @click="(e: Event) => {
             e.stopPropagation()
             showPropertiesDialog = true

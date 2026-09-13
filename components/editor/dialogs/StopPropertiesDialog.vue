@@ -304,6 +304,17 @@ type MultiLineStopData = Stop['$stop'] & {
   lineIds?: string[]
 
   /*
+   * Affichage optionnel d'une indication de direction
+   * à l'extrémité d'un terminus.
+   *
+   * Ces champs sont volontairement portés par l'arrêt :
+   * le rendu sera branché ensuite dans le composant visuel
+   * du terminus sans toucher à la géométrie multi-lignes.
+   */
+  terminusArrow?: boolean
+  terminusArrowText?: string | null
+
+  /*
    * Identité de ligne utilisée après cet arrêt.
    *
    * null / undefined = aucun changement.
@@ -326,6 +337,35 @@ const project = useProject()
 const stopData = computed(() =>
   stop.value.$stop as MultiLineStopData,
 )
+
+const terminusArrowEnabled = computed({
+  get: () =>
+    stopData.value.terminusArrow === true,
+
+  set: (enabled: boolean) => {
+    stopData.value.terminusArrow = enabled
+
+    if (
+      enabled
+      && (
+        !stopData.value.terminusArrowText
+        || stopData.value.terminusArrowText.trim().length === 0
+      )
+    ) {
+      stopData.value.terminusArrowText = 'Vers '
+    }
+  },
+})
+
+const terminusArrowText = computed({
+  get: () =>
+    stopData.value.terminusArrowText ?? '',
+
+  set: (value: string) => {
+    stopData.value.terminusArrowText =
+      cleanName(value)
+  },
+})
 
 
 type BranchWithPassthrough =
@@ -1480,6 +1520,61 @@ function openConnectionsEditor() {
             />
           </div>
 
+          <div
+            v-if="stop.$stop.terminus"
+            class="terminus-arrow-editor"
+          >
+            <label
+              :for="`${stop.id}_terminusArrow`"
+              class="option-row"
+            >
+              <div class="option-content">
+                <div class="option-icon">
+                  <i class="i-tabler-arrow-right" />
+                </div>
+
+                <div>
+                  <div class="option-title">
+                    Terminer la ligne par une flèche
+                  </div>
+
+                  <div class="option-description">
+                    Ajoute une indication de direction après le terminus.
+                  </div>
+                </div>
+              </div>
+
+              <Checkbox
+                v-model="terminusArrowEnabled"
+                binary
+                :input-id="`${stop.id}_terminusArrow`"
+              />
+            </label>
+
+            <div
+              v-if="terminusArrowEnabled"
+              class="terminus-arrow-text-field"
+            >
+              <label
+                class="property-label"
+                :for="`${stop.id}_terminusArrowText`"
+              >
+                Texte de direction
+              </label>
+
+              <InputText
+                :id="`${stop.id}_terminusArrowText`"
+                v-model="terminusArrowText"
+                :spellcheck="false"
+                placeholder="Vers Paris Saint-Lazare"
+              />
+
+              <div class="field-description">
+                Exemple : Vers Paris Saint-Lazare
+              </div>
+            </div>
+          </div>
+
           <div class="property-divider" />
 
           <div class="options-list">
@@ -1553,33 +1648,6 @@ function openConnectionsEditor() {
                 v-model="stop.$stop.future"
                 binary
                 :input-id="`${stop.id}_future`"
-              />
-            </label>
-
-            <label
-              :for="`${stop.id}_vertical`"
-              class="option-row"
-            >
-              <div class="option-content">
-                <div class="option-icon">
-                  <i class="i-tabler-arrows-vertical" />
-                </div>
-
-                <div>
-                  <div class="option-title">
-                    Arrêt vertical
-                  </div>
-
-                  <div class="option-description">
-                    Utilise une forme verticale sur la ligne.
-                  </div>
-                </div>
-              </div>
-
-              <Checkbox
-                v-model="stop.$stop.vertical"
-                binary
-                :input-id="`${stop.id}_vertical`"
               />
             </label>
 
@@ -2022,6 +2090,43 @@ function openConnectionsEditor() {
 .property-field :deep(.p-textarea),
 .property-field :deep(.p-select),
 .property-field :deep(.p-selectbutton) {
+  width: 100%;
+}
+
+.terminus-arrow-editor {
+  display: flex;
+  flex-direction: column;
+  gap: .65rem;
+
+  padding: .65rem;
+
+  border:
+    1px solid
+    color-mix(
+      in srgb,
+      var(--p-primary-color) 18%,
+      var(--p-content-border-color)
+    );
+
+  border-radius: .75rem;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--p-primary-color) 4%,
+      var(--p-content-background)
+    );
+}
+
+.terminus-arrow-text-field {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+
+  padding-top: .1rem;
+}
+
+.terminus-arrow-text-field :deep(.p-inputtext) {
   width: 100%;
 }
 

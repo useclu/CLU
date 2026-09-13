@@ -4,7 +4,11 @@ import { useDateFormat } from '@vueuse/shared'
 import { storeToRefs } from 'pinia'
 import {
   computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
   ref,
+  watch,
 } from 'vue'
 import AnnotationPropertiesDialog from '~/components/editor/dialogs/AnnotationPropertiesDialog.vue'
 import useVersion from '~/composables/useVersion'
@@ -41,6 +45,259 @@ const date = useDateFormat(
 
 const content =
   ref<HTMLElement | null>(null)
+
+const classicIdentityPanel =
+  ref<HTMLElement | null>(null)
+
+const classicIdentityShiftPx =
+  ref(0)
+
+const classicIdentityStyle =
+  computed(() => ({
+    marginLeft:
+      classicIdentityShiftPx.value > 0
+        ? `-${classicIdentityShiftPx.value}px`
+        : undefined,
+
+    /*
+     * Même valeur en positif à droite :
+     * le panneau bouge vers la gauche mais sa largeur
+     * occupée dans le flex reste identique.
+     *
+     * Résultat : SectionsGroup et la ligne verte
+     * ne changent absolument pas de position.
+     */
+    marginRight:
+      classicIdentityShiftPx.value > 0
+        ? `${classicIdentityShiftPx.value}px`
+        : undefined,
+  }))
+
+
+const contentAdaptiveStyle =
+  computed(() => {
+    const basePadding =
+      `${Math.max(
+        0,
+        Number(line.value.mapSize) - 15,
+      ) / 2}em`
+
+    if (classicIdentityShiftPx.value <= 0) {
+      return {
+        minHeight:
+          `${line.value.mapSize}em`,
+        paddingLeft: basePadding,
+        paddingRight: basePadding,
+      }
+    }
+
+    return {
+      minHeight:
+        `${line.value.mapSize}em`,
+
+      /*
+       * Le panneau d'identité peut sortir vers la gauche.
+       *
+       * On agrandit donc automatiquement la feuille blanche
+       * du même nombre de pixels, tout en décalant son bord
+       * gauche d'autant.
+       *
+       * Les éléments internes gardent exactement leur position
+       * écran : la ligne verte ne bouge pas.
+       */
+      marginLeft:
+        `-${classicIdentityShiftPx.value}px`,
+
+      paddingLeft:
+        `calc(${basePadding} + ${classicIdentityShiftPx.value}px)`,
+
+      paddingRight:
+        basePadding,
+    }
+  })
+
+let classicIdentityObserver:
+  ResizeObserver | null = null
+
+let classicIdentityMutationObserver:
+  MutationObserver | null = null
+
+let classicIdentityFrame:
+  number | null = null
+
+function measureClassicIdentityCollision() {
+  const root = content.value
+  const panel = classicIdentityPanel.value
+
+  if (
+    !root
+    || !panel
+  ) {
+    classicIdentityShiftPx.value = 0
+    return
+  }
+
+  const direction =
+    root.querySelector<HTMLElement>(
+      '.terminus-line-direction.branch-start',
+    )
+
+  if (
+    !direction
+    || direction.offsetParent === null
+  ) {
+    classicIdentityShiftPx.value = 0
+    return
+  }
+
+  const panelRect =
+    panel.getBoundingClientRect()
+
+  const directionRect =
+    direction.getBoundingClientRect()
+
+  /*
+   * margin-left déplace déjà le panneau.
+   * On reconstitue son bord droit avant correction
+   * pour éviter tout effet de va-et-vient.
+   */
+  const naturalPanelRight =
+    panelRect.right
+    + classicIdentityShiftPx.value
+
+  const gap = 20
+
+  const needed =
+    Math.max(
+      0,
+      naturalPanelRight
+      - directionRect.left
+      + gap,
+    )
+
+  if (
+    Math.abs(
+      needed
+      - classicIdentityShiftPx.value,
+    ) < 0.5
+  ) {
+    return
+  }
+
+  classicIdentityShiftPx.value =
+    needed
+}
+
+function scheduleClassicIdentityCollision() {
+  if (
+    typeof window === 'undefined'
+  ) {
+    return
+  }
+
+  if (classicIdentityFrame !== null) {
+    cancelAnimationFrame(
+      classicIdentityFrame,
+    )
+  }
+
+  classicIdentityFrame =
+    requestAnimationFrame(
+      async () => {
+        classicIdentityFrame = null
+
+        await nextTick()
+
+        measureClassicIdentityCollision()
+      },
+    )
+}
+
+function reconnectClassicIdentityObservers() {
+  classicIdentityObserver?.disconnect()
+  classicIdentityMutationObserver?.disconnect()
+
+  const root = content.value
+  const panel = classicIdentityPanel.value
+
+  if (
+    !root
+    || !panel
+  ) {
+    return
+  }
+
+  classicIdentityObserver =
+    new ResizeObserver(
+      scheduleClassicIdentityCollision,
+    )
+
+  classicIdentityObserver.observe(root)
+  classicIdentityObserver.observe(panel)
+
+  const direction =
+    root.querySelector<HTMLElement>(
+      '.terminus-line-direction.branch-start',
+    )
+
+  if (direction) {
+    classicIdentityObserver.observe(direction)
+  }
+
+  classicIdentityMutationObserver =
+    new MutationObserver(
+      scheduleClassicIdentityCollision,
+    )
+
+  classicIdentityMutationObserver.observe(
+    root,
+    {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    },
+  )
+
+  scheduleClassicIdentityCollision()
+}
+
+onMounted(async () => {
+  await nextTick()
+
+  reconnectClassicIdentityObservers()
+
+  window.addEventListener(
+    'resize',
+    scheduleClassicIdentityCollision,
+  )
+})
+
+onUnmounted(() => {
+  classicIdentityObserver?.disconnect()
+  classicIdentityMutationObserver?.disconnect()
+
+  if (classicIdentityFrame !== null) {
+    cancelAnimationFrame(
+      classicIdentityFrame,
+    )
+  }
+
+  window.removeEventListener(
+    'resize',
+    scheduleClassicIdentityCollision,
+  )
+})
+
+watch(
+  () => line.value.topology,
+  async () => {
+    await nextTick()
+    reconnectClassicIdentityObservers()
+  },
+  {
+    deep: true,
+  },
+)
 
 const annotationPropertiesVisible =
   ref(false)
@@ -1119,12 +1376,7 @@ function deleteAnnotation(
     :class="{
       'bus-map': isBusMode,
     }"
-    :style="{
-      minHeight:
-        `${line.mapSize}em`,
-      paddingInline:
-        `${Math.max(0, Number(line.mapSize) - 15) / 2}em`,
-    }"
+    :style="contentAdaptiveStyle"
   >
     <!--
       ======================================================
@@ -1348,6 +1600,7 @@ function deleteAnnotation(
     -->
     <div
       v-if="!isBusMode && !isTramMode"
+      ref="classicIdentityPanel"
       class="
         line-identity-panel
         ml-3
@@ -1356,6 +1609,7 @@ function deleteAnnotation(
         min-w-fit
         gap-3
       "
+      :style="classicIdentityStyle"
     >
       <div
         class="
@@ -2337,6 +2591,12 @@ function deleteAnnotation(
   margin: 0 .65em .65em;
   font-size: .25em;
   line-height: 1.75;
+}
+
+.line-identity-panel {
+  transition:
+    margin-left .12s ease,
+    margin-right .12s ease;
 }
 
 .classic-line-identities {

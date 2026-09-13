@@ -23,6 +23,9 @@ const {
   reverse = false,
   future = false,
   nameStyle,
+  terminusArrow = false,
+  terminusArrowText = null,
+  branchStart = false,
 } = defineProps<{
   value: string
   placeName?: string | null
@@ -32,6 +35,9 @@ const {
   accessible?: boolean | 'undefined' | undefined
   future?: boolean
   nameStyle?: StopNameStyle
+  terminusArrow?: boolean
+  terminusArrowText?: string | null
+  branchStart?: boolean
 }>()
 
 const stopContext = inject<StopContext>(StopContextKey)!
@@ -41,6 +47,25 @@ const project = useProject()
 const effectiveValue = computed(() =>
   value.trim(),
 )
+
+const effectiveTerminusArrowText =
+  computed(() =>
+    terminusArrowText?.trim() ?? '',
+  )
+
+const showTerminusArrow =
+  computed(
+    () =>
+      terminusArrow
+      && effectiveTerminusArrowText.value.length > 0,
+  )
+
+const terminusArrowSymbol =
+  computed(() =>
+    branchStart
+      ? '←'
+      : '→',
+  )
 
 /*
  * =========================================================
@@ -244,6 +269,23 @@ onUnmounted(() => {
     }"
     :style="tramWrapperStyle"
   >
+    <div
+      v-if="showTerminusArrow"
+      class="terminus-line-direction"
+      :class="{
+        reverse,
+        'branch-start': branchStart,
+      }"
+    >
+      <span class="terminus-line-direction-arrow">
+        {{ terminusArrowSymbol }}
+      </span>
+
+      <span class="terminus-line-direction-text">
+        {{ effectiveTerminusArrowText }}
+      </span>
+    </div>
+
     <!--
       ======================================================
       TRAMWAY
@@ -352,6 +394,8 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .terminus-label {
+  position: relative;
+
   display: flex;
   flex-direction: row;
 
@@ -396,6 +440,74 @@ onUnmounted(() => {
   .reverse & {
     flex-direction: row-reverse;
   }
+}
+
+.terminus-line-direction {
+  position: absolute;
+
+  top: .55em;
+  left: 1.25em;
+
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  gap: .32em;
+
+  width: max-content;
+  max-width: 24em;
+
+  color: #000;
+
+  opacity: 1 !important;
+  filter: none !important;
+
+  font-size: .78em;
+  font-weight: 700;
+  line-height: 1;
+
+  white-space: nowrap;
+
+  pointer-events: none;
+  z-index: 30;
+
+  &.reverse {
+    flex-direction: row-reverse;
+  }
+
+  &.branch-start {
+    right: 2.5em;
+    left: auto;
+
+    flex-direction: row-reverse;
+  }
+}
+
+.terminus-line-direction-arrow {
+  display: inline-flex;
+
+  align-items: center;
+  justify-content: center;
+
+  flex-shrink: 0;
+
+  color: #000;
+
+  font-size: 1.45em;
+  font-weight: 700;
+  line-height: .85;
+}
+
+.terminus-line-direction-text {
+  display: block;
+
+  max-width: 22em;
+
+  overflow: hidden;
+
+  color: #000;
+
+  text-overflow: ellipsis;
 }
 
 /*
