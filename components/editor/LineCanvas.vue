@@ -2484,7 +2484,7 @@ function deleteAnnotation(
 <style scoped lang="scss">
 /*
  * =========================================================
- * SIGNALÉTIQUE SNCF — RENDU DESSERTE V12
+ * SIGNALÉTIQUE SNCF — RENDU DESSERTE V13
  * =========================================================
  *
  * Cette version s'appuie sur la vraie structure de
@@ -2952,6 +2952,57 @@ function deleteAnnotation(
   white-space: nowrap;
 
   overflow: visible;
+}
+
+/*
+ * Correspondance piétonne — SNCF uniquement.
+ *
+ * Le pictogramme piéton IDFM est bleu par défaut.
+ * Sur le fond bleu nuit SNCF, on le force en blanc
+ * sans modifier Pedestrian.vue ni le rendu IDFM.
+ *
+ * Plusieurs sélecteurs sont prévus pour rester compatible
+ * avec le composant SVG / icône / image actuellement utilisé.
+ */
+.sncf-signage-connections
+:deep(.pedestrian),
+.sncf-signage-connections
+:deep([class*="pedestrian"]),
+.sncf-signage-connections
+:deep([class*="directions-walk"]),
+.sncf-signage-connections
+:deep([class*="walk-icon"]),
+.sncf-signage-connections
+:deep(i[class*="walk"]) {
+  color: white !important;
+}
+
+.sncf-signage-connections
+:deep(.pedestrian svg),
+.sncf-signage-connections
+:deep(.pedestrian svg *),
+.sncf-signage-connections
+:deep([class*="pedestrian"] svg),
+.sncf-signage-connections
+:deep([class*="pedestrian"] svg *),
+.sncf-signage-connections
+:deep(svg[class*="pedestrian"]),
+.sncf-signage-connections
+:deep(svg[class*="pedestrian"] *),
+.sncf-signage-connections
+:deep(svg[class*="directions-walk"]),
+.sncf-signage-connections
+:deep(svg[class*="directions-walk"] *) {
+  color: white !important;
+  fill: white !important;
+  stroke: white !important;
+}
+
+.sncf-signage-connections
+:deep(img[src*="pedestrian"]) {
+  filter:
+    brightness(0)
+    invert(1) !important;
 }
 
 /*
