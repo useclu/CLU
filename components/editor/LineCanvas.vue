@@ -18,6 +18,7 @@ import {
   isBranch,
   isBuiltin,
   isCustom,
+  isFork,
   isLoop,
   isParallelBranches,
   isStop,
@@ -31,6 +32,25 @@ const {
   outdated,
   presetBased,
 } = storeToRefs(useProject())
+
+type SignageStyle =
+  | 'IDFM'
+  | 'SNCF'
+
+const signageStyle =
+  computed<SignageStyle>(() =>
+    (
+      line.value as Line & {
+        signageStyle?: SignageStyle
+      }
+    ).signageStyle
+    ?? 'IDFM',
+  )
+
+const isSncfSignage =
+  computed(() =>
+    signageStyle.value === 'SNCF',
+  )
 
 const {
   findIndexById,
@@ -407,7 +427,37 @@ function getStopsFromSection(
     }
 
     /*
+     * Fourche autonome.
+     *
+     * En signalétique SNCF on ne réutilise pas la géométrie
+     * horizontale de Fork.vue, mais ses deux sections de sortie
+     * doivent quand même rester présentes dans la desserte.
+     */
+    if (isFork(element)) {
+      const forkSections =
+        element.$fork.sections
+
+      if (forkSections) {
+        for (
+          const subSection
+          of forkSections
+        ) {
+          stops.push(
+            ...getStopsFromSection(
+              subSection,
+            ),
+          )
+        }
+      }
+
+      continue
+    }
+
+    /*
      * Branches parallèles.
+     *
+     * Conservé pour les anciens projets utilisant encore
+     * Fork + ParallelBranches.
      */
     if (isParallelBranches(element)) {
       for (
@@ -1039,6 +1089,378 @@ const busIndexStyle =
       busIndexForeground.value,
   }))
 
+const sncfStopPropertiesVisible =
+  ref(false)
+
+const sncfConnectionsVisible =
+  ref(false)
+
+const selectedSncfStop =
+  ref<Stop | null>(null)
+
+const selectedSncfBranch =
+  ref<Branch | null>(null)
+
+function findBranchForStopInSection(
+  section: LineSection,
+  stopId: string,
+): Branch | null {
+  for (
+    const element
+    of section.$lineSection.elements
+  ) {
+    if (isBranch(element)) {
+      const hasStop =
+        element.$branch.elements.some(
+          branchElement =>
+            isStop(branchElement)
+            && branchElement.id === stopId,
+        )
+
+      if (hasStop) {
+        return element
+      }
+
+      continue
+    }
+
+    if (
+      isFork(element)
+      && element.$fork.sections
+    ) {
+      for (
+        const subSection
+        of element.$fork.sections
+      ) {
+        const branch =
+          findBranchForStopInSection(
+            subSection,
+            stopId,
+          )
+
+        if (branch) {
+          return branch
+        }
+      }
+
+      continue
+    }
+
+    if (isParallelBranches(element)) {
+      for (
+        const subSection
+        of element
+          .$parallelBranches
+          .sections
+      ) {
+        const branch =
+          findBranchForStopInSection(
+            subSection,
+            stopId,
+          )
+
+        if (branch) {
+          return branch
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+function findBranchForStop(
+  stopId: string,
+): Branch | null {
+  for (
+    const section
+    of line.value.topology
+  ) {
+    const branch =
+      findBranchForStopInSection(
+        section,
+        stopId,
+      )
+
+    if (branch) {
+      return branch
+    }
+  }
+
+  return null
+}
+
+function openSncfStopProperties(
+  stop: Stop,
+) {
+  const branch =
+    findBranchForStop(
+      stop.id,
+    )
+
+  if (!branch) {
+    return
+  }
+
+  selectedSncfStop.value =
+    stop
+
+  selectedSncfBranch.value =
+    branch
+
+  sncfStopPropertiesVisible.value =
+    true
+}
+
+function deleteSncfStop(
+  stop: Stop,
+) {
+  const branch =
+    findBranchForStop(
+      stop.id,
+    )
+
+  if (!branch) {
+    return
+  }
+
+  const index =
+    branch
+      .$branch
+      .elements
+      .findIndex(
+        element =>
+          isStop(element)
+          && element.id === stop.id,
+      )
+
+  if (index < 0) {
+    return
+  }
+
+  branch
+    .$branch
+    .elements
+    .splice(
+      index,
+      1,
+    )
+
+  if (
+    selectedSncfStop.value?.id
+    === stop.id
+  ) {
+    selectedSncfStop.value =
+      null
+
+    selectedSncfBranch.value =
+      null
+
+    sncfStopPropertiesVisible.value =
+      false
+
+    sncfConnectionsVisible.value =
+      false
+  }
+}
+
+/*
+ * =========================================================
+ * SIGNALÉTIQUE SNCF — PREMIÈRE BASE
+ * =========================================================
+ *
+ * Important :
+ * - le rendu IDFM existant reste entièrement inchangé ;
+ * - cette vue lit seulement les données existantes ;
+ * - elle n'écrit rien dans la topologie ;
+ * - le multi-ligne n'est pas rendu ici.
+ */
+
+const sncfStops =
+  computed(() =>
+    uniqueStops(
+      mapStops.value,
+    ),
+  )
+
+const sncfDestinations =
+  computed(() => {
+    const namedStops =
+      sncfStops.value.filter(
+        stop =>
+          stop.$stop.name.trim() !== '',
+      )
+
+    const terminusStops =
+      namedStops.filter(
+        stop =>
+          stop.$stop.terminus,
+      )
+
+    const source =
+      terminusStops.length > 0
+        ? terminusStops
+        : namedStops.length > 1
+          ? [
+              namedStops[0],
+              namedStops[
+                namedStops.length - 1
+              ],
+            ]
+          : namedStops
+
+    const seen =
+      new Set<string>()
+
+    return source
+      .map(
+        stop =>
+          stop.$stop.name.trim(),
+      )
+      .filter((name) => {
+        if (
+          name === ''
+          || seen.has(name)
+        ) {
+          return false
+        }
+
+        seen.add(name)
+
+        return true
+      })
+  })
+
+const sncfDestinationText =
+  computed(() =>
+    sncfDestinations.value.length > 0
+      ? sncfDestinations.value.join(' • ')
+      : 'Destination',
+  )
+
+function isSncfFirstStop(
+  index: number,
+) {
+  return index === 0
+}
+
+function isSncfLastStop(
+  index: number,
+) {
+  return index
+    === sncfStops.value.length - 1
+}
+
+/*
+ * =========================================================
+ * CORRESPONDANCES — ADAPTATION SNCF
+ * =========================================================
+ *
+ * En signalétique SNCF, les petits ornements aéroport
+ * (Orly / CDG) affichés sous certaines lignes ne sont pas
+ * utilisés dans cette vue.
+ *
+ * Important :
+ * - les données du projet ne sont jamais modifiées ;
+ * - le rendu IDFM conserve intégralement ces ornements ;
+ * - tous les autres pictogrammes / services restent présents.
+ */
+
+function isSncfHiddenAirportOrnament(
+  ornament: Ornament | null | undefined,
+) {
+  if (!ornament) {
+    return false
+  }
+
+  return (
+    '$airportOrnament' in ornament
+    || '$airportNameOrnament' in ornament
+  )
+}
+
+function getSncfConnections(
+  connections: Connection[],
+): Connection[] {
+  return connections.map(
+    (connection) => {
+      if ('$modeConnection' in connection) {
+        return {
+          ...connection,
+
+          $modeConnection: {
+            ...connection.$modeConnection,
+
+            elements:
+              connection
+                .$modeConnection
+                .elements
+                .map(
+                  element => ({
+                    ...element,
+
+                    $modeConnectionElement: {
+                      ...element
+                        .$modeConnectionElement,
+
+                      ornament:
+                        isSncfHiddenAirportOrnament(
+                          element
+                            .$modeConnectionElement
+                            .ornament,
+                        )
+                          ? null
+                          : element
+                              .$modeConnectionElement
+                              .ornament,
+                    },
+                  }),
+                ),
+          },
+        }
+      }
+
+      if ('$serviceConnection' in connection) {
+        return {
+          ...connection,
+
+          $serviceConnection: {
+            ...connection.$serviceConnection,
+
+            elements:
+              connection
+                .$serviceConnection
+                .elements
+                .map(
+                  element => ({
+                    ...element,
+
+                    $serviceConnectionElement: {
+                      ...element
+                        .$serviceConnectionElement,
+
+                      ornament:
+                        isSncfHiddenAirportOrnament(
+                          element
+                            .$serviceConnectionElement
+                            .ornament,
+                        )
+                          ? null
+                          : element
+                              .$serviceConnectionElement
+                              .ornament,
+                    },
+                  }),
+                ),
+          },
+        }
+      }
+
+      return connection
+    },
+  )
+}
+
 /*
  * =========================================================
  * ANNOTATIONS
@@ -1370,6 +1792,211 @@ function deleteAnnotation(
 
 <template>
   <div
+    v-if="isSncfSignage"
+    class="sncf-signage"
+    :style="{
+      '--sncf-line-color':
+        line.color ?? '#ffcd00',
+    }"
+  >
+    <div class="sncf-signage-header">
+      <div class="sncf-signage-identity">
+        <Mode
+          plain
+          :mode="line.mode"
+          class="sncf-signage-mode"
+        />
+
+        <LineIndex
+          :mode="line.mode"
+          :index="line.index"
+          class="sncf-signage-index"
+        />
+      </div>
+
+      <div class="sncf-signage-direction">
+        <div class="sncf-signage-direction-line">
+          <span class="sncf-signage-direction-label">
+            vers
+          </span>
+
+          <span class="sncf-signage-direction-main">
+            {{ sncfDestinations[0] || 'Destination' }}
+          </span>
+        </div>
+
+        <div
+          v-if="sncfDestinations.length > 1"
+          class="sncf-signage-destinations"
+        >
+          {{ sncfDestinationText }}
+        </div>
+      </div>
+    </div>
+
+    <div class="sncf-signage-body">
+      <div class="sncf-signage-route">
+        <div
+          v-for="(stop, index) in sncfStops"
+          :key="stop.id"
+          class="sncf-signage-stop"
+          :class="{
+            'is-first':
+              isSncfFirstStop(index),
+            'is-last':
+              isSncfLastStop(index),
+            'is-terminus':
+              stop.$stop.terminus,
+          }"
+          @click="openSncfStopProperties(stop)"
+        >
+          <div class="sncf-signage-rail-column">
+            <div
+              v-if="index > 0"
+              class="sncf-signage-rail sncf-signage-rail-top"
+              :style="{
+                backgroundColor:
+                  line.color ?? '#ffffff',
+              }"
+            />
+
+            <div
+              class="sncf-signage-dot"
+              :class="{
+                'is-terminus':
+                  stop.$stop.terminus,
+                'is-first':
+                  isSncfFirstStop(index),
+                'is-last':
+                  isSncfLastStop(index),
+              }"
+              :style="{
+                '--sncf-line-color':
+                  line.color ?? '#ffffff',
+              }"
+            />
+
+            <div
+              v-if="
+                index
+                < sncfStops.length - 1
+              "
+              class="sncf-signage-rail sncf-signage-rail-bottom"
+              :style="{
+                backgroundColor:
+                  line.color ?? '#ffffff',
+              }"
+            />
+          </div>
+
+          <div class="sncf-signage-stop-main">
+            <div
+              class="sncf-signage-stop-content"
+              :class="{
+                'terminus-card':
+                  stop.$stop.terminus
+                  && isSncfFirstStop(index),
+              }"
+            >
+              <div class="sncf-signage-stop-text-line">
+                <div
+                  class="sncf-signage-stop-name"
+                  :class="{
+                    'is-terminus':
+                      stop.$stop.terminus,
+                  }"
+                >
+                  {{
+                    stop.$stop.name
+                    || 'Arrêt sans nom'
+                  }}
+                </div>
+
+                <div
+                  v-if="
+                    stop.$stop.subtitle
+                    || stop.$stop.placeName
+                  "
+                  class="sncf-signage-stop-subtitle"
+                >
+                  {{
+                    stop.$stop.subtitle
+                    || stop.$stop.placeName
+                  }}
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="sncf-signage-connections"
+              @click.stop
+            >
+              <Connections
+                :connections="
+                  getSncfConnections(
+                    stop.$stop.connections,
+                  )
+                "
+                :custom-connections="
+                  stop.$stop.customConnections
+                  ?? []
+                "
+                :reverse="false"
+              />
+            </div>
+
+            <button
+              type="button"
+              class="sncf-signage-stop-delete export-hide"
+              title="Supprimer l’arrêt"
+              @click.stop="deleteSncfStop(stop)"
+            >
+              <i class="i-tabler-trash" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <StopPropertiesDialog
+      v-if="
+        selectedSncfStop
+        && selectedSncfBranch
+      "
+      v-model:visible="
+        sncfStopPropertiesVisible
+      "
+      v-model="selectedSncfStop"
+      :allow-city="
+        line.frameTerminusNames
+      "
+      :branch="
+        selectedSncfBranch
+      "
+      @open-connections="
+        sncfConnectionsVisible = true
+      "
+    />
+
+    <ConnectionsEditor
+      v-if="
+        selectedSncfStop
+        && selectedSncfBranch
+      "
+      v-model:visible="
+        sncfConnectionsVisible
+      "
+      v-model:stop="
+        selectedSncfStop
+      "
+      :branch="
+        selectedSncfBranch
+      "
+    />
+  </div>
+
+  <div
+    v-else
     ref="content"
     v-bind="$attrs"
     class="relative content bg-white flex gap-10 flex-row"
@@ -1855,6 +2482,718 @@ function deleteAnnotation(
 </template>
 
 <style scoped lang="scss">
+/*
+ * =========================================================
+ * SIGNALÉTIQUE SNCF — RENDU DESSERTE V12
+ * =========================================================
+ *
+ * Cette version s'appuie sur la vraie structure de
+ * Connections.vue :
+ *
+ * .connections-box
+ *   ├─ wrapper VerticalLine
+ *   └─ .connection-groups
+ *        └─ .connection-group
+ *
+ * On ne force donc plus tous les descendants.
+ * Cela permet de récupérer les pictogrammes natifs
+ * Métro / RER / Train / Tram / services.
+ */
+
+.sncf-signage {
+  font-size:
+    calc(var(--font-size) * .26);
+
+  /*
+   * Largeur automatique :
+   * 76em reste la largeur minimale correspondant au rendu
+   * actuel, mais si un arrêt (ex. Châtelet) possède davantage
+   * de correspondances, le fond SNCF s'agrandit tout seul.
+   */
+  width: max-content;
+  min-width: 76em;
+  max-width: none;
+  min-height: 0;
+
+  display: flex;
+  flex-direction: column;
+
+  align-self: flex-start;
+
+  overflow: hidden;
+
+  background: #1f2f3d;
+  color: white;
+
+  font-family:
+    'Parisine Ptf',
+    Arial,
+    Helvetica,
+    sans-serif;
+
+  outline:
+    1px
+    solid
+    var(--p-gray-200);
+}
+
+.sncf-signage-header {
+  display: flex;
+  align-items: flex-start;
+
+  min-height: 11.5em;
+
+  padding:
+    2.3em
+    4em
+    1.45em;
+
+  gap: 1.4em;
+}
+
+.sncf-signage-identity {
+  display: flex;
+  align-items: center;
+  gap: .8em;
+
+  flex-shrink: 0;
+}
+
+.sncf-signage-mode {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 7em;
+
+  line-height: 1;
+}
+
+.sncf-signage-index {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 7em;
+
+  line-height: 1;
+}
+
+.sncf-signage-direction {
+  min-width: 0;
+
+  display: flex;
+  flex-direction: column;
+
+  padding-top: .4em;
+}
+
+.sncf-signage-direction-line {
+  display: flex;
+  align-items: baseline;
+  gap: .72em;
+
+  min-width: 0;
+}
+
+.sncf-signage-direction-label {
+  flex-shrink: 0;
+
+  font-size: 2.9em;
+  font-weight: 700;
+
+  line-height: 1;
+}
+
+.sncf-signage-direction-main {
+  min-width: 0;
+
+  font-size: 4.3em;
+  font-weight: 400;
+
+  line-height: .98;
+
+  letter-spacing: -.014em;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sncf-signage-destinations {
+  margin-top: .32em;
+
+  font-size: 3.15em;
+  font-weight: 700;
+
+  line-height: 1;
+
+  letter-spacing: -.01em;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sncf-signage-body {
+  flex: 1 1 auto;
+
+  /*
+   * max-content fait remonter jusqu'au fond du plan la largeur
+   * réellement nécessaire au plus gros pôle de correspondances.
+   */
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+
+  box-sizing: border-box;
+
+  padding:
+    .9em
+    5.5em
+    3em
+    22em;
+}
+
+.sncf-signage-route {
+  position: relative;
+
+  display: flex;
+  flex-direction: column;
+
+  width: max-content;
+  min-width: 47em;
+  max-width: none;
+}
+
+/*
+ * Ligne principale plus large.
+ *
+ * Le centre du trait reste exactement aligné avec
+ * le centre de .sncf-signage-rail-column.
+ */
+.sncf-signage-route::before {
+  content: '';
+
+  position: absolute;
+
+  top: 1.05em;
+  bottom: 1.05em;
+
+  left: 1.2em;
+
+  width: 1.25em;
+
+  background:
+    var(--sncf-line-color);
+
+  border-radius: 999px;
+
+  z-index: 0;
+}
+
+.sncf-signage-stop {
+  position: relative;
+
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+
+  min-height: 2.8em;
+
+  display: flex;
+  align-items: center;
+
+  cursor: pointer;
+
+  border-radius: .14em;
+
+  transition:
+    background-color .12s ease;
+}
+
+.sncf-signage-stop:hover {
+  background:
+    rgb(255 255 255 / 4%);
+}
+
+.sncf-signage-rail-column {
+  position: relative;
+
+  width: 3.65em;
+  min-height: 2.8em;
+
+  flex-shrink: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  z-index: 1;
+}
+
+.sncf-signage-rail {
+  display: none;
+}
+
+/*
+ * Points intermédiaires très discrets.
+ */
+.sncf-signage-dot {
+  position: relative;
+
+  width: .34em;
+  height: .34em;
+
+  flex-shrink: 0;
+
+  border: 0;
+  border-radius: 50%;
+
+  background: #1f2f3d;
+
+  z-index: 2;
+}
+
+.sncf-signage-dot.is-terminus {
+  width: 1.6em;
+  height: 1.6em;
+
+  border:
+    .28em
+    solid
+    white;
+
+  background: #1f2f3d;
+
+  box-shadow:
+    0
+    0
+    0
+    .1em
+    var(--sncf-line-color);
+}
+
+.sncf-signage-dot.is-first {
+  width: 2em;
+  height: 2em;
+
+  background:
+    var(--sncf-line-color);
+
+  border:
+    .34em
+    solid
+    white;
+
+  box-shadow:
+    0
+    0
+    0
+    .32em
+    rgb(255 255 255 / 48%);
+}
+
+.sncf-signage-dot.is-last {
+  width: 1.72em;
+  height: 1.72em;
+
+  border:
+    .29em
+    solid
+    white;
+
+  background: #1f2f3d;
+
+  box-shadow: none;
+}
+
+.sncf-signage-stop-main {
+  position: relative;
+
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+
+  flex: 0 0 auto;
+
+  padding:
+    .1em
+    0;
+}
+
+.sncf-signage-stop-content {
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+
+  flex: 0 0 auto;
+
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+
+  padding:
+    .04em
+    .35em
+    .04em
+    .55em;
+}
+
+.sncf-signage-stop-content.terminus-card {
+  margin:
+    .02em
+    .55em
+    .08em
+    0;
+
+  padding:
+    .22em
+    .72em
+    .2em
+    .72em;
+
+  background: white;
+
+  color: #1f2f3d;
+}
+
+/*
+ * Arrêts normaux : graisse normale.
+ * Seuls les terminus sont mis en valeur.
+ */
+.sncf-signage-stop-text-line {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: nowrap;
+
+  min-width: 0;
+
+  white-space: nowrap;
+}
+
+.sncf-signage-stop-name {
+  font-size: 1.45em;
+  font-weight: 400;
+
+  line-height: 1.02;
+
+  letter-spacing: -.008em;
+
+  white-space: nowrap;
+}
+
+.sncf-signage-stop-name.is-terminus {
+  font-weight: 700;
+}
+
+.sncf-signage-stop-subtitle {
+  margin-left: .48em;
+
+  font-size: 1.03em;
+  font-style: italic;
+  font-weight: 400;
+
+  line-height: 1;
+
+  opacity: .82;
+
+  white-space: nowrap;
+}
+
+.sncf-signage-stop-content.terminus-card
+.sncf-signage-stop-subtitle {
+  color: #1f2f3d;
+  opacity: .72;
+}
+
+/*
+ * =========================================================
+ * CORRESPONDANCES SNCF
+ * =========================================================
+ *
+ * Connections.vue utilise naturellement une colonne.
+ * Ici on ne change QUE ses conteneurs de layout.
+ * Le contenu de ModeConnection / ServiceConnection
+ * reste totalement natif.
+ */
+
+.sncf-signage-connections {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+
+  flex: 0 0 auto;
+
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+
+  margin-left: 1em;
+
+  /*
+   * Agrandissement global des correspondances.
+   *
+   * Les composants internes utilisent l'unité em :
+   * augmenter ici la taille conserve donc leurs proportions,
+   * leurs pictogrammes et leur structure native.
+   */
+  font-size: 1.52em;
+
+  line-height: 1;
+
+  white-space: nowrap;
+
+  overflow: visible;
+}
+
+/*
+ * Racine réelle de Connections.vue.
+ */
+.sncf-signage-connections
+:deep(.connections-box) {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+
+  width: max-content !important;
+  min-width: max-content !important;
+  max-width: none !important;
+
+  white-space: nowrap !important;
+
+  overflow: visible !important;
+}
+
+/*
+ * Le petit VerticalLine vertical utilisé sur le plan IDFM
+ * n'a pas de sens ici.
+ */
+.sncf-signage-connections
+:deep(
+  .connections-box
+  > .flex.flex-col.items-center.w-1em
+) {
+  display: none !important;
+}
+
+/*
+ * Les séparateurs VerticalLine bleus appartiennent au rendu IDFM.
+ *
+ * Connections.vue possède un premier séparateur à la racine,
+ * tandis que ModeConnection / ServiceConnection peuvent aussi
+ * en contenir un dans leur propre groupe.
+ *
+ * En SNCF, on masque uniquement ces wrappers précis.
+ */
+.sncf-signage-connections
+:deep(
+  .connection-group
+  .flex.flex-col.items-center.w-1em
+) {
+  display: none !important;
+}
+
+/*
+ * Tous les groupes de correspondances restent
+ * sur UNE SEULE ligne.
+ */
+.sncf-signage-connections
+:deep(.connection-groups) {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+
+  width: max-content !important;
+  min-width: max-content !important;
+  max-width: none !important;
+
+  gap: 1.05em !important;
+
+  white-space: nowrap !important;
+
+  overflow: visible !important;
+}
+
+/*
+ * Chaque groupe conserve sa structure interne native :
+ * pictogramme de mode + indices + ornements.
+ */
+.sncf-signage-connections
+:deep(.connection-group) {
+  display: grid !important;
+
+  grid-template-columns:
+    auto
+    1fr !important;
+
+  align-items: center !important;
+
+  gap: .125em !important;
+
+  margin-top: 0 !important;
+
+  flex: 0 0 auto !important;
+
+  width: max-content !important;
+  min-width: max-content !important;
+  max-width: none !important;
+
+  white-space: nowrap !important;
+
+  overflow: visible !important;
+}
+
+/*
+ * Racine de ModeConnection / ServiceConnection.
+ *
+ * On impose seulement une rangée infinie à ce niveau.
+ * On ne modifie PAS les pictogrammes ni leurs dimensions.
+ * C'est ce qui permet à un mégapôle comme Châtelet de garder
+ * Métro 4/7/11/14 + RER + services sur la même ligne.
+ */
+.sncf-signage-connections
+:deep(.connection-group > *) {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  flex-wrap: nowrap !important;
+
+  flex: 0 0 auto !important;
+
+  width: max-content !important;
+  min-width: max-content !important;
+  max-width: none !important;
+
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+
+  line-height: 1 !important;
+
+  white-space: nowrap !important;
+
+  overflow: visible !important;
+}
+
+/*
+ * Les enfants directs de chaque groupe ne peuvent pas être
+ * comprimés. Leur structure native reste néanmoins intacte.
+ */
+.sncf-signage-connections
+:deep(.connection-group > * > *) {
+  flex-shrink: 0 !important;
+
+  align-self: center !important;
+
+  max-width: none !important;
+
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+
+  vertical-align: middle !important;
+
+  white-space: nowrap !important;
+}
+
+/*
+ * Certains sous-conteneurs natifs de ModeConnection utilisent
+ * leur propre alignement vertical. En SNCF on les remet tous
+ * exactement au centre de la rangée afin que le pictogramme
+ * de mode et les indices soient sur le même axe horizontal.
+ */
+.sncf-signage-connections
+:deep(.connection-group > * > * > *) {
+  align-self: center !important;
+
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+
+  vertical-align: middle !important;
+}
+
+/*
+ * Les petits séparateurs bleu RATP n'appartiennent pas à la
+ * signalétique SNCF.
+ *
+ * Leur couleur provient de --blue-ratp-paper. On les masque
+ * uniquement à l'intérieur des correspondances SNCF.
+ */
+.sncf-signage-connections
+:deep([class*="blue-ratp-paper"]) {
+  display: none !important;
+}
+
+/*
+ * Sécurité supplémentaire pour les VerticalLine générées
+ * avec une classe de couleur utilitaire différente mais
+ * conservant le wrapper étroit d'origine.
+ */
+.sncf-signage-connections
+:deep(.connection-group [class*="w-1em"][class*="items-center"]) {
+  display: none !important;
+}
+
+/*
+ * Corbeille hors du flux.
+ */
+.sncf-signage-stop-delete {
+  position: absolute;
+
+  top: 50%;
+  right: -2.4em;
+
+  width: 1.8em;
+  height: 1.8em;
+
+  padding: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 0;
+  border-radius: 50%;
+
+  background:
+    rgb(255 255 255 / 8%);
+
+  color:
+    rgb(255 255 255 / 68%);
+
+  cursor: pointer;
+
+  opacity: 0;
+
+  transform:
+    translateY(-50%);
+
+  transition:
+    opacity .12s ease,
+    background-color .12s ease,
+    color .12s ease;
+}
+
+.sncf-signage-stop:hover
+.sncf-signage-stop-delete {
+  opacity: 1;
+}
+
+.sncf-signage-stop-delete:hover {
+  background:
+    rgb(220 38 38 / 78%);
+
+  color: white;
+}
+
 .content {
   position: relative;
 

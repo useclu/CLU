@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import type { DraggableEvent } from 'vue-draggable-plus'
+import { storeToRefs } from 'pinia'
 import { v4 as uuidv4 } from 'uuid'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import useElementGrabbing from '~/composables/useElementGrabbing'
+import { useProject } from '~/stores/useProject'
 
 interface Element {
   label: string
@@ -11,7 +13,25 @@ interface Element {
   type: 'STOP' | 'SPACER' | 'AREA_SEPARATOR'
 }
 
+type SignageStyle =
+  | 'IDFM'
+  | 'SNCF'
+
 const { grab, release } = useElementGrabbing()
+const { line } = storeToRefs(useProject())
+
+const signageStyle = computed<SignageStyle>(() =>
+  (
+    line.value as Line & {
+      signageStyle?: SignageStyle
+    }
+  ).signageStyle
+  ?? 'IDFM',
+)
+
+const isSncfSignage = computed(() =>
+  signageStyle.value === 'SNCF',
+)
 
 const elements = ref<Element[]>([
   {
@@ -82,16 +102,163 @@ function clone(element: Element): BranchElement {
   }
 }
 
-function onStart(e: DraggableEvent<Element>) {
+function lastBranchInSection(
+  section: LineSection,
+): Branch | null {
+  const sectionElements =
+    section.$lineSection.elements
+
+  for (
+    let index = sectionElements.length - 1;
+    index >= 0;
+    index--
+  ) {
+    const sectionElement =
+      sectionElements[index]
+
+    if ('$branch' in sectionElement) {
+      return sectionElement
+    }
+
+    if (
+      '$fork' in sectionElement
+      && sectionElement.$fork.sections
+    ) {
+      const forkSections =
+        sectionElement.$fork.sections
+
+      for (
+        let forkIndex = forkSections.length - 1;
+        forkIndex >= 0;
+        forkIndex--
+      ) {
+        const branch =
+          lastBranchInSection(
+            forkSections[forkIndex],
+          )
+
+        if (branch) {
+          return branch
+        }
+      }
+    }
+
+    if (
+      '$parallelBranches'
+      in sectionElement
+    ) {
+      const parallelSections =
+        sectionElement
+          .$parallelBranches
+          .sections
+
+      for (
+        let parallelIndex = parallelSections.length - 1;
+        parallelIndex >= 0;
+        parallelIndex--
+      ) {
+        const branch =
+          lastBranchInSection(
+            parallelSections[
+              parallelIndex
+            ],
+          )
+
+        if (branch) {
+          return branch
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+const sncfTargetBranch =
+  computed<Branch | null>(() => {
+    const sections =
+      line.value.topology
+
+    for (
+      let index = sections.length - 1;
+      index >= 0;
+      index--
+    ) {
+      const branch =
+        lastBranchInSection(
+          sections[index],
+        )
+
+      if (branch) {
+        return branch
+      }
+    }
+
+    return null
+  })
+
+function addDirectlyInSncf(
+  element: Element,
+) {
+  const branch =
+    sncfTargetBranch.value
+
+  if (!branch) {
+    return
+  }
+
+  branch
+    .$branch
+    .elements
+    .push(
+      clone(element),
+    )
+}
+
+function onStart(
+  e: DraggableEvent<Element>,
+) {
   grab(e.data.type)
 }
 </script>
 
 <template>
+  <!--
+    SNCF :
+    vrais boutons simples, sans VueDraggable.
+    On peut cliquer autant de fois que nécessaire.
+  -->
+  <div
+    v-if="isSncfSignage"
+    class="toolbox-section sncf-toolbox-section"
+  >
+    <button
+      v-for="element in elements"
+      :key="element.label"
+      type="button"
+      class="toolbox-item sncf-toolbox-button"
+      @click="addDirectlyInSncf(element)"
+    >
+      <div class="flex flex-col items-center">
+        <i :class="element.icon" />
+        <span>{{ $t(element.label) }}</span>
+      </div>
+    </button>
+  </div>
+
+  <!--
+    IDFM :
+    comportement historique strictement conservé.
+  -->
   <VueDraggable
+    v-else
     v-model="elements"
     class="toolbox-section"
-    :group="{ name: 'branchElements', pull: 'clone', put: false }"
+    :group="{
+      name: 'branchElements',
+      pull: 'clone',
+      put: false,
+    }"
     :clone="clone"
     :sort="false"
     @start="e => onStart(e as DraggableEvent<Element>)"
@@ -136,7 +303,9 @@ function onStart(e: DraggableEvent<Element>) {
     display: flex;
     flex-direction: column;
     align-items: center;
-    transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+    transition:
+      box-shadow .2s ease-in-out,
+      transform .2s ease-in-out;
 
     span {
       font-size: 1rem;
@@ -148,7 +317,7 @@ function onStart(e: DraggableEvent<Element>) {
     }
 
     &:hover {
-      box-shadow: 0 0 1em 0 rgba(0, 0, 0, 0.25);
+      box-shadow: 0 0 1em 0 rgb(0 0 0 / 25%);
       transform: scale(1.05);
     }
 
@@ -160,5 +329,16 @@ function onStart(e: DraggableEvent<Element>) {
       display: none;
     }
   }
+}
+
+.sncf-toolbox-button {
+  appearance: none;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer !important;
+}
+
+.sncf-toolbox-button:active {
+  cursor: pointer !important;
 }
 </style>

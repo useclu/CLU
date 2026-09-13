@@ -13,6 +13,10 @@ type TramStyle =
   | 'ANGLED'
   | 'HORIZONTAL'
 
+type SignageStyle =
+  | 'IDFM'
+  | 'SNCF'
+
 const { line } = storeToRefs(useProject())
 
 const emit = defineEmits<{
@@ -38,6 +42,25 @@ const tramStyle = computed<TramStyle>({
   },
 })
 
+
+const signageStyle = computed<SignageStyle>({
+  get: () =>
+    (
+      line.value as Line & {
+        signageStyle?: SignageStyle
+      }
+    ).signageStyle
+    ?? 'IDFM',
+
+  set: (value) => {
+    (
+      line.value as Line & {
+        signageStyle?: SignageStyle
+      }
+    ).signageStyle = value
+  },
+})
+
 watch(() => line.value.mode, (val) => {
   if (!val) return
 
@@ -49,6 +72,10 @@ watch(() => line.value.mode, (val) => {
 
 function updateColor(newColor: string | null) {
   if (newColor !== null) line.value.color = newColor
+}
+
+function setSignageStyle(style: SignageStyle) {
+  signageStyle.value = style
 }
 
 function setFormatStyle(style: FormatStyle) {
@@ -138,6 +165,55 @@ function setTramStyle(style: TramStyle) {
       </div>
 
       <div class="section-content">
+        <!--
+          =====================================================
+          SIGNALÉTIQUE IDFM / SNCF
+          =====================================================
+        -->
+        <div class="setting-field">
+          <span class="setting-label">
+            Signalétique
+          </span>
+
+          <div class="segmented-control">
+            <button
+              type="button"
+              class="segment-button"
+              :class="{
+                selected:
+                  signageStyle === 'IDFM',
+              }"
+              @click="setSignageStyle('IDFM')"
+            >
+              IDFM
+            </button>
+
+            <button
+              type="button"
+              class="segment-button"
+              :class="{
+                selected:
+                  signageStyle === 'SNCF',
+              }"
+              @click="setSignageStyle('SNCF')"
+            >
+              SNCF
+            </button>
+          </div>
+
+          <span class="setting-description">
+            <template
+              v-if="signageStyle === 'IDFM'"
+            >
+              Schéma de ligne horizontal · rendu actuel CLU
+            </template>
+
+            <template v-else>
+              Signalétique voyageurs SNCF · desserte verticale
+            </template>
+          </span>
+        </div>
+
         <!--
           =====================================================
           FORMAT RATP / SNCF
