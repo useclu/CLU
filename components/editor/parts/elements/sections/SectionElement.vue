@@ -20,9 +20,25 @@ import {
 const {
   fluid = false,
   dummy = false,
+  forkOverlayOffsetPx = 0,
+  forkOverlayCompensationPx = 0,
 } = defineProps<{
   fluid?: boolean
   dummy?: boolean
+  forkOverlayOffsetPx?: number
+  forkOverlayCompensationPx?: number
+}>()
+
+const emit = defineEmits<{
+  forkExtentChange: [
+    elementId: string,
+    width: number,
+  ]
+  forkClearanceChange: [
+    elementId: string,
+    up: number,
+    down: number,
+  ]
 }>()
 
 const element = defineModel<LineElement>({ required: true })
@@ -32,17 +48,13 @@ const el = ref()
 const hoverDialog = useElementHover(el)
 
 const annotationEl = ref<HTMLElement | null>(null)
-
 const draggingAnnotation = ref(false)
 
 let dragStartX = 0
 let dragStartY = 0
-
 let dragStartOffsetX = 0
 let dragStartOffsetY = 0
-
 let annotationEmSize = 16
-
 let suppressNextClick = false
 
 const zIndex = computed(() => {
@@ -61,9 +73,7 @@ const zIndex = computed(() => {
     return 1
   }
 
-  if (
-    isAnnotation(element.value)
-  ) {
+  if (isAnnotation(element.value)) {
     return 2
   }
 
@@ -81,28 +91,16 @@ const annotationStyle = computed(() => {
     color:
       annotation.color
       ?? 'var(--blue-ratp-paper)',
-
     fontSize:
       `${annotation.fontSize}em`,
-
     fontWeight:
-      annotation.bold
-        ? 'bold'
-        : 'normal',
-
+      annotation.bold ? 'bold' : 'normal',
     fontStyle:
-      annotation.italic
-        ? 'italic'
-        : 'normal',
-
+      annotation.italic ? 'italic' : 'normal',
     textDecoration:
-      annotation.underline
-        ? 'underline'
-        : 'none',
-
+      annotation.underline ? 'underline' : 'none',
     textAlign:
       annotation.alignment.toLowerCase(),
-
     transform:
       `translate(${annotation.offsetX}em, ${annotation.offsetY}em)`,
   }
@@ -173,12 +171,10 @@ function moveAnnotation(
   }
 
   const deltaX =
-    event.clientX
-    - dragStartX
+    event.clientX - dragStartX
 
   const deltaY =
-    event.clientY
-    - dragStartY
+    event.clientY - dragStartY
 
   if (
     !draggingAnnotation.value
@@ -256,6 +252,27 @@ onUnmounted(() => {
         <Fork
           v-else-if="isFork(element)"
           :meta="element"
+          :overlay-offset-px="forkOverlayOffsetPx"
+          :overlay-compensation-px="
+            forkOverlayCompensationPx
+          "
+          @extent-change="
+            width =>
+              emit(
+                'forkExtentChange',
+                element.id,
+                width,
+              )
+          "
+          @clearance-change="
+            (up, down) =>
+              emit(
+                'forkClearanceChange',
+                element.id,
+                up,
+                down,
+              )
+          "
         />
 
         <VerticalSegment
@@ -351,7 +368,6 @@ onUnmounted(() => {
   user-select: none;
   transition: background-color .2s ease;
   border-radius: .25em;
-
   cursor: grab;
 
   &:active {
@@ -386,15 +402,10 @@ onUnmounted(() => {
 
 .annotation-wrapper {
   position: relative;
-
   min-width: max-content;
-
   white-space: pre-wrap;
-
   line-height: 1.1;
-
   padding: .25em .375em;
-
   cursor: pointer;
 
   &:hover .annotation-move-handle {
@@ -414,39 +425,26 @@ onUnmounted(() => {
 
 .annotation-move-handle {
   position: absolute;
-
   top: -1.5em;
   left: 50%;
-
   transform: translateX(-50%);
-
   display: flex;
   align-items: center;
   justify-content: center;
-
   width: 1.35em;
   height: 1.35em;
-
   padding: 0;
-
   border: 1px solid var(--p-slate-300);
   border-radius: .25em;
-
   background-color: white;
-
   color: var(--p-slate-600);
-
   font-size: .75em;
-
   cursor: move;
-
   opacity: 0;
   pointer-events: none;
-
   transition:
     opacity .15s ease,
     background-color .15s ease;
-
   z-index: 10;
 
   &:hover {

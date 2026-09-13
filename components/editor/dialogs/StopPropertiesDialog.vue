@@ -220,28 +220,533 @@ const stopData = computed(() =>
   stop.value.$stop as MultiLineStopData,
 )
 
-const availableBranchLines =
-  computed<StopBranchLine[]>(() => [
+
+type BranchWithPassthrough =
+  Branch['$branch'] & {
+    passthroughLineIds?: string[]
+  }
+
+interface ParentForkContext {
+  fork: Fork
+  sourceBranch: Branch
+  outputIndex: 0 | 1
+}
+
+/*
+ * Retrouve la Fork qui possède directement la Branch courante,
+ * uniquement depuis project.line.topology.
+ *
+ * Aucun DOM, aucun nextTick, aucun F5.
+ */
+function findParentForkContext(
+  targetBranchId: string,
+): ParentForkContext | null {
+  function scanSection(
+    section: LineSection,
+    ownerFork: Fork | null = null,
+    ownerSourceBranch: Branch | null = null,
+    ownerOutputIndex: 0 | 1 | null = null,
+  ): ParentForkContext | null {
+    let previousBranch: Branch | null = null
+
+    for (
+      const element
+      of section.$lineSection.elements ?? []
+    ) {
+      if ('$branch' in element) {
+        if (
+          element.id === targetBranchId
+          && ownerFork
+          && ownerSourceBranch
+          && ownerOutputIndex !== null
+        ) {
+          return {
+            fork: ownerFork,
+            sourceBranch: ownerSourceBranch,
+            outputIndex: ownerOutputIndex,
+          }
+        }
+
+        previousBranch = element
+        continue
+      }
+
+      if ('$fork' in element) {
+        if (previousBranch) {
+          const childSections =
+            element.$fork.sections ?? []
+
+          for (
+            let index = 0;
+            index < childSections.length;
+            index++
+          ) {
+            const found =
+              scanSection(
+                childSections[index],
+                element,
+                previousBranch,
+                index as 0 | 1,
+              )
+
+            if (found) {
+              return found
+            }
+          }
+        }
+
+        continue
+      }
+
+      if ('$parallelBranches' in element) {
+        for (
+          const childSection
+          of element.$parallelBranches.sections ?? []
+        ) {
+          const found =
+            scanSection(
+              childSection,
+              ownerFork,
+              ownerSourceBranch,
+              ownerOutputIndex,
+            )
+
+          if (found) {
+            return found
+          }
+        }
+      }
+    }
+
+    return null
+  }
+
+  for (
+    const section
+    of project.line.topology ?? []
+  ) {
+    const found =
+      scanSection(section)
+
+    if (found) {
+      return found
+    }
+  }
+
+  return null
+}
+
+/*
+ * Ligne par défaut RÉELLE de la Branch courante.
+ *
+ * Priorité :
+ * 1. si cette Branch est une sortie directe de Fork, la ligne ciblée
+ *    par cette Fork est la ligne naturelle du Stop ;
+ * 2. sinon, on reprend la règle passthrough de Branch ;
+ * 3. fallback historique = primary.
+ *
+ * Cette logique ne modifie aucune Fork et ne crée aucun rail.
+ */
+const defaultStopLineId =
+  computed(() => {
+    const parentFork =
+      findParentForkContext(
+        branch.id,
+      )
+
+    if (parentFork) {
+      const targetLineId =
+        parentFork.fork.$fork.lineId
+        || 'primary'
+
+      return targetLineId
+    }
+
+    const branchData =
+      branch.$branch as BranchWithPassthrough
+
+    const passthroughIds =
+      new Set(
+        branchData.passthroughLineIds
+        ?? [],
+      )
+
+    if (
+      branch.$branch.primaryLineVisible
+      !== false
+      && !passthroughIds.has(
+        'primary',
+      )
+    ) {
+      return 'primary'
+    }
+
+    const directAdditional =
+      (
+        branch.$branch.additionalLines
+        ?? []
+      ).find(
+        line =>
+          !passthroughIds.has(
+            line.id,
+          ),
+      )
+
+    return (
+      directAdditional?.id
+      ?? 'primary'
+    )
+  })
+
+/*
+ * IMPORTANT :
+ * on ne persiste pas automatiquement lineIds au montage du dialogue.
+ *
+ * Le dialogue existe déjà dans l'arbre de chaque Stop, même lorsqu'il
+ * n'est pas ouvert. Un write synchrone ici peut donc arriver pendant
+ * le drag d'un nouveau Stop et perturber Sortable.
+ *
+ * isStopOnLine() utilise defaultStopLineId comme fallback visuel/logique.
+ * lineIds n'est écrit que lorsque l'utilisateur change réellement une
+ * case D/S.
+ */
+
+function lineBelongsToThisForkOutput(
+  context: ParentForkContext,
+  lineId: string,
+) {
+  const targetLineId =
+    context.fork.$fork.lineId
+    || 'primary'
+
+  /*
+   * La ligne ciblée bifurque dans les deux sorties.
+   */
+  if (lineId === targetLineId) {
+    return true
+  }
+
+  const inputIds = [
     ...(
-      branch.$branch.additionalLines
+      context.sourceBranch.$branch.primaryLineVisible
+      !== false
+        ? ['primary']
+        : []
+    ),
+
+    ...(
+      context.sourceBranch.$branch.additionalLines
       ?? []
-    ).map(branchLine => ({
-      id: branchLine.id,
-      mode: branchLine.mode,
-      index: branchLine.index,
-      color:
-        branchLine.color
-        || '#000000',
-      primary: false,
-    })),
-    {
-      id: 'primary',
-      mode: project.line.mode,
-      index: project.line.index,
-      color: project.line.color,
-      primary: true,
-    },
-  ])
+    ).map(
+      line => line.id,
+    ),
+  ]
+
+  const targetRank =
+    inputIds.indexOf(
+      targetLineId,
+    )
+
+  const lineRank =
+    inputIds.indexOf(
+      lineId,
+    )
+
+  if (
+    targetRank < 0
+    || lineRank < 0
+  ) {
+    return false
+  }
+
+  const topOutputIndex: 0 | 1 =
+    context.fork.$fork.linksOffset[0]
+      >= context.fork.$fork.linksOffset[1]
+      ? 0
+      : 1
+
+  const bottomOutputIndex: 0 | 1 =
+    topOutputIndex === 0
+      ? 1
+      : 0
+
+  const destination =
+    lineRank < targetRank
+      ? topOutputIndex
+      : bottomOutputIndex
+
+  return (
+    destination
+    === context.outputIndex
+  )
+}
+
+function branchStillUsesLine(
+  lineId: string,
+) {
+  return (
+    branch.$branch.elements ?? []
+  ).some((element) => {
+    if (!('$stop' in element)) {
+      return false
+    }
+
+    const data =
+      element.$stop as MultiLineStopData
+
+    const ids =
+      data.lineIds
+
+    if (
+      !ids
+      || ids.length === 0
+    ) {
+      return (
+        lineId
+        === defaultStopLineId.value
+      )
+    }
+
+    return ids.includes(lineId)
+  })
+}
+
+/*
+ * C'est volontairement déclenché DIRECTEMENT par la case D/S
+ * du dialogue.
+ *
+ * Quand l'utilisateur coche S sur TEST :
+ * - on sait déjà quelle Branch est éditée ;
+ * - on sait déjà quelle Fork la possède ;
+ * - on ajoute immédiatement S à CETTE sortie si S doit y
+ *   continuer tout droit.
+ *
+ * On ne dépend donc plus d'un watcher de Fork, d'un remount,
+ * de VueDraggable ou d'un F5.
+ */
+function syncPhysicalLineWithStopChoice(
+  lineId: string,
+  enabled: boolean,
+) {
+  /*
+   * =========================================================
+   * MODÈLE SIMPLE
+   * =========================================================
+   *
+   * Une Branch est un conteneur libre.
+   *
+   * Le Stop choisit ses lignes dans ses propriétés et CE choix
+   * suffit à rendre la ligne disponible physiquement dans la
+   * Branch courante.
+   *
+   * Aucune Fork n'a le droit de refuser ce choix.
+   * Il n'y a donc plus de :
+   *
+   *   lineBelongsToThisForkOutput(...)
+   *
+   * Ici :
+   * - cocher D rend D disponible ;
+   * - cocher S rend S disponible ;
+   * - décocher la dernière utilisation masque de nouveau seulement
+   *   la ligne que ce mécanisme avait ajoutée automatiquement.
+   */
+  const branchData =
+    branch.$branch as BranchWithPassthrough
+
+  const passthroughIds =
+    new Set(
+      branchData.passthroughLineIds
+      ?? [],
+    )
+
+  if (enabled) {
+    if (lineId === 'primary') {
+      const wasAlreadyAvailable =
+        branch.$branch.primaryLineVisible
+        !== false
+
+      branch.$branch.primaryLineVisible =
+        true
+
+      /*
+       * Si D n'était pas présent dans cette Branch, on le marque
+       * comme ligne ajoutée à la demande du Stop.
+       */
+      if (!wasAlreadyAvailable) {
+        passthroughIds.add('primary')
+      }
+    }
+    else {
+      const alreadyPresent =
+        (
+          branch.$branch.additionalLines
+          ?? []
+        ).some(
+          line =>
+            line.id === lineId,
+        )
+
+      if (!alreadyPresent) {
+        /*
+         * Le catalogue est global au projet : le Stop peut donc
+         * choisir S même si la Branch a été créée initialement
+         * comme une sortie D.
+         */
+        const selectedLine =
+          availableBranchLines.value.find(
+            line =>
+              line.id === lineId,
+          )
+
+        if (!selectedLine) {
+          return
+        }
+
+        branch.$branch.additionalLines = [
+          ...(
+            branch.$branch.additionalLines
+            ?? []
+          ),
+          {
+            id:
+              selectedLine.id,
+            mode:
+              selectedLine.mode,
+            index:
+              selectedLine.index,
+            color:
+              selectedLine.color,
+          },
+        ]
+
+        /*
+         * Une ligne ajoutée automatiquement reste invisible
+         * lorsque plus aucun Stop de cette Branch ne l'utilise.
+         */
+        passthroughIds.add(lineId)
+      }
+    }
+  }
+  else if (
+    passthroughIds.has(lineId)
+    && !branchStillUsesLine(lineId)
+  ) {
+    /*
+     * Dernier Stop retiré de cette ligne :
+     * on remet la Branch dans son état précédent.
+     */
+    passthroughIds.delete(lineId)
+
+    if (lineId === 'primary') {
+      branch.$branch.primaryLineVisible =
+        false
+    }
+    else {
+      branch.$branch.additionalLines =
+        (
+          branch.$branch.additionalLines
+          ?? []
+        ).filter(
+          line =>
+            line.id !== lineId,
+        )
+    }
+  }
+
+  branchData.passthroughLineIds =
+    Array.from(
+      passthroughIds,
+    )
+}
+
+
+/*
+ * Catalogue des lignes connues dans le projet.
+ *
+ * Le Stop est maintenant la commande simple :
+ * cocher une ligne ici la rend immédiatement disponible dans
+ * sa Branch courante.
+ *
+ * La Fork garde uniquement son rôle de bifurcation géométrique.
+ */
+const availableBranchLines =
+  computed<StopBranchLine[]>(() => {
+    const lines: StopBranchLine[] = []
+    const seen = new Set<string>()
+
+    if (project.line.mode) {
+      lines.push({
+        id: 'primary',
+        mode: project.line.mode,
+        index: project.line.index,
+        color:
+          project.line.color
+          || '#000000',
+        primary: true,
+      })
+
+      seen.add('primary')
+    }
+
+    function scanSection(
+      section: LineSection,
+    ) {
+      for (
+        const element
+        of section.$lineSection.elements ?? []
+      ) {
+        if ('$branch' in element) {
+          for (
+            const line
+            of element.$branch.additionalLines ?? []
+          ) {
+            if (seen.has(line.id)) {
+              continue
+            }
+
+            seen.add(line.id)
+
+            lines.push({
+              id: line.id,
+              mode: line.mode,
+              index: line.index,
+              color:
+                line.color
+                || '#000000',
+              primary: false,
+            })
+          }
+        }
+
+        if ('$parallelBranches' in element) {
+          for (
+            const child
+            of element.$parallelBranches.sections ?? []
+          ) {
+            scanSection(child)
+          }
+        }
+
+        if ('$fork' in element) {
+          for (
+            const child
+            of element.$fork.sections ?? []
+          ) {
+            scanSection(child)
+          }
+        }
+      }
+    }
+
+    for (
+      const section
+      of project.line.topology ?? []
+    ) {
+      scanSection(section)
+    }
+
+    return lines
+  })
 
 function isStopOnLine(
   lineId: string,
@@ -253,7 +758,10 @@ function isStopOnLine(
     !stored
     || stored.length === 0
   ) {
-    return lineId === 'primary'
+    return (
+      lineId
+      === defaultStopLineId.value
+    )
   }
 
   return stored.includes(lineId)
@@ -294,6 +802,15 @@ function setStopOnLine(
 
   stopData.value.lineIds =
     current
+
+  /*
+   * Pas de watcher : la Branch physique est synchronisée au même
+   * instant que la case du dialogue.
+   */
+  syncPhysicalLineWithStopChoice(
+    lineId,
+    enabled,
+  )
 }
 
 function onLineMembershipChange(

@@ -21,6 +21,13 @@ const stop = defineModel<Stop>({
   required: true,
 })
 
+const emit = defineEmits<{
+  lineMembershipChange: [
+    lineId: string,
+    enabled: boolean,
+  ]
+}>()
+
 const lineContext = inject<LineContext>(LineContextKey)!
 
 const project = useProject()
@@ -53,25 +60,112 @@ const rightMargin = computed(() =>
   `max(${margins.rightMargin.name}, ${margins.rightMargin.subtitle}, ${margins.rightMargin.connections})`,
 )
 
-const namesMargin = computed(() =>
-  `min(-.125em, -${Math.max(0, lineContext.lineThickness.value - 0.375) / 2}em)`,
+/*
+ * Plus la ligne est épaisse, plus le bloc d'informations
+ * autour de l'arrêt doit s'éloigner du centre du rail.
+ *
+ * On ne change jamais la taille du point d'arrêt :
+ * seuls le nom et les correspondances se déplacent.
+ *
+ * L'écart supplémentaire part de l'épaisseur historique
+ * de 0.375em et augmente ensuite linéairement.
+ */
+const lineThicknessSpacing = computed(() =>
+  Math.max(
+    0,
+    Number(lineContext.lineThickness.value ?? 0.375)
+    - 0.375,
+  ),
 )
 
 /*
- * Une capsule verticale est plus haute
- * qu'un rond classique.
+ * Pour les textes, on ne reprend plus 100 % de
+ * l'augmentation d'épaisseur de la ligne.
  *
- * On éloigne donc légèrement le nom
- * afin de conserver visuellement le même
- * espace qu'avec un arrêt normal.
+ * Avec les très grosses lignes, cela envoyait TOUS
+ * les noms beaucoup trop haut, même les arrêts simples.
+ *
+ * 55 % garde l'adaptation sans exagérer le déplacement.
  */
-const verticalNamesMargin = computed(() =>
-  `calc(${namesMargin.value} - .6em)`,
+const textThicknessSpacing = computed(() =>
+  lineThicknessSpacing.value * 0.55,
 )
 
-const connectionsMargin = computed(() =>
-  `max(.125em, ${Math.max(0, lineContext.lineThickness.value - 0.825) / 2}em)`,
+/*
+ * Les noms restent calés sur leur arrêt.
+ *
+ * IMPORTANT :
+ * on ne les fait plus dépendre de la hauteur totale
+ * d'une bifurcation / d'un arrêt partagé.
+ * Sinon un grand écart D / S faisait monter le texte
+ * de plusieurs em et pouvait le faire chevaucher
+ * le nom de l'arrêt voisin.
+ */
+const namesMargin = computed(() => {
+  if (isSharedStop.value) {
+    /*
+     * Arrêt partagé D / S :
+     *
+     * le wrapper de l'arrêt est centré entre les deux rails.
+     * La capsule commune fait :
+     *
+     *   span des rails + .9em
+     *
+     * donc son bord supérieur se trouve exactement à :
+     *
+     *   -(span / 2) - .45em
+     *
+     * Le nom est placé juste au-dessus de CE bord.
+     * Il ne dépend plus d'un quart arbitraire du corridor.
+     */
+    return `calc(
+      calc(var(--shared-line-span, 0px) / -2)
+      - .45em
+      - ${textThicknessSpacing.value * 0.12}em
+    )`
+  }
+
+  return `calc(
+    -.125em
+    - ${textThicknessSpacing.value}em
+  )`
+})
+
+const verticalNamesMargin = computed(() =>
+  isSharedStop.value
+    ? namesMargin.value
+    : `calc(
+        ${namesMargin.value}
+        - .6em
+      )`,
 )
+
+const connectionsMargin = computed(() => {
+  if (isSharedStop.value) {
+    /*
+     * Même principe sous la capsule :
+     *
+     * bord inférieur =
+     *   +(span / 2) + .45em
+     *
+     * Les correspondances commencent juste après,
+     * avec seulement .18em de respiration.
+     *
+     * Elles suivent donc exactement une ligne secondaire
+     * qui descend, sans finir beaucoup trop bas.
+     */
+    return `calc(
+      calc(var(--shared-line-span, 0px) / 2)
+      + .45em
+      + ${textThicknessSpacing.value * 0.12}em
+    )`
+  }
+
+  return `calc(
+    .125em
+    + ${textThicknessSpacing.value}em
+  )`
+})
 
 const connectionsInverted = computed(() =>
   isSharedStop.value
@@ -135,29 +229,196 @@ const stopData = computed(() =>
   stop.value.$stop as MultiLineStopData,
 )
 
+/*
+ * Même notion que dans StopPropertiesDialog :
+ * lignes disponibles dans le corridor parent, sans les rendre
+ * physiquement dans la Branch interne.
+ */
+function mergeInheritedLines(
+  base: BranchAdditionalLine[],
+  additions: BranchAdditionalLine[],
+) {
+  const result = [...base]
+  const ids =
+    new Set(
+      result.map(line => line.id),
+    )
+
+  additions.forEach((line) => {
+    if (ids.has(line.id)) {
+      return
+    }
+
+    result.push(line)
+    ids.add(line.id)
+  })
+
+  return result
+}
+
+function findInheritedLinesForBranch(
+  sections: LineSection[],
+  targetBranchId: string,
+  inherited: BranchAdditionalLine[] = [],
+  insideParallel = false,
+): BranchAdditionalLine[] | null {
+  for (const section of sections) {
+    let activeLines = [...inherited]
+
+    for (
+      const element
+      of section.$lineSection.elements
+    ) {
+      if ('$branch' in element) {
+        if (element.id === targetBranchId) {
+          return insideParallel
+            ? activeLines
+            : []
+        }
+
+        activeLines =
+          mergeInheritedLines(
+            activeLines,
+            element.$branch.additionalLines
+            ?? [],
+          )
+      }
+
+      if ('$parallelBranches' in element) {
+        const found =
+          findInheritedLinesForBranch(
+            element.$parallelBranches.sections,
+            targetBranchId,
+            activeLines,
+            true,
+          )
+
+        if (found !== null) {
+          return found
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+const inheritedCorridorLines =
+  computed(
+    () =>
+      branch
+        ? (
+            findInheritedLinesForBranch(
+              project.line.topology,
+              branch.id,
+            ) ?? []
+          )
+        : [],
+  )
+
 const branchLines =
-  computed<StopBranchLine[]>(() => [
-    ...(
+  computed<StopBranchLine[]>(() => {
+    const result: StopBranchLine[] = [
+      {
+        id: 'primary',
+        mode: project.line.mode,
+        index: project.line.index,
+        color:
+          lineContext.color.value,
+        primary: true,
+      },
+    ]
+
+    const ids =
+      new Set<string>(['primary'])
+
+    const append =
+      (branchLine: BranchAdditionalLine) => {
+        if (ids.has(branchLine.id)) {
+          return
+        }
+
+        ids.add(branchLine.id)
+
+        result.push({
+          id: branchLine.id,
+          mode: branchLine.mode,
+          index: branchLine.index,
+          color:
+            branchLine.color
+            || '#000000',
+          primary: false,
+        })
+      }
+
+    ;(
       branch?.$branch.additionalLines
       ?? []
-    ).map(branchLine => ({
-      id: branchLine.id,
-      mode: branchLine.mode,
-      index: branchLine.index,
-      color:
-        branchLine.color
-        || '#000000',
-      primary: false,
-    })),
-    {
-      id: 'primary',
-      mode: project.line.mode,
-      index: project.line.index,
-      color:
-        lineContext.color.value,
-      primary: true,
-    },
-  ])
+    ).forEach(append)
+
+    inheritedCorridorLines
+      .value
+      .forEach(append)
+
+    return result
+  })
+
+type StopBranchWithPassthrough =
+  Branch['$branch'] & {
+    passthroughLineIds?: string[]
+  }
+
+const defaultStopLineId =
+  computed(() => {
+    const branchData:
+      | StopBranchWithPassthrough
+      | undefined =
+        branch?.$branch
+
+    const passthroughIds =
+      new Set(
+        branchData?.passthroughLineIds
+        ?? [],
+      )
+
+    /*
+     * La ligne cible de la Fork est précisément celle qui n'est PAS
+     * marquée passthrough dans la Branch de sortie.
+     *
+     * Fork D :
+     *   D = cible
+     *   S = éventuellement passthrough
+     *
+     * Fork S :
+     *   S = cible
+     *   D = éventuellement passthrough
+     *
+     * Un Stop fraîchement déposé prend donc naturellement la ligne
+     * de sa branche, sans empêcher ensuite le choix D/S en propriétés.
+     */
+    const target =
+      branchLines.value.find(
+        line => {
+          if (
+            line.id === 'primary'
+            && branchData?.primaryLineVisible
+              === false
+          ) {
+            return false
+          }
+
+          return !passthroughIds.has(
+            line.id,
+          )
+        },
+      )
+
+    return (
+      target?.id
+      ?? branchLines.value[0]?.id
+      ?? 'primary'
+    )
+  })
 
 const stopLineIds = computed(() => {
   const stored =
@@ -167,7 +428,7 @@ const stopLineIds = computed(() => {
     !stored
     || stored.length === 0
   ) {
-    return ['primary']
+    return [defaultStopLineId.value]
   }
 
   const availableIds =
@@ -187,9 +448,20 @@ const stopLineIds = computed(() => {
   return (
     validIds.length > 0
       ? validIds
-      : ['primary']
+      : [defaultStopLineId.value]
   )
 })
+
+/*
+ * Aucun write automatique ici.
+ *
+ * Pendant un drag depuis la palette, Stop.vue peut être monté pour
+ * le clone/ghost Sortable. Modifier lineIds à ce moment-là peut
+ * déclencher des recalculs/remounts de Fork en plein drag.
+ *
+ * stopLineIds utilise donc simplement defaultStopLineId tant que
+ * l'utilisateur n'a pas fait de choix explicite.
+ */
 
 const stopLines = computed(() =>
   branchLines.value.filter(
@@ -429,6 +701,14 @@ provide<StopContext>(
     :allow-city="lineContext.frameTerminusNames.value"
     :branch="branch"
     @open-connections="showConnectionsEditor = true"
+    @line-membership-change="
+      (lineId, enabled) =>
+        emit(
+          'lineMembershipChange',
+          lineId,
+          enabled,
+        )
+    "
   />
 
   <ConnectionsEditor

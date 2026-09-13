@@ -42,19 +42,37 @@ const elements = ref<Element[]>([
   },
 ])
 
+function createBranch(): Branch {
+  return {
+    id: uuidv4(),
+    $branch: {
+      elementSpacing: 0,
+      marginLeft: 0,
+      marginRight: 0,
+      invertedElements: false,
+      elements: [],
+    },
+  }
+}
+
+function createForkSection(
+  levelOffset: number,
+): LineSection {
+  return {
+    id: uuidv4(),
+    $lineSection: {
+      levelOffset,
+      elements: [
+        createBranch(),
+      ],
+    },
+  }
+}
+
 function clone(element: Element): LineElement {
   switch (element.type) {
     case 'BRANCH':
-      return {
-        id: uuidv4(),
-        $branch: {
-          elementSpacing: 0,
-          marginLeft: 0,
-          marginRight: 0,
-          invertedElements: false,
-          elements: [],
-        },
-      }
+      return createBranch()
 
     case 'FORK':
       return {
@@ -64,6 +82,23 @@ function clone(element: Element): LineElement {
           originOffset: 0,
           linksOffset: [1, -1],
           offsetMultiplier: 1,
+
+          /*
+           * Une nouvelle Fork cible explicitement la ligne principale.
+           * On évite ainsi l'état "non défini" au premier rendu :
+           * elle se place immédiatement sur la principale, puis
+           * l'utilisateur peut choisir librement une autre ligne.
+           */
+          lineId: 'primary',
+
+          /*
+           * La Fork possède directement ses deux sections
+           * de sortie. Elles suivent les deux linksOffset.
+           */
+          sections: [
+            createForkSection(1),
+            createForkSection(-1),
+          ],
         },
       }
 
@@ -83,38 +118,8 @@ function clone(element: Element): LineElement {
         $parallelBranches: {
           alignement: 'LEFT',
           sections: [
-            {
-              id: uuidv4(),
-              $lineSection: {
-                levelOffset: 1,
-                elements: [
-                  {
-                    id: uuidv4(),
-                    $branch: {
-                      elementSpacing: 0,
-                      elements: [],
-                      invertedElements: false,
-                    },
-                  },
-                ],
-              },
-            },
-            {
-              id: uuidv4(),
-              $lineSection: {
-                levelOffset: -1,
-                elements: [
-                  {
-                    id: uuidv4(),
-                    $branch: {
-                      elementSpacing: 0,
-                      elements: [],
-                      invertedElements: false,
-                    },
-                  },
-                ],
-              },
-            },
+            createForkSection(1),
+            createForkSection(-1),
           ],
         },
       }

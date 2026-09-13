@@ -17,6 +17,22 @@ const additionalLines = computed(
   () => branch.value.$branch.additionalLines ?? [],
 )
 
+const primaryLineVisible = computed({
+  get: () =>
+    branch.value.$branch.primaryLineVisible
+    !== false,
+
+  set: (value: boolean) => {
+    branch.value.$branch.primaryLineVisible =
+      value
+  },
+})
+
+const visibleLineCount = computed(() =>
+  (primaryLineVisible.value ? 1 : 0)
+  + additionalLines.value.length,
+)
+
 function addLine() {
   if (!branch.value.$branch.additionalLines) {
     branch.value.$branch.additionalLines = []
@@ -48,6 +64,13 @@ function deleteLine(id: string) {
   }
 
   lines.splice(index, 1)
+
+  if (
+    lines.length === 0
+    && !primaryLineVisible.value
+  ) {
+    primaryLineVisible.value = true
+  }
 }
 
 function updateLineMode(
@@ -134,12 +157,9 @@ function updateLineColor(
             </div>
 
             <div class="lines-count">
+              {{ visibleLineCount }}
               {{
-                1
-                + additionalLines.length
-              }}
-              {{
-                1 + additionalLines.length > 1
+                visibleLineCount > 1
                   ? 'lignes'
                   : 'ligne'
               }}
@@ -188,8 +208,16 @@ function updateLineColor(
               </div>
 
               <Tag
-                severity="secondary"
-                value="Principale"
+                :severity="
+                  primaryLineVisible
+                    ? 'secondary'
+                    : 'warn'
+                "
+                :value="
+                  primaryLineVisible
+                    ? 'Principale'
+                    : 'Masquée ici'
+                "
                 class="main-line-tag"
               />
             </div>
@@ -201,6 +229,28 @@ function updateLineColor(
                 Cette ligne est définie dans les paramètres généraux du plan.
               </span>
             </div>
+
+            <label
+              class="primary-line-visibility"
+              :for="`${branch.id}_primaryLineVisible`"
+            >
+              <div class="primary-line-visibility-text">
+                <div class="primary-line-visibility-title">
+                  Ligne principale sur cette branche
+                </div>
+
+                <div class="primary-line-visibility-description">
+                  Désactivez-la pour laisser une ligne supplémentaire continuer seule sur cette branche.
+                </div>
+              </div>
+
+              <Checkbox
+                v-model="primaryLineVisible"
+                binary
+                :disabled="additionalLines.length === 0"
+                :input-id="`${branch.id}_primaryLineVisible`"
+              />
+            </label>
           </div>
 
           <div
@@ -903,6 +953,51 @@ function updateLineColor(
   font-size: .85rem;
 }
 
+.primary-line-visibility {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: .75rem;
+
+  margin-top: .65rem;
+  padding-top: .65rem;
+
+  border-top:
+    1px
+    solid
+    color-mix(
+      in srgb,
+      var(--p-surface-400) 12%,
+      transparent
+    );
+
+  cursor: pointer;
+}
+
+.primary-line-visibility-text {
+  min-width: 0;
+}
+
+.primary-line-visibility-title {
+  font-size: .72rem;
+  font-weight: 700;
+
+  color:
+    var(--p-text-color);
+}
+
+.primary-line-visibility-description {
+  margin-top: .08rem;
+
+  font-size: .65rem;
+  line-height: 1.35;
+
+  color:
+    var(--p-text-muted-color);
+}
+
 .line-editor-grid {
   display: grid;
 
@@ -1188,6 +1283,7 @@ function updateLineColor(
   .information-notice,
   .footer-hint,
   .main-line-notice,
+  .primary-line-visibility-description,
   .multi-line-hint {
     display: none;
   }

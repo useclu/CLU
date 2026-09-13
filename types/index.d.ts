@@ -402,6 +402,19 @@ declare global {
       connections: Connection[]
 
       /*
+       * Lignes réellement desservies par cet arrêt.
+       *
+       * "primary" désigne la ligne principale du projet.
+       * Les autres valeurs correspondent aux id de
+       * BranchAdditionalLine.
+       *
+       * Optionnel pour conserver la compatibilité avec les
+       * anciens projets : sans lineIds, l'arrêt appartient
+       * uniquement à "primary".
+       */
+      lineIds?: string[]
+
+      /*
        * Ancien emplacement des correspondances
        * personnalisées.
        *
@@ -497,6 +510,20 @@ declare global {
        * fonctionner exactement comme avant.
        */
       additionalLines?: BranchAdditionalLine[]
+
+      /*
+       * Permet à une Branch de ne porter que les lignes
+       * secondaires.
+       *
+       * true / undefined = la ligne principale est dessinée.
+       * false = la ligne principale est absente de cette Branch.
+       *
+       * Exemple :
+       * - branche D seule : primaryLineVisible=true, additionalLines=[]
+       * - corridor D+S : primaryLineVisible=true, additionalLines=[S]
+       * - branche S seule : primaryLineVisible=false, additionalLines=[S]
+       */
+      primaryLineVisible?: boolean
     }
   }
 
@@ -512,6 +539,43 @@ declare global {
       linksOffset: [number, number]
       offsetMultiplier?: number
       directionalArrows?: 'CW' | 'CCW'
+
+      /*
+       * Ligne réellement bifurquée.
+       *
+       * "primary" = ligne principale du projet.
+       * Toute autre valeur = id d'une BranchAdditionalLine.
+       *
+       * Optionnel afin que les anciennes fourches restent
+       * automatiquement attachées à "primary".
+       */
+      lineId?: string
+
+      /*
+       * Ancrage logique horizontal de la bifurcation.
+       *
+       * La fourche est placée immédiatement APRÈS cet arrêt
+       * de la ligne ciblée. On ne stocke donc aucun X en pixels.
+       *
+       * C'est cette donnée qui permettra par exemple de dire :
+       * "la ligne S bifurque après Corbeil-Essonnes", même si
+       * une autre ligne a déjà bifurqué auparavant.
+       */
+      afterStopId?: string
+
+      /*
+       * Nouveau modèle autonome de bifurcation.
+       *
+       * Une fourche peut posséder directement ses deux sections
+       * de sortie. Le nouveau rendu n'a alors plus besoin d'un
+       * élément ParallelBranches séparé pour prolonger la fourche.
+       *
+       * Cette propriété reste optionnelle :
+       * - les anciens projets continuent d'utiliser le couple
+       *   Fork + ParallelBranches historique ;
+       * - les nouveaux projets peuvent utiliser Fork seule.
+       */
+      sections?: [LineSection, LineSection]
 
       /*
        * Style visuel de la bifurcation.

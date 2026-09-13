@@ -455,7 +455,221 @@ const color = computed(
  * bifurcations, changements de ligne) puissent s'appuyer
  * sur exactement la même source de vérité.
  */
-const branchLines = computed(() => [
+/*
+ * Une ligne transmise par une Fork reste disponible LOGIQUEMENT
+ * dans la Branch enfant (donc visible dans les propriétés d'arrêt),
+ * mais elle ne doit pas être dessinée tant qu'aucun arrêt de cette
+ * Branch ne l'utilise réellement.
+ *
+ * Exemple Fork D :
+ * - D est la ligne bifurquée : visible immédiatement ;
+ * - S est seulement "disponible en continuité" ;
+ * - S n'apparaît que lorsqu'un arrêt de cette sortie est coché S.
+ */
+type BranchWithPassthrough = Branch['$branch'] & {
+  passthroughLineIds?: string[]
+}
+
+/*
+ * Ligne implicite d'un Stop qui ne possède pas encore lineIds.
+ *
+ * Ancien comportement :
+ *   pas de lineIds => primary
+ *
+ * Cela est faux dans une sortie de Fork S : D peut être seulement
+ * passthrough tandis que S est la vraie ligne cible de la Branch.
+ *
+ * On déduit donc la ligne naturelle uniquement depuis l'état logique
+ * déjà présent sur la Branch, sans modifier le Stop et sans écrire
+ * pendant un drag Sortable.
+ */
+function defaultStopLineIdForBranch() {
+  const branchData =
+    branch.value.$branch as BranchWithPassthrough
+
+  const passthroughIds =
+    new Set(
+      branchData.passthroughLineIds
+      ?? [],
+    )
+
+  if (
+    branch.value.$branch.primaryLineVisible
+    !== false
+    && !passthroughIds.has(
+      'primary',
+    )
+  ) {
+    return 'primary'
+  }
+
+  const directAdditionalLine =
+    (
+      branch.value.$branch.additionalLines
+      ?? []
+    ).find(
+      line =>
+        !passthroughIds.has(
+          line.id,
+        ),
+    )
+
+  if (directAdditionalLine) {
+    return directAdditionalLine.id
+  }
+
+  /*
+   * Fallback de sécurité pour les anciens projets :
+   * si toute la structure est marquée passthrough, on conserve quand
+   * même un rail existant plutôt que d'inventer D.
+   */
+  if (
+    branch.value.$branch.primaryLineVisible
+    !== false
+  ) {
+    return 'primary'
+  }
+
+  return (
+    branch.value.$branch.additionalLines?.[0]?.id
+    ?? 'primary'
+  )
+}
+
+function branchUsesLine(
+  lineId: string,
+) {
+  return (
+    branch.value.$branch.elements ?? []
+  ).some((element) => {
+    if (!('$stop' in element)) {
+      return false
+    }
+
+    const ids =
+      (
+        element.$stop as Stop['$stop'] & {
+          lineIds?: string[]
+        }
+      ).lineIds
+
+    if (
+      !ids
+      || ids.length === 0
+    ) {
+      return (
+        lineId
+        === defaultStopLineIdForBranch()
+      )
+    }
+
+    return ids.includes(lineId)
+  })
+}
+
+function branchLineIsVisible(
+  lineId: string,
+) {
+  const branchData =
+    branch.value.$branch as BranchWithPassthrough
+
+  const passthroughIds =
+    branchData.passthroughLineIds
+    ?? []
+
+  return (
+    !passthroughIds.includes(lineId)
+    || branchUsesLine(lineId)
+  )
+}
+
+/*
+ * Lignes réellement dessinées dans cette Branch.
+ *
+ * La principale est toujours en haut lorsqu'elle est visible.
+ */
+const branchLines = computed(() => {
+  const lines = [] as Array<{
+    id: string
+    mode: Mode | null
+    index: LineIndex | null
+    color: string
+    primary: boolean
+  }>
+
+  if (
+    branch.value.$branch.primaryLineVisible
+    !== false
+    && branchLineIsVisible('primary')
+  ) {
+    lines.push({
+      id: 'primary',
+      mode: project.line.mode,
+      index: project.line.index,
+      color: color.value,
+      primary: true,
+    })
+  }
+
+  lines.push(
+    ...(
+      branch.value.$branch.additionalLines ?? []
+    )
+      .filter(
+        branchLine =>
+          branchLineIsVisible(
+            branchLine.id,
+          ),
+      )
+      .map(branchLine => ({
+        id: branchLine.id,
+        mode: branchLine.mode,
+        index: branchLine.index,
+        color:
+          branchLine.color
+          || '#000000',
+        primary: false,
+      })),
+  )
+
+  return lines
+})
+
+/*
+ * =========================================================
+ * SLOTS VERTICAUX DU CORRIDOR
+ * =========================================================
+ *
+ * Très important :
+ *
+ * masquer la ligne principale dans une Branch ne doit PAS
+ * recentrer une ligne secondaire.
+ *
+ * Exemple :
+ *
+ * D  ─────────────
+ * S  ─────────────
+ *
+ * puis une Branch S seule :
+ *
+ *    (slot D conservé)
+ * S  ─────────────
+ *
+ * On conserve donc toujours le slot vertical de "primary"
+ * dans la géométrie, même lorsque son trait n'est pas dessiné.
+ *
+ * branchLines       = rails visibles
+ * branchLayoutLines = places verticales du corridor
+ */
+const branchLayoutLines = computed(() => [
+  {
+    id: 'primary',
+    mode: project.line.mode,
+    index: project.line.index,
+    color: color.value,
+    primary: true,
+  },
+
   ...(
     branch.value.$branch.additionalLines ?? []
   ).map(branchLine => ({
@@ -467,14 +681,30 @@ const branchLines = computed(() => [
       || '#000000',
     primary: false,
   })),
-  {
-    id: 'primary',
-    mode: project.line.mode,
-    index: project.line.index,
-    color: color.value,
-    primary: true,
-  },
 ])
+
+function branchLayoutIndex(
+  visibleLineIndex: number,
+) {
+  const lineId =
+    branchLines.value[
+      visibleLineIndex
+    ]?.id
+
+  if (!lineId) {
+    return visibleLineIndex
+  }
+
+  const layoutIndex =
+    branchLayoutLines.value.findIndex(
+      branchLine =>
+        branchLine.id === lineId,
+    )
+
+  return layoutIndex >= 0
+    ? layoutIndex
+    : visibleLineIndex
+}
 
 const lineWidth = computed(() => {
   if (project.line.mode === 'TRAM') {
@@ -496,7 +726,22 @@ const lineWidth = computed(() => {
 const minimumLineGap = computed(
   () =>
     Math.max(
-      0.18,
+      /*
+       * CORRIDOR D / S :
+       *
+       * On ne déforme plus les Fork et on ne déplace plus
+       * individuellement les noms / correspondances.
+       *
+       * Une Fork symétrique d'origine occupe 2.75em vers
+       * l'intérieur de son rail. Avec une Fork D et une Fork S,
+       * il faut donc au moins 5.5em entre leurs centres, plus
+       * l'épaisseur des traits et une respiration visuelle.
+       *
+       * En imposant ce minimum GLOBAL, la ligne S entière descend
+       * de façon cohérente partout : avant, pendant et après les Fork.
+       * Les raccords restent donc alignés.
+       */
+      5.85,
       lineWidth.value * 0.35,
     ),
 )
@@ -511,6 +756,55 @@ const minimumLineGap = computed(
 const measuredPrimaryLineGap =
   ref(0)
 
+
+/*
+ * Minimum structurel calculé directement depuis les Fork du
+ * SectionEditor parent. Il existe dès le premier rendu après F5.
+ */
+const getSectionStructuralPrimaryLineGap =
+  inject<
+    () => number
+  >(
+    'sectionStructuralPrimaryLineGapEm',
+    () => 0,
+  )
+
+const sectionStructuralPrimaryLineGap =
+  computed(() =>
+    Math.max(
+      0,
+      getSectionStructuralPrimaryLineGap(),
+    ),
+  )
+
+/*
+ * Dans une sortie de Fork, le rail non bifurqué doit rester
+ * exactement à la même hauteur que dans le corridor d'entrée.
+ *
+ * Fork.vue fournit donc l'écart D/S nécessaire à cette sortie.
+ * C'est uniquement une valeur de rendu CSS, jamais persistée.
+ */
+const getForkOutputPrimaryLineGap =
+  inject<
+    (
+      branchId: string,
+    ) => number
+  >(
+    'forkOutputPrimaryLineGapForBranch',
+    () => 0,
+  )
+
+const forkOutputPrimaryLineGap =
+  computed(() =>
+    Math.max(
+      0,
+      getForkOutputPrimaryLineGap(
+        branch.value.id,
+      ),
+    ),
+  )
+
+
 /*
  * L'écart dynamique ne concerne que la séparation
  * immédiatement au-dessus de la ligne principale.
@@ -521,13 +815,55 @@ const measuredPrimaryLineGap =
  * les noms de la ligne principale.
  */
 const primaryLineGap = computed(() => {
-  if (branchLines.value.length <= 1) {
+  if (
+    branchLayoutLines.value.length <= 1
+  ) {
     return 0
   }
 
+  /*
+   * Dans une sortie de Fork qui transporte une ligne tout droit,
+   * l'écart imposé par la Fork est la géométrie de référence.
+   * Le recalcul local ne doit jamais déplacer S après un F5.
+   */
+  if (
+    forkOutputPrimaryLineGap.value > 0
+  ) {
+    return Math.max(
+      minimumLineGap.value,
+      forkOutputPrimaryLineGap.value,
+    )
+  }
+
+  /*
+   * La Section nous donne l'emprise verticale des Fork présentes :
+   *
+   *   primaryDown + secondaryUp + 0.68em de respiration.
+   *
+   * Avec le corridor D/S désormais volontairement large, cette
+   * emprise ne doit plus REMPLACER l'écart de base : elle doit
+   * s'AJOUTER à lui.
+   *
+   * C'est précisément ce qui manquait sur la portion avant la Fork :
+   * S restait un cran plus haut, alors qu'après la Fork elle était
+   * déjà descendue avec la géométrie de sortie.
+   *
+   * On retire seulement les 0.68em de respiration déjà inclus dans
+   * le calcul structurel, afin de n'ajouter que le déplacement réel
+   * provoqué par les Fork.
+   */
+  const structuralForkMovement =
+    Math.max(
+      0,
+      sectionStructuralPrimaryLineGap.value
+      - 0.68,
+    )
+
   return Math.max(
-    minimumLineGap.value,
+    minimumLineGap.value
+    + structuralForkMovement,
     measuredPrimaryLineGap.value,
+    sectionStructuralPrimaryLineGap.value,
   )
 })
 
@@ -540,11 +876,16 @@ const primaryLineGap = computed(() => {
 function gapAfterBranchLine(
   index: number,
 ) {
-  const lastAdditionalLineIndex =
-    branchLines.value.length - 2
-
+  /*
+   * Le slot de primary existe toujours dans la géométrie,
+   * même lorsque son trait est masqué.
+   *
+   * Le premier espace du corridor reste donc l'espace D/S.
+   * C'est précisément ce qui empêche S de se recentrer.
+   */
   if (
-    index === lastAdditionalLineIndex
+    branchLayoutLines.value.length > 1
+    && index === 0
   ) {
     return primaryLineGap.value
   }
@@ -563,10 +904,15 @@ function gapAfterBranchLine(
  * à l'épaisseur historique de la ligne.
  */
 const totalLineWidth = computed(() => {
+  /*
+   * La hauteur du corridor repose sur les SLOTS logiques.
+   * Ainsi une Branch S seule garde la même hauteur / position
+   * qu'une S située sous D dans un corridor D + S.
+   */
   const count =
     Math.max(
       1,
-      branchLines.value.length,
+      branchLayoutLines.value.length,
     )
 
   let total =
@@ -589,8 +935,13 @@ const totalLineWidth = computed(() => {
  * exprimée en em à partir du haut du corridor.
  */
 function branchLineOffsetEm(
-  index: number,
+  visibleLineIndex: number,
 ) {
+  const index =
+    branchLayoutIndex(
+      visibleLineIndex,
+    )
+
   let offset =
     lineWidth.value / 2
 
@@ -648,6 +999,42 @@ function branchLineCenterOffset(
   )
 }
 
+
+/*
+ * =========================================================
+ * ZONE DE DROP = RAIL RÉELLEMENT VISIBLE
+ * =========================================================
+ *
+ * Une sortie de Fork peut conserver plusieurs SLOTS logiques
+ * (ex. D + S) alors qu'un seul rail est réellement dessiné.
+ *
+ * Exemple Fork S :
+ *   slot D conservé
+ *   S visible plus bas
+ *
+ * Le rail S était donc correctement dessiné plus bas, mais la zone
+ * VueDraggable de la Branch restait au CENTRE du corridor.
+ * Visuellement on lâchait le Stop sur S, alors que la vraie zone de
+ * drop se trouvait ailleurs.
+ *
+ * On déplace uniquement le CONTENEUR draggable sur l'unique rail
+ * visible. Aucun rail, aucune Fork et aucune donnée du projet ne bouge.
+ */
+const branchDropRailOffsetPx =
+  computed(() => {
+    if (branchLines.value.length !== 1) {
+      return 0
+    }
+
+    return branchLineCenterOffset(0)
+  })
+
+const branchDropRailOffsetCss =
+  computed(
+    () =>
+      `${branchDropRailOffsetPx.value}px`,
+  )
+
 /*
  * Mesure la place réellement prise par les noms
  * d'arrêts situés AU-DESSUS de la ligne principale.
@@ -672,126 +1059,224 @@ function updateMultiLineSpacing() {
     return
   }
 
-  const wrapperRect =
-    el.value.getBoundingClientRect()
+  /*
+   * =========================================================
+   * RÈGLE DU CORRIDOR : RIEN NE TOUCHE RIEN
+   * =========================================================
+   *
+   * À ce stade D et S restent DEUX RAILS DROITS.
+   * Une différence d'appartenance des arrêts ne crée JAMAIS
+   * automatiquement une pente / une bifurcation.
+   *
+   * L'unique rôle de ce calcul est d'augmenter l'espace entre
+   * la dernière ligne supplémentaire (au-dessus) et primary
+   * (en dessous) lorsqu'un contenu visuel risque de toucher
+   * l'autre rail :
+   *
+   * - point d'arrêt ;
+   * - nom ;
+   * - sous-titre / nom de lieu ;
+   * - correspondances ;
+   * - tout descendant visible du Stop.
+   *
+   * On mesure les débordements PAR RAPPORT AU CENTRE DE LEUR
+   * PROPRE RAIL. Le résultat est donc stable : agrandir l'écart
+   * ne s'ajoute pas au calcul suivant.
+   */
+  const upperLine =
+    branchLines.value[
+      branchLines.value.length - 2
+    ]
 
-  const baselineY =
-    wrapperRect.top
-    + wrapperRect.height / 2
+  const lowerLine =
+    branchLines.value[
+      branchLines.value.length - 1
+    ]
 
-  const nameElements =
-    el.value.querySelectorAll<HTMLElement>(
-      '.stop-wrapper .names',
+  if (!upperLine || !lowerLine) {
+    measuredPrimaryLineGap.value = 0
+    return
+  }
+
+  const upperRail =
+    el.value.querySelector<SVGGElement>(
+      `.line > svg [data-line-id="${CSS.escape(upperLine.id)}"]`,
     )
 
-  let upperClearance = 0
+  const lowerRail =
+    el.value.querySelector<SVGGElement>(
+      `.line > svg [data-line-id="${CSS.escape(lowerLine.id)}"]`,
+    )
 
-  nameElements.forEach(
-    (nameElement) => {
-      const stopElement =
-        nameElement.closest<HTMLElement>(
-          '.stop-wrapper',
+  if (!upperRail || !lowerRail) {
+    measuredPrimaryLineGap.value =
+      minimumLineGap.value
+    return
+  }
+
+  const upperRailRect =
+    upperRail.getBoundingClientRect()
+
+  const lowerRailRect =
+    lowerRail.getBoundingClientRect()
+
+  const upperCenterY =
+    upperRailRect.top
+    + upperRailRect.height / 2
+
+  const lowerCenterY =
+    lowerRailRect.top
+    + lowerRailRect.height / 2
+
+  let upperDownPx =
+    upperRailRect.height / 2
+
+  let lowerUpPx =
+    lowerRailRect.height / 2
+
+  const stopElements =
+    el.value.querySelectorAll<HTMLElement>(
+      '.stop-wrapper',
+    )
+
+  function displayedIds(
+    stopElement: HTMLElement,
+  ) {
+    const ids =
+      (stopElement.getAttribute(
+        'data-line-ids',
+      ) ?? '')
+        .split(/\s+/)
+        .map(id => id.trim())
+        .filter(Boolean)
+
+    return ids.length > 0
+      ? ids
+      : ['primary']
+  }
+
+  function visibleRects(
+    stopElement: HTMLElement,
+  ) {
+    const candidates = [
+      stopElement,
+      ...Array.from(
+        stopElement.querySelectorAll<HTMLElement>(
+          '*',
+        ),
+      ),
+    ]
+
+    return candidates
+      .filter((candidate) => {
+        const style =
+          window.getComputedStyle(candidate)
+
+        if (
+          style.display === 'none'
+          || style.visibility === 'hidden'
+          || Number.parseFloat(
+            style.opacity || '1',
+          ) === 0
+        ) {
+          return false
+        }
+
+        const rect =
+          candidate.getBoundingClientRect()
+
+        return (
+          rect.width > 0
+          && rect.height > 0
         )
+      })
+      .map(candidate =>
+        candidate.getBoundingClientRect(),
+      )
+  }
 
-      /*
-       * Un arrêt inversé affiche son nom sous la ligne :
-       * il n'a donc pas besoin de pousser la ligne
-       * supplémentaire située au-dessus.
-       */
-      if (
-        stopElement?.classList
-          .contains('reverse')
-      ) {
-        return
-      }
+  stopElements.forEach((stopElement) => {
+    const ids =
+      displayedIds(stopElement)
 
-      const style =
-        window.getComputedStyle(
-          nameElement,
-        )
+    /*
+     * Un arrêt partagé appartient aux deux rails :
+     * son marqueur de liaison est volontairement autorisé à
+     * occuper l'espace ENTRE les rails. On ne l'utilise donc
+     * pas pour repousser artificiellement D et S à l'infini.
+     *
+     * Les arrêts exclusifs, eux, doivent rester entièrement
+     * dans leur propre territoire.
+     */
+    if (ids.length !== 1) {
+      return
+    }
 
-      if (
-        style.display === 'none'
-        || style.visibility === 'hidden'
-      ) {
-        return
-      }
+    const [lineId] = ids
+    const rects =
+      visibleRects(stopElement)
 
-      const rect =
-        nameElement
-          .getBoundingClientRect()
+    if (lineId === upperLine.id) {
+      rects.forEach((rect) => {
+        upperDownPx =
+          Math.max(
+            upperDownPx,
+            rect.bottom - upperCenterY,
+          )
+      })
+    }
 
-      if (
-        rect.width === 0
-        || rect.height === 0
-      ) {
-        return
-      }
-
-      if (
-        rect.top >= baselineY
-      ) {
-        return
-      }
-
-      upperClearance =
-        Math.max(
-          upperClearance,
-          baselineY - rect.top,
-        )
-    },
-  )
+    if (lineId === lowerLine.id) {
+      rects.forEach((rect) => {
+        lowerUpPx =
+          Math.max(
+            lowerUpPx,
+            lowerCenterY - rect.top,
+          )
+      })
+    }
+  })
 
   /*
-   * Les correspondances d'un arrêt commun peuvent prendre
-   * beaucoup de hauteur juste au niveau de la future fourche.
+   * =========================================================
+   * FOURCHES : CLEARANCE DÉTERMINISTE
+   * =========================================================
    *
-   * On mesure donc aussi leur bloc réel afin que les deux
-   * rails soient déjà suffisamment espacés AVANT de partir
-   * chacun dans leur direction.
-   *
-   * Cela évite qu'une diagonale de séparation traverse les
-   * pictogrammes de correspondance au dernier arrêt commun.
+   * SectionEditor expose l'encombrement intrinsèque des Fork
+   * en em via des variables CSS. On ne dépend donc plus de la
+   * position DOM actuelle des Fork, ce qui supprime la différence
+   * entre le rendu immédiat et le rendu après F5.
    */
-  let sharedConnectionsClearance = 0
-
-  const sharedConnectionElements =
-    el.value.querySelectorAll<HTMLElement>(
-      '.stop-wrapper.shared-line-stop .connections',
+  const sectionStyle =
+    window.getComputedStyle(
+      el.value,
     )
 
-  sharedConnectionElements.forEach(
-    (connectionsElement) => {
-      const style =
-        window.getComputedStyle(
-          connectionsElement,
-        )
+  function inheritedEm(
+    name: string,
+  ) {
+    const value =
+      Number.parseFloat(
+        sectionStyle
+          .getPropertyValue(name)
+          .trim(),
+      )
 
-      if (
-        style.display === 'none'
-        || style.visibility === 'hidden'
-      ) {
-        return
-      }
+    return Number.isFinite(value)
+      ? Math.max(0, value)
+      : 0
+  }
 
-      const rect =
-        connectionsElement
-          .getBoundingClientRect()
+  const forkPrimaryDownEm =
+    inheritedEm(
+      '--fork-primary-down-em',
+    )
 
-      if (
-        rect.width === 0
-        || rect.height === 0
-      ) {
-        return
-      }
+  const forkSecondaryUpEm =
+    inheritedEm(
+      '--fork-secondary-up-em',
+    )
 
-      sharedConnectionsClearance =
-        Math.max(
-          sharedConnectionsClearance,
-          rect.height,
-        )
-    },
-  )
 
   const pixelsPerEm =
     Math.max(
@@ -799,63 +1284,71 @@ function updateMultiLineSpacing() {
       sizeFactor.value * 16,
     )
 
-  const clearanceEm =
-    upperClearance
-    / pixelsPerEm
-
   /*
-   * Petite respiration entre le haut du nom
-   * et le bord inférieur de la ligne du dessus.
+   * D est le rail principal haut, S (ou autre ligne additionnelle)
+   * est située dessous. La Fork D peut déborder vers le bas et la
+   * Fork secondaire vers le haut.
    */
-  const safetyGapEm =
-    0.35
+  if (upperLine.id === 'primary') {
+    upperDownPx =
+      Math.max(
+        upperDownPx,
+        forkPrimaryDownEm
+        * pixelsPerEm
+        + lineWidth.value
+        * pixelsPerEm / 2,
+      )
+  }
 
-  const connectionsClearanceEm =
-    sharedConnectionsClearance
-    / pixelsPerEm
+  if (lowerLine.id !== 'primary') {
+    lowerUpPx =
+      Math.max(
+        lowerUpPx,
+        forkSecondaryUpEm
+        * pixelsPerEm
+        + lineWidth.value
+        * pixelsPerEm / 2,
+      )
+  }
 
-  const requiredGapFromNames =
+  const safetyPx =
     Math.max(
-      0,
-      clearanceEm
-      + safetyGapEm
-      - lineWidth.value / 2,
+      12,
+      /*
+       * Le corridor est maintenant plus large globalement.
+       * Cette marge garde encore de l'air autour des noms et
+       * correspondances, sans déplacer leur contenu séparément.
+       */
+      pixelsPerEm * 0.82,
     )
 
   /*
-   * On ne reprend pas toute la hauteur des correspondances :
-   * cela créerait un corridor exagérément grand.
-   *
-   * En revanche, on réserve une part suffisante pour que
-   * les deux lignes droites respirent avant la fourche.
+   * Distance nécessaire entre les CENTRES des deux rails.
    */
-  const requiredGapFromConnections =
-    sharedConnectionsClearance > 0
-      ? Math.max(
-          minimumLineGap.value,
-          connectionsClearanceEm * 0.62
-          + 0.45,
-        )
-      : 0
-
-  const requiredGap =
-    Math.max(
-      requiredGapFromNames,
-      requiredGapFromConnections,
-    )
+  const requiredCentersPx =
+    upperDownPx
+    + lowerUpPx
+    + safetyPx
 
   /*
-   * Évite de déclencher une cascade de ResizeObserver
-   * pour une variation de quelques sous-pixels.
+   * gapAfterBranchLine() représente l'espace LIBRE entre les
+   * deux traits, donc on retire une épaisseur complète de rail.
    */
+  const requiredGapEm =
+    Math.max(
+      minimumLineGap.value,
+      requiredCentersPx / pixelsPerEm
+      - lineWidth.value,
+    )
+
   if (
     Math.abs(
       measuredPrimaryLineGap.value
-      - requiredGap,
+      - requiredGapEm,
     ) > 0.02
   ) {
     measuredPrimaryLineGap.value =
-      requiredGap
+      requiredGapEm
   }
 }
 
@@ -871,6 +1364,28 @@ interface ConnectionBridge {
 
 const connectionBridges =
   ref<ConnectionBridge[]>([])
+
+
+/*
+ * Prolongement très simple d'un rail jusqu'à la Fork suivante.
+ *
+ * La Branch garde la main sur son propre rail :
+ * elle ne change ni de ligne, ni de hauteur, ni de topologie.
+ * Elle continue seulement horizontalement jusqu'à l'entrée
+ * de la bifurcation qui cible cette même ligne.
+ */
+interface LineToForkExtension {
+  key: string
+  lineId: string
+  path: string
+  color: string
+}
+
+const lineToForkExtensions =
+  ref<LineToForkExtension[]>([])
+
+let lineToForkMutationObserver:
+  MutationObserver | null = null
 
 interface OutOfFareZoneSegment {
   key: string
@@ -1047,6 +1562,15 @@ let resizeObserver:
 let mutationObserver:
   MutationObserver | null = null
 
+/*
+ * Observe les éléments structurels voisins (notamment les Fork)
+ * dans la même Section. Sans cela, une Fork ajoutée APRÈS le
+ * montage de la Branch n'entrait dans le calcul d'espacement
+ * qu'au prochain rechargement de page.
+ */
+let sectionStyleObserver:
+  MutationObserver | null = null
+
 let bridgeUpdateFrame:
   number | null = null
 
@@ -1062,6 +1586,414 @@ const branchStops = computed(() =>
     (element): element is Stop =>
       '$stop' in element,
   ),
+)
+
+
+interface ParentForkContext {
+  fork: Fork
+  sourceBranch: Branch
+  outputIndex: 0 | 1
+}
+
+/*
+ * Retrouve la Fork propriétaire de CETTE Branch directement dans
+ * project.line.topology.
+ *
+ * Aucun DOM n'est utilisé ici. Donc le résultat est identique :
+ * - juste après l'édition ;
+ * - après F5.
+ */
+function findParentForkContext(
+  targetBranchId: string,
+): ParentForkContext | null {
+  function scanSection(
+    currentSection: LineSection,
+    ownerFork: Fork | null = null,
+    ownerForkSourceBranch: Branch | null = null,
+    ownerOutputIndex: 0 | 1 | null = null,
+  ): ParentForkContext | null {
+    let previousBranch:
+      Branch | null = null
+
+    for (
+      const element
+      of currentSection.$lineSection.elements ?? []
+    ) {
+      if ('$branch' in element) {
+        if (
+          element.id === targetBranchId
+          && ownerFork
+          && ownerForkSourceBranch
+          && ownerOutputIndex !== null
+        ) {
+          return {
+            fork:
+              ownerFork,
+
+            sourceBranch:
+              ownerForkSourceBranch,
+
+            outputIndex:
+              ownerOutputIndex,
+          }
+        }
+
+        previousBranch =
+          element
+
+        continue
+      }
+
+      if ('$fork' in element) {
+        const sourceBranch =
+          previousBranch
+
+        if (sourceBranch) {
+          const childSections =
+            element.$fork.sections
+            ?? []
+
+          for (
+            let index = 0;
+            index < childSections.length;
+            index++
+          ) {
+            const found =
+              scanSection(
+                childSections[index],
+                element,
+                sourceBranch,
+                index as 0 | 1,
+              )
+
+            if (found) {
+              return found
+            }
+          }
+        }
+
+        continue
+      }
+
+      if ('$parallelBranches' in element) {
+        for (
+          const childSection
+          of element.$parallelBranches.sections ?? []
+        ) {
+          const found =
+            scanSection(
+              childSection,
+              ownerFork,
+              ownerForkSourceBranch,
+              ownerOutputIndex,
+            )
+
+          if (found) {
+            return found
+          }
+        }
+      }
+    }
+
+    return null
+  }
+
+  for (
+    const rootSection
+    of project.line.topology ?? []
+  ) {
+    const found =
+      scanSection(
+        rootSection,
+      )
+
+    if (found) {
+      return found
+    }
+  }
+
+  return null
+}
+
+function stopRequestedLineIds() {
+  const ids =
+    new Set<string>()
+
+  for (
+    const stop
+    of branchStops.value
+  ) {
+    const stored =
+      (
+        stop.$stop as Stop['$stop'] & {
+          lineIds?: string[]
+        }
+      ).lineIds
+
+    if (
+      !stored
+      || stored.length === 0
+    ) {
+      ids.add('primary')
+      continue
+    }
+
+    stored.forEach(
+      lineId =>
+        ids.add(lineId),
+    )
+  }
+
+  return ids
+}
+
+/*
+ * Une ligne non ciblée par la Fork n'a le droit de continuer que
+ * dans UNE sortie.
+ *
+ * D + S, Fork D :
+ * - sortie haute : D
+ * - sortie basse : D + S
+ */
+function lineBelongsToForkOutput(
+  context: ParentForkContext,
+  lineId: string,
+) {
+  const targetLineId =
+    context.fork.$fork.lineId
+    || 'primary'
+
+  if (lineId === targetLineId) {
+    return true
+  }
+
+  const inputIds = [
+    ...(
+      context.sourceBranch.$branch.primaryLineVisible
+      !== false
+        ? ['primary']
+        : []
+    ),
+
+    ...(
+      context.sourceBranch.$branch.additionalLines
+      ?? []
+    ).map(
+      line =>
+        line.id,
+    ),
+  ]
+
+  const targetRank =
+    inputIds.indexOf(
+      targetLineId,
+    )
+
+  const lineRank =
+    inputIds.indexOf(
+      lineId,
+    )
+
+  if (
+    targetRank < 0
+    || lineRank < 0
+  ) {
+    return false
+  }
+
+  const topOutputIndex: 0 | 1 =
+    context.fork.$fork.linksOffset[0]
+      >= context.fork.$fork.linksOffset[1]
+      ? 0
+      : 1
+
+  const bottomOutputIndex: 0 | 1 =
+    topOutputIndex === 0
+      ? 1
+      : 0
+
+  const destination =
+    lineRank < targetRank
+      ? topOutputIndex
+      : bottomOutputIndex
+
+  return (
+    destination
+    === context.outputIndex
+  )
+}
+
+/*
+ * C'est le déclencheur qui manquait.
+ *
+ * Quand l'utilisateur coche S sur un arrêt de la sortie :
+ * Branch.vue ajoute immédiatement S à CETTE Branch de sortie,
+ * uniquement si S existe dans le corridor d'entrée et si cette
+ * sortie est bien celle dans laquelle S doit continuer.
+ *
+ * passthroughLineIds garde ensuite S invisible dès qu'aucun arrêt
+ * ne la demande.
+ */
+function ensureRequestedForkLinesImmediately() {
+  const context =
+    findParentForkContext(
+      branch.value.id,
+    )
+
+  if (!context) {
+    return
+  }
+
+  const requested =
+    stopRequestedLineIds()
+
+  if (requested.size === 0) {
+    return
+  }
+
+  const targetLineId =
+    context.fork.$fork.lineId
+    || 'primary'
+
+  const branchData =
+    branch.value.$branch as BranchWithPassthrough
+
+  const nextPassthrough =
+    new Set(
+      branchData.passthroughLineIds
+      ?? [],
+    )
+
+  for (
+    const lineId
+    of requested
+  ) {
+    if (
+      !lineBelongsToForkOutput(
+        context,
+        lineId,
+      )
+    ) {
+      continue
+    }
+
+    if (lineId === 'primary') {
+      if (
+        branch.value.$branch.primaryLineVisible
+        === false
+      ) {
+        branch.value.$branch.primaryLineVisible =
+          true
+      }
+
+      if (
+        targetLineId !== 'primary'
+      ) {
+        nextPassthrough.add(
+          'primary',
+        )
+      }
+
+      continue
+    }
+
+    const sourceLine =
+      (
+        context.sourceBranch
+          .$branch
+          .additionalLines
+        ?? []
+      ).find(
+        line =>
+          line.id === lineId,
+      )
+
+    if (!sourceLine) {
+      continue
+    }
+
+    const alreadyPresent =
+      (
+        branch.value.$branch.additionalLines
+        ?? []
+      ).some(
+        line =>
+          line.id === lineId,
+      )
+
+    if (!alreadyPresent) {
+      branch.value.$branch.additionalLines = [
+        ...(
+          branch.value.$branch.additionalLines
+          ?? []
+        ),
+        {
+          ...sourceLine,
+        },
+      ]
+    }
+
+    if (
+      lineId !== targetLineId
+    ) {
+      nextPassthrough.add(
+        lineId,
+      )
+    }
+  }
+
+  const nextPassthroughIds =
+    Array.from(
+      nextPassthrough,
+    )
+
+  if (
+    JSON.stringify(
+      branchData.passthroughLineIds
+      ?? [],
+    )
+    !== JSON.stringify(
+      nextPassthroughIds,
+    )
+  ) {
+    branchData.passthroughLineIds =
+      nextPassthroughIds
+  }
+}
+
+const stopLineMembershipSignature =
+  computed(() =>
+    JSON.stringify(
+      branchStops.value.map(
+        stop => ({
+          id:
+            stop.id,
+
+          lineIds:
+            (
+              stop.$stop as Stop['$stop'] & {
+                lineIds?: string[]
+              }
+            ).lineIds
+            ?? [],
+        }),
+      ),
+    ),
+  )
+
+watch(
+  stopLineMembershipSignature,
+  async () => {
+    ensureRequestedForkLinesImmediately()
+
+    await nextTick()
+
+    scheduleConnectionBridgeUpdate()
+  },
+  {
+    immediate: true,
+    flush: 'post',
+  },
 )
 
 /*
@@ -1183,8 +2115,18 @@ function stopDisplayedLineIds(
       .map(id => id.trim())
       .filter(Boolean)
 
-  return ids.length > 0
-    ? ids
+  if (ids.length > 0) {
+    return ids
+  }
+
+  /*
+   * Compatibilité :
+   * - corridor normal : ancien arrêt => primary ;
+   * - Branch S seule : ancien arrêt => première ligne visible,
+   *   afin de ne pas remettre le Stop au centre du slot primary.
+   */
+  return branchLines.value[0]
+    ? [branchLines.value[0].id]
     : ['primary']
 }
 
@@ -1208,7 +2150,9 @@ function stopStoredLineIds(
     !stored
     || stored.length === 0
   ) {
-    return ['primary']
+    return branchLines.value[0]
+      ? [branchLines.value[0].id]
+      : ['primary']
   }
 
   const availableIds =
@@ -1227,7 +2171,11 @@ function stopStoredLineIds(
 
   return validIds.length > 0
     ? validIds
-    : ['primary']
+    : (
+        branchLines.value[0]
+          ? [branchLines.value[0].id]
+          : ['primary']
+      )
 }
 
 /*
@@ -1851,225 +2799,31 @@ function forkStraightClearance(
  *   exactement comme le premier arrêt du 16.
  */
 function updateMultiLineStopHorizontalPositions() {
-  if (
-    !el.value
-    || !line.value
-    || branchLines.value.length <= 1
-  ) {
+  if (!el.value) {
     return
   }
 
-  const stopElements =
-    branchStops.value.map(
-      stop =>
-        findStopElement(stop.id),
-    )
-
   /*
-   * On repart toujours des positions naturelles de Flexbox.
-   * Cela évite qu'un recalcul se base sur nos anciens décalages.
+   * Sans bifurcation implicite, tous les arrêts conservent leur
+   * position horizontale naturelle dans la Branch.
+   *
+   * Une future Fork explicite pourra gérer ses propres sections
+   * enfants sans déplacer artificiellement les arrêts du corridor.
    */
-  stopElements.forEach((stopElement) => {
-    if (!stopElement) {
-      return
-    }
+  branchStops.value.forEach((stop) => {
+    const stopElement =
+      findStopElement(stop.id)
 
-    stopElement.style.left = ''
+    if (stopElement) {
+      stopElement.style.left = ''
+    }
   })
-
-  const wrapperRect =
-    el.value.getBoundingClientRect()
-
-  const lineRect =
-    line.value.getBoundingClientRect()
-
-  const lineStartX =
-    lineRect.left
-    - wrapperRect.left
-
-  const lineEndX =
-    lineRect.right
-    - wrapperRect.left
-
-  for (
-    let forkIndex = 0;
-    forkIndex < stopElements.length - 1;
-    forkIndex++
-  ) {
-    const forkElement =
-      stopElements[forkIndex]
-
-    const nextElement =
-      stopElements[forkIndex + 1]
-
-    if (
-      !forkElement
-      || !nextElement
-    ) {
-      continue
-    }
-
-    const forkIds =
-      stopDisplayedLineIds(
-        forkElement,
-      )
-
-    const nextIds =
-      stopDisplayedLineIds(
-        nextElement,
-      )
-
-    if (forkIds.length <= 1) {
-      continue
-    }
-
-    const sameMembership =
-      forkIds.length === nextIds.length
-      && forkIds.every(
-        id => nextIds.includes(id),
-      )
-
-    if (sameMembership) {
-      continue
-    }
-
-    const forkX =
-      stopAnchorX(
-        forkElement,
-        wrapperRect,
-      )
-
-    const naturalNextX =
-      stopAnchorX(
-        nextElement,
-        wrapperRect,
-      )
-
-    const direction =
-      naturalNextX >= forkX
-        ? 1
-        : -1
-
-    const visualEndX =
-      direction > 0
-        ? lineEndX
-        : lineStartX
-
-    const availableLength =
-      Math.abs(
-        visualEndX - forkX,
-      )
-
-    if (availableLength <= 1) {
-      continue
-    }
-
-    /*
-     * Chaque ligne présente au dernier arrêt commun reçoit
-     * sa propre liste d'arrêts exclusifs après la fourche.
-     */
-    forkIds.forEach((lineId) => {
-      const exclusiveStops:
-        Array<{
-          element: HTMLElement
-          naturalX: number
-        }> = []
-
-      for (
-        let stopIndex = forkIndex + 1;
-        stopIndex < stopElements.length;
-        stopIndex++
-      ) {
-        const stopElement =
-          stopElements[stopIndex]
-
-        if (!stopElement) {
-          continue
-        }
-
-        const ids =
-          stopDisplayedLineIds(
-            stopElement,
-          )
-
-        /*
-         * On ne déplace ici que les arrêts propres à cette
-         * ligne. Un éventuel arrêt partagé plus loin reste
-         * un point topologique commun.
-         */
-        if (
-          ids.length !== 1
-          || ids[0] !== lineId
-        ) {
-          continue
-        }
-
-        exclusiveStops.push({
-          element: stopElement,
-          naturalX:
-            stopAnchorX(
-              stopElement,
-              wrapperRect,
-            ),
-        })
-      }
-
-      if (exclusiveStops.length === 0) {
-        return
-      }
-
-      /*
-       * La dernière station de chaque ligne atteint le bord
-       * utile du tracé ; toutes les autres sont réparties
-       * régulièrement depuis la fourche.
-       */
-      const step =
-        availableLength
-        / exclusiveStops.length
-
-      exclusiveStops.forEach(
-        (item, rank) => {
-          const desiredX =
-            forkX
-            + direction
-              * step
-              * (rank + 1)
-
-          const deltaX =
-            desiredX
-            - item.naturalX
-
-          item.element.style.left =
-            `${deltaX}px`
-        },
-      )
-    })
-
-    /*
-     * Une seule séparation principale est traitée par
-     * corridor pour cette première base multi-lignes.
-     * Les futures réunions / nouvelles fourches pourront
-     * ensuite être ajoutées proprement par tronçons.
-     */
-    break
-  }
 }
 
-/*
- * Retourne le décalage vertical RÉEL d'une ligne pour
- * un arrêt donné.
- *
- * Contrairement à branchLineCenterOffset(), cette fonction
- * tient compte de la fourche déjà dessinée :
- *
- * - avant la séparation : position normale du corridor ;
- * - pendant la pente : position interpolée sur la diagonale ;
- * - après deux arrêts environ : position finale séparée.
- */
 function displayedLineCenterOffsetAtStop(
   lineId: string,
-  stopIndex: number,
-  stopElements: Array<HTMLElement | null>,
+  _stopIndex: number,
+  _stopElements: Array<HTMLElement | null>,
 ) {
   const lineIndex =
     branchLines.value.findIndex(
@@ -2081,306 +2835,18 @@ function displayedLineCenterOffsetAtStop(
     return 0
   }
 
-  const baseOffset =
-    branchLineCenterOffset(lineIndex)
-
-  if (
-    !el.value
-    || !line.value
-    || stopIndex <= 0
-  ) {
-    return baseOffset
-  }
-
-  const wrapperRect =
-    el.value.getBoundingClientRect()
-
-  const lineRect =
-    line.value.getBoundingClientRect()
-
-  const corridorCenterY =
-    lineRect.top
-    - wrapperRect.top
-    + lineRect.height / 2
-
   /*
-   * Même valeur que celle utilisée par la fourche.
-   * Elle doit absolument rester identique afin que
-   * le point de station tombe exactement sur le rail.
-   */
-  const finalSeparation =
-    Math.max(
-      38,
-      sizeFactor.value * 16 * 2.75,
-    )
-
-  const currentBaseY =
-    lineRect.top
-    - wrapperRect.top
-    + branchLineOffset(lineIndex)
-
-  /*
-   * La direction de séparation est déterminée plus bas,
-   * une fois la fourche réellement identifiée.
+   * MODE SIMPLE :
    *
-   * IMPORTANT :
-   * lorsqu'une fourche comporte trois rails ou plus,
-   * le rail le plus proche de l'axe du corridor est
-   * considéré comme la continuité droite.
+   * D et S restent toujours sur leurs rails droits du corridor.
+   * Un changement d'appartenance des arrêts ne crée plus
+   * automatiquement une pente vers le haut / vers le bas.
    *
-   * Ce rail ne doit JAMAIS bouger lorsque l'écartement
-   * de la fourche augmente : seules les branches qui
-   * s'en écartent sont déplacées.
+   * Les vraies bifurcations restent gérées uniquement par Fork.vue.
    */
-
-  /*
-   * On cherche la dernière séparation située avant
-   * l'arrêt courant et qui concernait réellement cette ligne.
-   */
-  for (
-    let forkIndex = stopIndex - 1;
-    forkIndex >= 0;
-    forkIndex--
-  ) {
-    const forkElement =
-      stopElements[forkIndex]
-
-    const afterForkElement =
-      stopElements[forkIndex + 1]
-
-    if (
-      !forkElement
-      || !afterForkElement
-    ) {
-      continue
-    }
-
-    const forkIds =
-      stopDisplayedLineIds(
-        forkElement,
-      )
-
-    const afterForkIds =
-      stopDisplayedLineIds(
-        afterForkElement,
-      )
-
-    /*
-     * Une fourche ne démarre que sur un arrêt
-     * encore partagé par plusieurs lignes.
-     */
-    if (forkIds.length <= 1) {
-      continue
-    }
-
-    const sameMembership =
-      forkIds.length === afterForkIds.length
-      && forkIds.every(
-        id => afterForkIds.includes(id),
-      )
-
-    if (sameMembership) {
-      continue
-    }
-
-    if (!forkIds.includes(lineId)) {
-      continue
-    }
-
-    /*
-     * À partir de trois rails, on garde une vraie
-     * continuité droite parfaitement fixe.
-     *
-     * On choisit le rail dont la position naturelle est
-     * la plus proche du centre du corridor. Les autres
-     * rails sont les branches qui doivent s'écarter.
-     */
-    const straightLineId =
-      forkIds.length >= 3
-        ? forkIds
-            .map((forkLineId) => {
-              const forkLineIndex =
-                branchLines.value.findIndex(
-                  branchLine =>
-                    branchLine.id === forkLineId,
-                )
-
-              if (forkLineIndex < 0) {
-                return {
-                  id: forkLineId,
-                  distance: Number.POSITIVE_INFINITY,
-                }
-              }
-
-              const forkLineY =
-                lineRect.top
-                - wrapperRect.top
-                + branchLineOffset(forkLineIndex)
-
-              return {
-                id: forkLineId,
-                distance:
-                  Math.abs(
-                    forkLineY - corridorCenterY,
-                  ),
-              }
-            })
-            .sort(
-              (first, second) =>
-                first.distance - second.distance,
-            )[0]?.id
-        : null
-
-    const separationDirection =
-      lineId === straightLineId
-        ? 0
-        : currentBaseY < corridorCenterY
-          ? -1
-          : 1
-
-    const forkX =
-      stopAnchorX(
-        forkElement,
-        wrapperRect,
-      )
-
-    const naturalNextElement =
-      stopElements[
-        Math.min(
-          forkIndex + 1,
-          stopElements.length - 1,
-        )
-      ]
-
-    if (!naturalNextElement) {
-      continue
-    }
-
-    const naturalNextX =
-      stopAnchorX(
-        naturalNextElement,
-        wrapperRect,
-      )
-
-    if (forkX === naturalNextX) {
-      continue
-    }
-
-    const direction =
-      naturalNextX > forkX
-        ? 1
-        : -1
-
-    const straightClearance =
-      forkStraightClearance(
-        forkElement,
-        wrapperRect,
-        direction,
-      )
-
-    const slopeStartX =
-      forkX
-      + direction
-        * straightClearance
-
-    const rampTargetIndex =
-      Math.min(
-        forkIndex + 2,
-        stopElements.length - 1,
-      )
-
-    const rampTargetElement =
-      stopElements[rampTargetIndex]
-
-    if (!rampTargetElement) {
-      continue
-    }
-
-    const naturalRampEndX =
-      stopAnchorX(
-        rampTargetElement,
-        wrapperRect,
-      )
-
-    const maximumRampLength =
-      Math.max(
-        58,
-        sizeFactor.value * 16 * 5.4,
-      )
-
-    const minimumRampLength =
-      Math.max(
-        42,
-        sizeFactor.value * 16 * 2.8,
-      )
-
-    const naturalAvailableRamp =
-      direction > 0
-        ? naturalRampEndX - slopeStartX
-        : slopeStartX - naturalRampEndX
-
-    const rampLength =
-      Math.max(
-        minimumRampLength,
-        Math.min(
-          maximumRampLength,
-          Math.max(
-            minimumRampLength,
-            naturalAvailableRamp,
-          ),
-        ),
-      )
-
-    const rampEndX =
-      slopeStartX
-      + direction
-        * rampLength
-
-    const stopElement =
-      stopElements[stopIndex]
-
-    if (!stopElement) {
-      return baseOffset
-    }
-
-    const stopX =
-      stopAnchorX(
-        stopElement,
-        wrapperRect,
-      )
-
-    const effectiveRampLength =
-      Math.max(
-        1,
-        Math.abs(
-          rampEndX - slopeStartX,
-        ),
-      )
-
-    const travelled =
-      direction > 0
-        ? stopX - slopeStartX
-        : slopeStartX - stopX
-
-    const progress =
-      Math.max(
-        0,
-        Math.min(
-          1,
-          travelled
-          / effectiveRampLength,
-        ),
-      )
-
-    return (
-      baseOffset
-      + separationDirection
-        * finalSeparation
-        * progress
-    )
-  }
-
-  return baseOffset
+  return branchLineCenterOffset(
+    lineIndex,
+  )
 }
 
 /*
@@ -2454,8 +2920,18 @@ function updateMultiLineStopPositions() {
       const stopCenter =
         (minCenter + maxCenter) / 2
 
+      /*
+       * .branch-elements est lui-même translaté sur l'unique rail
+       * visible pour rendre le drop naturel.
+       *
+       * On retire donc ce même offset à l'enfant afin que sa position
+       * VISUELLE finale reste exactement celle calculée auparavant.
+       */
       stopElement.style.top =
-        `${stopCenter}px`
+        `${
+          stopCenter
+          - branchDropRailOffsetPx.value
+        }px`
 
       stopElement.style.setProperty(
         '--shared-line-top',
@@ -2490,332 +2966,19 @@ function updateMultiLineStopPositions() {
  * topologie classique gérer le cas.
  */
 function updateMultiLineSeparationCues() {
-  if (
-    !el.value
-    || !line.value
-    || branchLines.value.length <= 1
-  ) {
-    multiLineSeparationCues.value = []
-    return
-  }
-
-  const wrapperRect =
-    el.value.getBoundingClientRect()
-
-  const lineRect =
-    line.value.getBoundingClientRect()
-
-  const stopElements =
-    branchStops.value.map(
-      stop =>
-        findStopElement(stop.id),
-    )
-
-  const cues: MultiLineSeparationCue[] = []
-
-  for (
-    let stopIndex = 0;
-    stopIndex < stopElements.length - 1;
-    stopIndex++
-  ) {
-    const currentStopElement =
-      stopElements[stopIndex]
-
-    const nextStopElement =
-      stopElements[stopIndex + 1]
-
-    if (
-      !currentStopElement
-      || !nextStopElement
-    ) {
-      continue
-    }
-
-    const currentIds =
-      stopDisplayedLineIds(
-        currentStopElement,
-      )
-
-    const nextIds =
-      stopDisplayedLineIds(
-        nextStopElement,
-      )
-
-    const sameMembership =
-      currentIds.length === nextIds.length
-      && currentIds.every(
-        id => nextIds.includes(id),
-      )
-
-    if (sameMembership) {
-      continue
-    }
-
-    /*
-     * La fourche démarre uniquement depuis le dernier
-     * arrêt encore commun à plusieurs lignes.
-     */
-    if (currentIds.length <= 1) {
-      continue
-    }
-
-    const forkX =
-      stopAnchorX(
-        currentStopElement,
-        wrapperRect,
-      )
-
-    const naturalNextX =
-      stopAnchorX(
-        nextStopElement,
-        wrapperRect,
-      )
-
-    if (forkX === naturalNextX) {
-      continue
-    }
-
-    const direction =
-      naturalNextX > forkX
-        ? 1
-        : -1
-
-    /*
-     * NOUVEAU :
-     *
-     * les deux lignes restent d'abord parfaitement
-     * horizontales après le dernier arrêt commun.
-     *
-     * La longueur de ce tronçon dépend de la place
-     * réellement prise par les correspondances.
-     */
-    const straightClearance =
-      forkStraightClearance(
-        currentStopElement,
-        wrapperRect,
-        direction,
-      )
-
-    const slopeStartX =
-      forkX
-      + direction
-        * straightClearance
-
-    /*
-     * La pente reste courte et haute.
-     *
-     * On garde le deuxième arrêt suivant comme limite
-     * naturelle, mais sans jamais étaler la diagonale
-     * sur une trop grande longueur.
-     */
-    const rampTargetIndex =
-      Math.min(
-        stopIndex + 2,
-        stopElements.length - 1,
-      )
-
-    const rampTargetElement =
-      stopElements[rampTargetIndex]
-
-    if (!rampTargetElement) {
-      continue
-    }
-
-    const naturalRampEndX =
-      stopAnchorX(
-        rampTargetElement,
-        wrapperRect,
-      )
-
-    const maximumRampLength =
-      Math.max(
-        58,
-        sizeFactor.value * 16 * 5.4,
-      )
-
-    const naturalAvailableRamp =
-      direction > 0
-        ? naturalRampEndX - slopeStartX
-        : slopeStartX - naturalRampEndX
-
-    /*
-     * Même si les correspondances prennent beaucoup de place,
-     * on garantit une vraie diagonale visible.
-     */
-    const minimumRampLength =
-      Math.max(
-        42,
-        sizeFactor.value * 16 * 2.8,
-      )
-
-    const rampLength =
-      Math.max(
-        minimumRampLength,
-        Math.min(
-          maximumRampLength,
-          Math.max(
-            minimumRampLength,
-            naturalAvailableRamp,
-          ),
-        ),
-      )
-
-    const rampEndX =
-      slopeStartX
-      + direction
-        * rampLength
-
-    const branchEndX =
-      direction > 0
-        ? wrapperRect.width
-        : 0
-
-    const corridorCenterY =
-      lineRect.top
-      - wrapperRect.top
-      + lineRect.height / 2
-
-    const finalSeparation =
-      Math.max(
-        38,
-        sizeFactor.value * 16 * 2.75,
-      )
-
-    /*
-     * Si la fourche possède trois rails ou plus, le rail
-     * le plus proche du centre est la continuité droite.
-     *
-     * On ne lui applique ni masque, ni nouvelle trajectoire :
-     * son tracé historique reste donc strictement au même
-     * endroit, quelle que soit la taille de la fourche.
-     */
-    const straightLineId =
-      currentIds.length >= 3
-        ? currentIds
-            .map((currentLineId) => {
-              const currentLineIndex =
-                branchLines.value.findIndex(
-                  branchLine =>
-                    branchLine.id === currentLineId,
-                )
-
-              if (currentLineIndex < 0) {
-                return {
-                  id: currentLineId,
-                  distance: Number.POSITIVE_INFINITY,
-                }
-              }
-
-              const currentLineY =
-                lineRect.top
-                - wrapperRect.top
-                + branchLineOffset(currentLineIndex)
-
-              return {
-                id: currentLineId,
-                distance:
-                  Math.abs(
-                    currentLineY - corridorCenterY,
-                  ),
-              }
-            })
-            .sort(
-              (first, second) =>
-                first.distance - second.distance,
-            )[0]?.id
-        : null
-
-    currentIds.forEach((lineId) => {
-      /*
-       * La ligne droite reste exactement celle du tracé
-       * de base. On ne la redessine surtout pas.
-       */
-      if (lineId === straightLineId) {
-        return
-      }
-      const lineIndex =
-        branchLines.value.findIndex(
-          branchLine =>
-            branchLine.id === lineId,
-        )
-
-      if (lineIndex < 0) {
-        return
-      }
-
-      const branchLine =
-        branchLines.value[lineIndex]
-
-      const baseY =
-        lineRect.top
-        - wrapperRect.top
-        + branchLineOffset(lineIndex)
-
-      const outwardDirection =
-        baseY < corridorCenterY
-          ? -1
-          : 1
-
-      const separatedY =
-        baseY
-        + outwardDirection
-          * finalSeparation
-
-      /*
-       * On conserve volontairement le rail historique
-       * entre Le Bourget et slopeStartX.
-       *
-       * Il sert de tronçon horizontal propre sous les
-       * correspondances.
-       *
-       * Le masque commence donc seulement au début réel
-       * de la pente.
-       */
-      const maskPath =
-        `M ${slopeStartX} ${baseY}`
-        + ` L ${branchEndX} ${baseY}`
-
-      /*
-       * Vraie géométrie :
-       *
-       * arrêt commun
-       * -----------\
-       *             \
-       *              \____________
-       *
-       * Le premier segment horizontal est fourni par
-       * le rail de base. L'overlay commence seulement
-       * à slopeStartX avec la diagonale.
-       */
-      const path =
-        `M ${slopeStartX} ${baseY}`
-        + ` L ${rampEndX} ${separatedY}`
-        + ` L ${branchEndX} ${separatedY}`
-
-      cues.push({
-        key:
-          `multi-line-clean-fork`
-          + `-${stopIndex}`
-          + `-${lineId}`,
-        path,
-        maskPath,
-        color: branchLine.color,
-      })
-    })
-  }
-
-  multiLineSeparationCues.value =
-    cues
+  /*
+   * MODE SIMPLE :
+   *
+   * Plus de séparation graphique implicite entre D et S.
+   * Les deux rails restent parallèles et droits.
+   *
+   * Une bifurcation réelle doit venir d'un élément Fork explicite,
+   * ce qui évite qu'une Branch fasse croire aux Fork suivantes
+   * qu'un rail a changé de niveau alors que la topologie ne l'a pas fait.
+   */
+  multiLineSeparationCues.value = []
 }
 
-/*
- * Toutes les correspondances d'un arrêt
- * classées par signature.
- *
- * Une même signature peut exceptionnellement
- * être présente plusieurs fois : on conserve
- * donc un tableau.
- */
 function connectionGroupsBySignature(
   stopElement: HTMLElement,
 ) {
@@ -2985,6 +3148,168 @@ function stopAnchorX(
  * Si aucun élément précis n'est trouvé, on revient
  * prudemment au centre du rond de station.
  */
+
+function updateLineToForkExtensions() {
+  if (
+    typeof window === 'undefined'
+    || !el.value
+  ) {
+    lineToForkExtensions.value = []
+    return
+  }
+
+  const host =
+    el.value.closest<HTMLElement>(
+      '.section-element',
+    )
+
+  if (!host) {
+    lineToForkExtensions.value = []
+    return
+  }
+
+  const wrapperRect =
+    el.value.getBoundingClientRect()
+
+  const extensions:
+    LineToForkExtension[] = []
+
+  /*
+   * Plusieurs Fork peuvent partager le même X.
+   * On parcourt donc les Fork consécutives juste après la Branch.
+   */
+  let sibling =
+    host.nextElementSibling
+
+  while (
+    sibling instanceof HTMLElement
+    && sibling.classList.contains(
+      'section-element',
+    )
+  ) {
+    const fork =
+      sibling.querySelector<HTMLElement>(
+        '.fork[data-fork-line-id]',
+      )
+
+    if (!fork) {
+      break
+    }
+
+    const lineId =
+      fork.dataset.forkLineId
+
+    if (!lineId) {
+      sibling =
+        sibling.nextElementSibling
+      continue
+    }
+
+    const visibleLine =
+      branchLines.value.find(
+        candidate =>
+          candidate.id === lineId,
+      )
+
+    /*
+     * Rien n'est inventé :
+     * si cette Branch ne dessine pas cette ligne, on ne fait rien.
+     */
+    if (!visibleLine) {
+      sibling =
+        sibling.nextElementSibling
+      continue
+    }
+
+    const rail =
+      el.value.querySelector<SVGGElement>(
+        `.line > svg [data-line-id="${CSS.escape(lineId)}"]`,
+      )
+
+    const forkSvg =
+      fork.querySelector<SVGSVGElement>(
+        '.fork-svg',
+      )
+
+    if (
+      !rail
+      || !forkSvg
+    ) {
+      sibling =
+        sibling.nextElementSibling
+      continue
+    }
+
+    const railRect =
+      rail.getBoundingClientRect()
+
+    const forkRect =
+      forkSvg.getBoundingClientRect()
+
+    const towardLeft =
+      fork.classList.contains(
+        'toward-left',
+      )
+
+    const railY =
+      railRect.top
+      + railRect.height / 2
+      - wrapperRect.top
+
+    const railEdgeX =
+      (
+        towardLeft
+          ? railRect.left
+          : railRect.right
+      )
+      - wrapperRect.left
+
+    const forkEntryX =
+      (
+        towardLeft
+          ? forkRect.right
+          : forkRect.left
+      )
+      - wrapperRect.left
+
+    /*
+     * Seulement une petite superposition pour éviter un cheveu blanc
+     * entre les deux SVG. Aucun offset persistant.
+     */
+    const overlap =
+      Math.max(
+        1,
+        railRect.height * 0.45,
+      )
+
+    const startX =
+      towardLeft
+        ? railEdgeX + overlap
+        : railEdgeX - overlap
+
+    const endX =
+      towardLeft
+        ? forkEntryX - overlap
+        : forkEntryX + overlap
+
+    extensions.push({
+      key:
+        `line-to-fork-${lineId}-${extensions.length}`,
+      lineId,
+      color:
+        visibleLine.color,
+      path:
+        `M ${startX} ${railY} H ${endX}`,
+    })
+
+    sibling =
+      sibling.nextElementSibling
+  }
+
+  lineToForkExtensions.value =
+    extensions
+}
+
 function stopNameBoundsX(
   stop: Stop,
   stopElement: HTMLElement,
@@ -4199,17 +4524,26 @@ function scheduleConnectionBridgeUpdate() {
 
         await nextTick()
 
+        updateMultiLineStopHorizontalPositions()
+        updateMultiLineStopPositions()
+
+        await nextTick()
+
         updateMultiLineSpacing()
 
         await nextTick()
 
-        updateMultiLineStopHorizontalPositions()
+        /*
+         * L'écart D/S vient éventuellement de changer :
+         * on replace les arrêts exactement sur leurs rails.
+         */
         updateMultiLineStopPositions()
 
         await nextTick()
 
         updateMultiLineSeparationCues()
         updateLineIdentityChangeVisuals()
+        updateLineToForkExtensions()
         updateConnectionBridges()
         updateOutOfFareZoneSegments()
         updateOffLineSegments()
@@ -4280,6 +4614,56 @@ onMounted(
       )
     }
 
+    /*
+     * SectionEditor modifie uniquement les variables CSS de clearance
+     * lorsque les Fork changent. On observe donc uniquement le style
+     * de la Section, sans observer tout le sous-arbre.
+     */
+    const sectionRoot =
+      el.value.closest<HTMLElement>(
+        '.section',
+      )
+
+    if (sectionRoot) {
+      sectionStyleObserver =
+        new MutationObserver(
+          () => {
+            scheduleConnectionBridgeUpdate()
+          },
+        )
+
+      sectionStyleObserver.observe(
+        sectionRoot,
+        {
+          attributes: true,
+          attributeFilter: ['style'],
+        },
+      )
+
+      lineToForkMutationObserver =
+        new MutationObserver(
+          () => {
+            scheduleConnectionBridgeUpdate()
+          },
+        )
+
+      lineToForkMutationObserver.observe(
+        sectionRoot,
+        {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: [
+            'data-fork-line-id',
+          ],
+        },
+      )
+
+      resizeObserver?.observe(
+        sectionRoot,
+      )
+    }
+
     window.addEventListener(
       'resize',
       scheduleConnectionBridgeUpdate,
@@ -4291,6 +4675,8 @@ onBeforeUnmount(
   () => {
     resizeObserver?.disconnect()
     mutationObserver?.disconnect()
+    sectionStyleObserver?.disconnect()
+    lineToForkMutationObserver?.disconnect()
 
     window.removeEventListener(
       'resize',
@@ -4344,6 +4730,7 @@ function onStart(event: DraggableEvent<BranchElement>) {
   <div
     ref="el"
     class="branch-wrapper"
+    :data-branch-id="branch.id"
     :class="{
       empty: elements?.length === 0,
       fluid,
@@ -4587,6 +4974,27 @@ function onStart(event: DraggableEvent<BranchElement>) {
       </template>
     </svg>
 
+    <!--
+      Toc toc : la Branch prolonge son rail jusqu'à la bifurcation
+      suivante qui cible exactement cette ligne.
+    -->
+    <svg
+      v-if="lineToForkExtensions.length > 0"
+      class="line-to-fork-extensions"
+      width="100%"
+      height="100%"
+      overflow="visible"
+      aria-hidden="true"
+    >
+      <path
+        v-for="extension in lineToForkExtensions"
+        :key="extension.key"
+        class="line-to-fork-extension"
+        :d="extension.path"
+        :stroke="extension.color"
+      />
+    </svg>
+
     <div ref="line" class="line">
       <svg
         width="100%"
@@ -4796,6 +5204,17 @@ function onStart(event: DraggableEvent<BranchElement>) {
 
 .branch-elements {
   position: relative;
+
+  /*
+   * Hitbox du drag/drop alignée sur le rail réellement visible.
+   * transform ne modifie pas le flux : la géométrie validée du plan
+   * reste donc strictement inchangée.
+   */
+  transform:
+    translateY(
+      v-bind(branchDropRailOffsetCss)
+    );
+
   min-height: 4em;
   display: flex;
   z-index: 10;
@@ -5150,6 +5569,29 @@ function onStart(event: DraggableEvent<BranchElement>) {
   .dragging & {
     cursor: grabbing;
   }
+}
+
+.line-to-fork-extensions {
+  position: absolute;
+  inset: 0;
+
+  width: 100%;
+  height: 100%;
+
+  overflow: visible;
+  pointer-events: none;
+
+  z-index: 4;
+}
+
+.line-to-fork-extension {
+  fill: none;
+
+  stroke-width:
+    calc(v-bind(lineWidth) * 1em);
+
+  stroke-linecap: butt;
+  stroke-linejoin: round;
 }
 
 .line {
