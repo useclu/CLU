@@ -195,11 +195,42 @@ function toggleSnow() {
           to="/editor"
         />
 
-        <TopbarPageButton
-          :label="$t('ui.topbar.changelog')"
-          icon="i-tabler-checklist"
-          to="/changelog"
-        />
+        <a
+          class="bulb-official-link"
+          href="https://bulb.slama.io"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="BULB Officiel"
+          title="Ouvrir le site officiel de BULB"
+        >
+          <i class="i-tabler-bulb" />
+
+          <span>
+            BULB Officiel
+          </span>
+        </a>
+
+        <a
+          class="social-link"
+          href="https://x.com/Bot_CLU"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="X (Twitter)"
+          title="X (Twitter)"
+        >
+          <i class="i-tabler-brand-x" />
+        </a>
+
+        <a
+          class="social-link"
+          href="https://discord.gg/EPt3scCQH8"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Discord CLU"
+          title="Rejoindre le Discord CLU"
+        >
+          <i class="i-tabler-brand-discord" />
+        </a>
 
         <Divider
           layout="vertical"
@@ -365,13 +396,52 @@ function toggleSnow() {
         @click="showMenu = false"
       />
 
-      <TopbarPageButton
-        :label="$t('ui.topbar.changelog')"
-        icon="i-tabler-checklist"
-        to="/changelog"
-        size="large"
+      <a
+        class="mobile-bulb-official-link"
+        href="https://bulb.slama.io"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="BULB Officiel"
         @click="showMenu = false"
-      />
+      >
+        <i class="i-tabler-bulb" />
+
+        <span>
+          BULB Officiel
+        </span>
+      </a>
+
+      <div class="mobile-social-links">
+        <a
+          class="mobile-social-link"
+          href="https://x.com/Bot_CLU"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="X (Twitter)"
+          @click="showMenu = false"
+        >
+          <i class="i-tabler-brand-x" />
+
+          <span>
+            X
+          </span>
+        </a>
+
+        <a
+          class="mobile-social-link"
+          href="https://discord.gg/EPt3scCQH8"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Discord CLU"
+          @click="showMenu = false"
+        >
+          <i class="i-tabler-brand-discord" />
+
+          <span>
+            Discord
+          </span>
+        </a>
+      </div>
 
       <Divider />
 
@@ -530,6 +600,74 @@ function toggleSnow() {
   gap: .15rem;
 }
 
+.bulb-official-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+
+  min-height: 2.5rem;
+  padding: 0 .75rem;
+
+  border-radius: .5rem;
+
+  color: var(--p-text-color);
+  text-decoration: none;
+
+  font-size: .875rem;
+  font-weight: 500;
+
+  transition:
+    background-color .15s ease,
+    color .15s ease;
+}
+
+.bulb-official-link i {
+  font-size: 1.1rem;
+}
+
+.bulb-official-link:hover {
+  background: var(--p-content-hover-background);
+}
+
+.bulb-official-link:focus-visible {
+  outline:
+    2px solid
+    var(--p-primary-color);
+  outline-offset: 2px;
+}
+
+.social-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 2.5rem;
+  height: 2.5rem;
+
+  border-radius: 50%;
+
+  color: var(--p-text-color);
+  text-decoration: none;
+
+  font-size: 1.2rem;
+
+  transition:
+    background-color .15s ease,
+    color .15s ease;
+}
+
+.social-link:hover {
+  background: var(--p-content-hover-background);
+}
+
+.social-link:focus-visible {
+  outline:
+    2px solid
+    var(--p-primary-color);
+  outline-offset: 2px;
+}
+
 .brand {
   display: flex;
   flex-direction: row;
@@ -672,6 +810,90 @@ function toggleSnow() {
 .mobile-section-title {
   font-size: 1rem;
   font-weight: 700;
+}
+
+.mobile-bulb-official-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+
+  min-height: 2.75rem;
+  padding: .55rem .75rem;
+
+  border-radius: .65rem;
+
+  background: transparent;
+
+  color: var(--p-text-color);
+  text-decoration: none;
+
+  font-size: .9rem;
+  font-weight: 600;
+
+  transition:
+    background-color .15s ease,
+    color .15s ease;
+}
+
+.mobile-bulb-official-link i {
+  font-size: 1.2rem;
+}
+
+.mobile-bulb-official-link:hover {
+  background: var(--p-content-hover-background);
+}
+
+.mobile-bulb-official-link:focus-visible {
+  outline:
+    2px solid
+    var(--p-primary-color);
+  outline-offset: 2px;
+}
+
+.mobile-social-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .5rem;
+}
+
+.mobile-social-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+
+  min-height: 2.75rem;
+  padding: .55rem .75rem;
+
+  border-radius: .65rem;
+
+  background: transparent;
+
+  color: var(--p-text-color);
+  text-decoration: none;
+
+  font-size: .9rem;
+  font-weight: 600;
+
+  transition:
+    background-color .15s ease,
+    color .15s ease;
+}
+
+.mobile-social-link i {
+  font-size: 1.2rem;
+}
+
+.mobile-social-link:hover {
+  background: var(--p-content-hover-background);
+}
+
+.mobile-social-link:focus-visible {
+  outline:
+    2px solid
+    var(--p-primary-color);
+  outline-offset: 2px;
 }
 
 .mobile-footer {
