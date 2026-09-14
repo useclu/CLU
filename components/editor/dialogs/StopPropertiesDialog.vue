@@ -1,9 +1,17 @@
 <script setup lang="ts">
 import { breakpointsTailwind, useBreakpoints } from '@vueuse/core'
 import { v4 as uuidv4 } from 'uuid'
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useProject } from '~/stores/useProject'
 import { cleanName } from '~/utils/text'
+import {
+  getStopSuggestionById,
+  normalizeStopSuggestionText,
+  searchStopSuggestions,
+  type StopSuggestion,
+  type StopSuggestionMode,
+  type StopSuggestionService,
+} from '~/utils/stopSuggestionsCatalog'
 
 const {
   allowCity,
@@ -304,6 +312,24 @@ type MultiLineStopData = Stop['$stop'] & {
   lineIds?: string[]
 
   /*
+   * Identité de la suggestion CLU appliquée à cet arrêt.
+   *
+   * On conserve uniquement l'identifiant de référence :
+   * les données restent entièrement éditables après insertion.
+   */
+  stopSuggestionId?: string | null
+  stopSuggestionSource?: 'CLU' | 'PERSONAL' | null
+
+  /*
+   * Référence CLU d'origine éventuelle.
+   *
+   * Elle reste mémorisée même si l'utilisateur enregistre ensuite
+   * une version personnelle de la station. Le bouton Réinitialiser
+   * peut ainsi toujours restaurer la fiche CLU d'origine.
+   */
+  officialStopSuggestionId?: string | null
+
+  /*
    * Affichage optionnel d'une indication de direction
    * à l'extrémité d'un terminus.
    *
@@ -337,6 +363,1363 @@ const project = useProject()
 const stopData = computed(() =>
   stop.value.$stop as MultiLineStopData,
 )
+
+/*
+ * =========================================================
+ * SUGGESTIONS D'ARRÊTS CLU + CATALOGUE PERSONNEL
+ * =========================================================
+ *
+ * Le champ reste un champ libre :
+ * - aucune suggestion n'est imposée ;
+ * - continuer à écrire ne déclenche aucune modification ;
+ * - seule une sélection explicite applique une fiche ;
+ * - "Sauvegarder" crée ou met à jour une version personnelle ;
+ * - "Réinitialiser" restaure la fiche CLU d'origine lorsqu'elle existe.
+ */
+
+type LineWithStopSuggestions = Line & {
+  stopSuggestionsEnabled?: boolean
+}
+
+type PersonalStopPreset = {
+  connections: Stop['$stop']['connections']
+  nameStyle: Stop['$stop']['nameStyle'] | null
+  subtitle: string
+  placeName: string
+  interestPoint: boolean
+  preventSubtitleOverlapping: boolean
+}
+
+type PersonalStopSuggestion =
+  Omit<StopSuggestion, 'source'> & {
+    source: 'PERSONAL'
+    officialSuggestionId?: string | null
+
+    /*
+     * Copie riche de la station personnelle.
+     *
+     * Contrairement à `services`, ce preset conserve les objets CLU
+     * complets : TGV / TER / OrlyBus, ornements, pictogrammes
+     * personnalisés, indices personnalisés et images du nom.
+     */
+    preset?: PersonalStopPreset
+  }
+
+type AnyStopSuggestion =
+  | StopSuggestion
+  | PersonalStopSuggestion
+
+const PERSONAL_STOP_SUGGESTIONS_STORAGE_KEY =
+  'clu.personalStopSuggestions.v1'
+
+const stopNameFocused = ref(false)
+const activeStopSuggestionIndex = ref(0)
+
+const personalStopSuggestions =
+  ref<PersonalStopSuggestion[]>([])
+
+const stopSuggestionsEnabled = computed(() =>
+  (
+    project.line as LineWithStopSuggestions
+  ).stopSuggestionsEnabled
+  ?? true,
+)
+
+function isStopSuggestionMode(
+  mode: Mode | null | undefined,
+): mode is StopSuggestionMode {
+  return (
+    mode === 'METRO'
+    || mode === 'RER'
+    || mode === 'TRAIN'
+    || mode === 'TRAM'
+  )
+}
+
+function getBuiltinLineIndex(
+  index: LineIndex | null | undefined,
+) {
+  if (
+    !index
+    || typeof index !== 'object'
+    || !('$builtinLineIndex' in index)
+  ) {
+    return null
+  }
+
+  /*
+   * Le catalogue utilise toujours des indices sous forme de texte.
+   * On normalise donc ici aussi pour éviter par exemple qu'un indice
+   * numérique côté projet soit comparé à "6" côté catalogue.
+   */
+  return String(
+    index.$builtinLineIndex.index,
+  )
+}
+
+function isValidPersonalStopSuggestion(
+  value: unknown,
+): value is PersonalStopSuggestion {
+  if (
+    !value
+    || typeof value !== 'object'
+  ) {
+    return false
+  }
+
+  const candidate =
+    value as Partial<PersonalStopSuggestion>
+
+  return (
+    candidate.source === 'PERSONAL'
+    && typeof candidate.id === 'string'
+    && typeof candidate.name === 'string'
+    && Array.isArray(candidate.aliases)
+    && Array.isArray(candidate.services)
+  )
+}
+
+function loadPersonalStopSuggestions() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    const raw =
+      window.localStorage.getItem(
+        PERSONAL_STOP_SUGGESTIONS_STORAGE_KEY,
+      )
+
+    if (!raw) {
+      personalStopSuggestions.value = []
+      return
+    }
+
+    const parsed =
+      JSON.parse(raw) as unknown
+
+    if (!Array.isArray(parsed)) {
+      personalStopSuggestions.value = []
+      return
+    }
+
+    personalStopSuggestions.value =
+      parsed.filter(
+        isValidPersonalStopSuggestion,
+      )
+  }
+  catch (error) {
+    console.error(
+      'Impossible de charger le catalogue personnel CLU.',
+      error,
+    )
+
+    personalStopSuggestions.value = []
+  }
+}
+
+function persistPersonalStopSuggestions() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(
+      PERSONAL_STOP_SUGGESTIONS_STORAGE_KEY,
+      JSON.stringify(
+        personalStopSuggestions.value,
+      ),
+    )
+  }
+  catch (error) {
+    console.error(
+      'Impossible d’enregistrer le catalogue personnel CLU.',
+      error,
+    )
+  }
+}
+
+onMounted(() => {
+  loadPersonalStopSuggestions()
+})
+
+const currentStopSuggestionMode =
+  computed<StopSuggestionMode | null>(() =>
+    isStopSuggestionMode(project.line.mode)
+      ? project.line.mode
+      : null,
+  )
+
+const currentStopSuggestionIndex =
+  computed(() =>
+    getBuiltinLineIndex(project.line.index),
+  )
+
+function getPersonalSuggestionScore(
+  suggestion: PersonalStopSuggestion,
+  query: string,
+) {
+  const candidates = [
+    suggestion.name,
+    ...suggestion.aliases,
+  ].map(
+    normalizeStopSuggestionText,
+  )
+
+  let score = 0
+
+  for (const candidate of candidates) {
+    if (candidate === query) {
+      score = Math.max(score, 1000)
+      continue
+    }
+
+    if (candidate.startsWith(query)) {
+      score = Math.max(score, 800)
+      continue
+    }
+
+    const words =
+      candidate.split(' ')
+
+    if (
+      words.some(
+        word => word.startsWith(query),
+      )
+    ) {
+      score = Math.max(score, 600)
+      continue
+    }
+
+    if (candidate.includes(query)) {
+      score = Math.max(score, 400)
+    }
+  }
+
+  if (
+    currentStopSuggestionMode.value
+    && currentStopSuggestionIndex.value
+    && suggestion.services.some(
+      service =>
+        service.served
+        && service.mode
+          === currentStopSuggestionMode.value
+        && service.index
+          === currentStopSuggestionIndex.value,
+    )
+  ) {
+    score += 250
+  }
+
+  return score
+}
+
+function searchPersonalStopSuggestions(
+  value: string,
+  limit = 6,
+) {
+  const query =
+    normalizeStopSuggestionText(value)
+
+  if (query.length < 2) {
+    return []
+  }
+
+  return personalStopSuggestions.value
+    .map((suggestion) => {
+      const score =
+        getPersonalSuggestionScore(
+          suggestion,
+          query,
+        )
+
+      if (score <= 0) {
+        return null
+      }
+
+      return {
+        suggestion,
+        score,
+      }
+    })
+    .filter(
+      (result): result is {
+        suggestion: PersonalStopSuggestion
+        score: number
+      } => result !== null,
+    )
+    .sort((a, b) => {
+      if (a.score !== b.score) {
+        return b.score - a.score
+      }
+
+      return a.suggestion.name.localeCompare(
+        b.suggestion.name,
+        'fr',
+      )
+    })
+    .slice(0, limit)
+    .map(result => result.suggestion)
+}
+
+const stopSuggestions =
+  computed<AnyStopSuggestion[]>(() => {
+    if (
+      !stopSuggestionsEnabled.value
+      || !stopNameFocused.value
+    ) {
+      return []
+    }
+
+    const value =
+      stop.value.$stop.name ?? ''
+
+    const personalSuggestions =
+      searchPersonalStopSuggestions(
+        value,
+        6,
+      )
+
+    const officialSuggestions =
+      searchStopSuggestions(
+        value,
+        {
+          currentMode:
+            currentStopSuggestionMode.value,
+          currentIndex:
+            currentStopSuggestionIndex.value,
+          /*
+           * On en demande un peu plus avant de fusionner avec
+           * les fiches personnelles.
+           */
+          limit: 12,
+        },
+      )
+
+    const merged: AnyStopSuggestion[] = []
+    const seen = new Set<string>()
+
+    /*
+     * Les versions personnelles passent volontairement avant
+     * les versions CLU lorsqu'elles correspondent à la saisie.
+     * La fiche officielle reste néanmoins disponible juste après.
+     */
+    for (
+      const suggestion
+      of [
+        ...personalSuggestions,
+        ...officialSuggestions,
+      ]
+    ) {
+      const key =
+        [
+          suggestion.source,
+          suggestion.id,
+          normalizeStopSuggestionText(
+            suggestion.name,
+          ),
+        ].join(':')
+
+      if (seen.has(key)) {
+        continue
+      }
+
+      seen.add(key)
+      merged.push(suggestion)
+
+      if (merged.length >= 6) {
+        break
+      }
+    }
+
+    return merged
+  })
+
+const showStopSuggestions = computed(
+  () => stopSuggestions.value.length > 0,
+)
+
+watch(
+  stopSuggestions,
+  (suggestions) => {
+    if (suggestions.length === 0) {
+      activeStopSuggestionIndex.value = 0
+      return
+    }
+
+    if (
+      activeStopSuggestionIndex.value
+      >= suggestions.length
+    ) {
+      activeStopSuggestionIndex.value = 0
+    }
+  },
+)
+
+function onStopNameFocus() {
+  stopNameFocused.value = true
+  activeStopSuggestionIndex.value = 0
+}
+
+function onStopNameInput() {
+  stopNameFocused.value = true
+  activeStopSuggestionIndex.value = 0
+}
+
+function onStopNameBlur() {
+  /*
+   * Petit délai pour laisser un clic sur une suggestion
+   * s'exécuter avant de masquer la liste.
+   */
+  window.setTimeout(() => {
+    stopNameFocused.value = false
+  }, 120)
+}
+
+function isCurrentSuggestionService(
+  service: StopSuggestionService,
+) {
+  /*
+   * 1. Cas normal : la ligne principale actuellement éditée.
+   *
+   * Exemple :
+   * - projet RER A + suggestion Nation -> RER A est retiré ;
+   * - projet Métro 6 + suggestion Nation -> Métro 6 est retiré.
+   */
+  if (
+    service.mode
+      === currentStopSuggestionMode.value
+    && service.index
+      === currentStopSuggestionIndex.value
+  ) {
+    return true
+  }
+
+  /*
+   * 2. Cas multi-lignes :
+   *
+   * Un arrêt peut appartenir à plusieurs lignes dans CLU.
+   * Toute ligne réellement portée par cet arrêt doit également
+   * être considérée comme sa propre ligne et non comme une
+   * correspondance.
+   */
+  return availableBranchLines.value.some(
+    (branchLine) => {
+      if (!isStopOnLine(branchLine.id)) {
+        return false
+      }
+
+      const branchLineIndex =
+        getBuiltinLineIndex(
+          branchLine.index,
+        )
+
+      return (
+        branchLine.mode === service.mode
+        && branchLineIndex === service.index
+      )
+    },
+  )
+}
+
+function stopSuggestionServiceLabel(
+  service: StopSuggestionService,
+) {
+  const prefix = {
+    METRO: 'Métro',
+    RER: 'RER',
+    TRAIN: 'Train',
+    TRAM: 'Tram',
+  }[service.mode]
+
+  return `${prefix} ${service.index}`
+}
+
+function stopSuggestionSourceLabel(
+  suggestion: AnyStopSuggestion,
+) {
+  return suggestion.source === 'PERSONAL'
+    ? 'Personnel'
+    : 'CLU'
+}
+
+function cloneStopCatalogValue<T>(
+  value: T,
+): T {
+  /*
+   * Les données d'un arrêt CLU sont sérialisables en JSON.
+   *
+   * Cette copie profonde évite qu'une fiche personnelle stockée
+   * en mémoire partage des références Vue avec l'arrêt actuellement
+   * édité.
+   */
+  return JSON.parse(
+    JSON.stringify(value),
+  ) as T
+}
+
+function buildCurrentPersonalStopPreset():
+  PersonalStopPreset {
+  ensureNameStyle()
+
+  return {
+    connections:
+      cloneStopCatalogValue(
+        stop.value.$stop.connections ?? [],
+      ) as Stop['$stop']['connections'],
+
+    nameStyle:
+      cloneStopCatalogValue(
+        stop.value.$stop.nameStyle ?? null,
+      ),
+
+    subtitle:
+      stop.value.$stop.subtitle ?? '',
+
+    placeName:
+      stop.value.$stop.placeName ?? '',
+
+    interestPoint:
+      stop.value.$stop.interestPoint === true,
+
+    preventSubtitleOverlapping:
+      stop.value.$stop
+        .preventSubtitleOverlapping
+      !== false,
+  }
+}
+
+function preparePersonalConnections(
+  connections:
+    Stop['$stop']['connections'],
+) {
+  const clonedConnections =
+    cloneStopCatalogValue(
+      connections ?? [],
+    )
+
+  /*
+   * Une fiche personnelle est réutilisable sur n'importe quelle
+   * ligne. On retire donc, au moment de l'appliquer, les lignes qui
+   * correspondent à la ligne actuellement portée par l'arrêt.
+   *
+   * Tous les autres champs de chaque correspondance restent intacts :
+   * ornements, pictogrammes personnalisés, transfert, customConnections,
+   * etc.
+   */
+  return clonedConnections
+    .map((connection) => {
+      if (!('$modeConnection' in connection)) {
+        return connection
+      }
+
+      const modeConnection =
+        connection.$modeConnection
+
+      if (
+        !isStopSuggestionMode(
+          modeConnection.mode,
+        )
+      ) {
+        return connection
+      }
+
+      const elements =
+        (
+          modeConnection.elements
+          ?? []
+        ).filter((element) => {
+          if (
+            !('$modeConnectionElement' in element)
+          ) {
+            return true
+          }
+
+          const modeElement =
+            element.$modeConnectionElement
+
+          const index =
+            getBuiltinLineIndex(
+              modeElement.lineIndex,
+            )
+
+          if (!index) {
+            /*
+             * Un indice personnalisé ne doit surtout pas être perdu.
+             */
+            return true
+          }
+
+          return !isCurrentSuggestionService({
+            mode: modeConnection.mode,
+            index,
+            walk:
+              modeConnection.walk === true
+              || modeElement.walk === true,
+            served: false,
+          })
+        })
+
+      if (elements.length === 0) {
+        return null
+      }
+
+      modeConnection.elements =
+        elements
+
+      return connection
+    })
+    .filter(
+      (
+        connection,
+      ): connection is NonNullable<
+        typeof connection
+      > => connection !== null,
+    ) as Stop['$stop']['connections']
+}
+
+function applyPersonalStopPreset(
+  preset: PersonalStopPreset,
+) {
+  stop.value.$stop.connections =
+    preparePersonalConnections(
+      preset.connections,
+    )
+
+  stop.value.$stop.subtitle =
+    cleanName(preset.subtitle ?? '')
+
+  stop.value.$stop.placeName =
+    cleanName(preset.placeName ?? '')
+
+  stop.value.$stop.interestPoint =
+    preset.interestPoint === true
+
+  stop.value.$stop.preventSubtitleOverlapping =
+    preset.preventSubtitleOverlapping
+    !== false
+
+  if (preset.nameStyle) {
+    stop.value.$stop.nameStyle =
+      cloneStopCatalogValue(
+        preset.nameStyle,
+      )
+
+    ensureNameStyle()
+  }
+}
+
+function buildSuggestedModeConnections(
+  suggestion: AnyStopSuggestion,
+) {
+  /*
+   * La ligne actuellement éditée n'est pas une correspondance
+   * avec elle-même.
+   */
+  const services =
+    suggestion.services.filter(
+      service =>
+        !isCurrentSuggestionService(service),
+    )
+
+  const byMode =
+    new Map<
+      StopSuggestionMode,
+      StopSuggestionService[]
+    >()
+
+  for (const service of services) {
+    const modeServices =
+      byMode.get(service.mode) ?? []
+
+    modeServices.push(service)
+    byMode.set(service.mode, modeServices)
+  }
+
+  return Array.from(
+    byMode.entries(),
+  ).map(([mode, modeServices]) => {
+    /*
+     * Quand toutes les lignes du groupe sont à pied,
+     * le mode complet porte l'information "walk".
+     *
+     * Dans un groupe mixte, chaque ligne conserve son propre
+     * indicateur.
+     */
+    const groupWalk =
+      modeServices.length > 0
+      && modeServices.every(
+        service => service.walk,
+      )
+
+    return {
+      id: uuidv4(),
+      $modeConnection: {
+        mode,
+        elements:
+          modeServices.map(service => ({
+            id: uuidv4(),
+            $modeConnectionElement: {
+              lineIndex: {
+                mode,
+                $builtinLineIndex: {
+                  index: service.index,
+                },
+              },
+              walk:
+                groupWalk
+                  ? false
+                  : service.walk,
+              ornament: null,
+            },
+          })),
+        walk: groupWalk,
+      },
+    }
+  })
+}
+
+function applyStopSuggestion(
+  suggestion: AnyStopSuggestion,
+) {
+  stop.value.$stop.name =
+    suggestion.name
+
+  /*
+   * Une suggestion personnelle récente possède un preset complet.
+   *
+   * C'est lui qui permet de restaurer fidèlement :
+   * - TGV / TER / bus de service / gare ;
+   * - ornements ;
+   * - pictogrammes et indices personnalisés ;
+   * - images et style du nom.
+   *
+   * Les anciennes fiches personnelles déjà présentes dans le
+   * localStorage, qui ne possèdent pas encore de preset, gardent
+   * l'ancien comportement simplifié pour rester compatibles.
+   */
+  if (
+    suggestion.source === 'PERSONAL'
+    && suggestion.preset
+  ) {
+    applyPersonalStopPreset(
+      suggestion.preset,
+    )
+  }
+  else {
+    /*
+     * Catalogue CLU intégré :
+     * on remplace les correspondances de lignes connues tout en
+     * conservant les correspondances de service déjà présentes
+     * sur l'arrêt actuel.
+     */
+    const preservedConnections =
+      (
+        stop.value.$stop.connections
+        ?? []
+      ).filter(
+        connection =>
+          !('$modeConnection' in connection),
+      )
+
+    const suggestedConnections =
+      buildSuggestedModeConnections(
+        suggestion,
+      )
+
+    stop.value.$stop.connections = [
+      ...preservedConnections,
+      ...suggestedConnections,
+    ] as Stop['$stop']['connections']
+  }
+
+  stopData.value.stopSuggestionId =
+    suggestion.id
+
+  stopData.value.stopSuggestionSource =
+    suggestion.source
+
+  if (suggestion.source === 'CLU') {
+    stopData.value.officialStopSuggestionId =
+      suggestion.id
+  }
+  else {
+    stopData.value.officialStopSuggestionId =
+      suggestion.officialSuggestionId
+      ?? null
+  }
+
+  activeStopSuggestionIndex.value = 0
+  stopNameFocused.value = false
+}
+
+function onStopNameKeydown(
+  event: KeyboardEvent,
+) {
+  if (!showStopSuggestions.value) {
+    return
+  }
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+
+    activeStopSuggestionIndex.value =
+      (
+        activeStopSuggestionIndex.value + 1
+      )
+      % stopSuggestions.value.length
+
+    return
+  }
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+
+    activeStopSuggestionIndex.value =
+      (
+        activeStopSuggestionIndex.value
+        - 1
+        + stopSuggestions.value.length
+      )
+      % stopSuggestions.value.length
+
+    return
+  }
+
+  if (
+    event.key === 'Enter'
+    && !event.shiftKey
+  ) {
+    const suggestion =
+      stopSuggestions.value[
+        activeStopSuggestionIndex.value
+      ]
+
+    if (!suggestion) {
+      return
+    }
+
+    event.preventDefault()
+    applyStopSuggestion(suggestion)
+    return
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    stopNameFocused.value = false
+  }
+}
+
+function upsertSuggestionService(
+  services:
+    Map<string, StopSuggestionService>,
+  service: StopSuggestionService,
+) {
+  const key =
+    `${service.mode}:${service.index}`
+
+  const current =
+    services.get(key)
+
+  if (!current) {
+    services.set(
+      key,
+      {
+        ...service,
+      },
+    )
+
+    return
+  }
+
+  /*
+   * Une desserte réelle l'emporte toujours sur une simple
+   * correspondance portant le même indice.
+   */
+  if (
+    service.served
+    && !current.served
+  ) {
+    services.set(
+      key,
+      {
+        ...service,
+        walk: false,
+      },
+    )
+
+    return
+  }
+
+  if (current.served) {
+    current.walk = false
+    return
+  }
+
+  /*
+   * Si au moins une occurrence est directe, la correspondance
+   * n'est pas considérée comme une marche obligatoire.
+   */
+  current.walk =
+    current.walk && service.walk
+}
+
+function collectCurrentStopSuggestionServices() {
+  const services =
+    new Map<
+      string,
+      StopSuggestionService
+    >()
+
+  /*
+   * Les lignes réellement desservies par l'arrêt font partie
+   * de la fiche personnelle avec served = true.
+   */
+  for (
+    const branchLine
+    of availableBranchLines.value
+  ) {
+    if (!isStopOnLine(branchLine.id)) {
+      continue
+    }
+
+    if (
+      !isStopSuggestionMode(
+        branchLine.mode,
+      )
+    ) {
+      continue
+    }
+
+    const index =
+      getBuiltinLineIndex(
+        branchLine.index,
+      )
+
+    if (!index) {
+      continue
+    }
+
+    upsertSuggestionService(
+      services,
+      {
+        mode: branchLine.mode,
+        index,
+        walk: false,
+        served: true,
+      },
+    )
+  }
+
+  /*
+   * Puis on ajoute les correspondances actuellement configurées
+   * dans l'arrêt.
+   */
+  for (
+    const connection
+    of stop.value.$stop.connections ?? []
+  ) {
+    if (!('$modeConnection' in connection)) {
+      continue
+    }
+
+    const modeConnection =
+      connection.$modeConnection
+
+    if (
+      !isStopSuggestionMode(
+        modeConnection.mode,
+      )
+    ) {
+      continue
+    }
+
+    const groupWalk =
+      modeConnection.walk === true
+
+    for (
+      const element
+      of modeConnection.elements ?? []
+    ) {
+      if (
+        !('$modeConnectionElement' in element)
+      ) {
+        continue
+      }
+
+      const modeElement =
+        element.$modeConnectionElement
+
+      const index =
+        getBuiltinLineIndex(
+          modeElement.lineIndex,
+        )
+
+      if (!index) {
+        continue
+      }
+
+      upsertSuggestionService(
+        services,
+        {
+          mode: modeConnection.mode,
+          index,
+          walk:
+            groupWalk
+            || modeElement.walk === true,
+          served: false,
+        },
+      )
+    }
+  }
+
+  const modeOrder:
+    Record<StopSuggestionMode, number> = {
+      METRO: 0,
+      RER: 1,
+      TRAIN: 2,
+      TRAM: 3,
+    }
+
+  return Array.from(
+    services.values(),
+  ).sort((a, b) => {
+    const modeDifference =
+      modeOrder[a.mode]
+      - modeOrder[b.mode]
+
+    if (modeDifference !== 0) {
+      return modeDifference
+    }
+
+    return a.index.localeCompare(
+      b.index,
+      'fr',
+      {
+        numeric: true,
+      },
+    )
+  })
+}
+
+const canSaveCurrentStopSuggestion =
+  computed(
+    () =>
+      normalizeStopSuggestionText(
+        stop.value.$stop.name ?? '',
+      ).length > 0,
+  )
+
+function createPersonalStopSuggestionId(
+  name: string,
+) {
+  const normalized =
+    normalizeStopSuggestionText(name)
+
+  const slug =
+    normalized
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+
+  return [
+    'personal',
+    slug || 'arret',
+    uuidv4().slice(0, 8),
+  ].join('-')
+}
+
+function saveCurrentStopToPersonalCatalog() {
+  const name =
+    cleanName(
+      stop.value.$stop.name ?? '',
+    ).trim()
+
+  if (!name) {
+    return
+  }
+
+  const normalizedName =
+    normalizeStopSuggestionText(name)
+
+  let existing:
+    PersonalStopSuggestion
+    | undefined
+
+  if (
+    stopData.value.stopSuggestionSource
+      === 'PERSONAL'
+    && stopData.value.stopSuggestionId
+  ) {
+    existing =
+      personalStopSuggestions.value.find(
+        suggestion =>
+          suggestion.id
+          === stopData.value.stopSuggestionId,
+      )
+  }
+
+  if (!existing) {
+    existing =
+      personalStopSuggestions.value.find(
+        suggestion =>
+          normalizeStopSuggestionText(
+            suggestion.name,
+          )
+          === normalizedName,
+      )
+  }
+
+  const officialSuggestionId =
+    stopData.value.officialStopSuggestionId
+    ?? (
+      stopData.value.stopSuggestionSource
+        === 'CLU'
+        ? stopData.value.stopSuggestionId
+        : null
+    )
+    ?? existing?.officialSuggestionId
+    ?? null
+
+  const aliases =
+    new Set<string>(
+      existing?.aliases ?? [],
+    )
+
+  if (
+    existing
+    && normalizeStopSuggestionText(
+      existing.name,
+    ) !== normalizedName
+  ) {
+    aliases.add(existing.name)
+  }
+
+  const officialSuggestion =
+    officialSuggestionId
+      ? getStopSuggestionById(
+          officialSuggestionId,
+        )
+      : null
+
+  if (
+    officialSuggestion
+    && normalizeStopSuggestionText(
+      officialSuggestion.name,
+    ) !== normalizedName
+  ) {
+    aliases.add(
+      officialSuggestion.name,
+    )
+  }
+
+  aliases.delete(name)
+
+  const personalSuggestion:
+    PersonalStopSuggestion = {
+      id:
+        existing?.id
+        ?? createPersonalStopSuggestionId(
+          name,
+        ),
+      name,
+      aliases:
+        Array.from(aliases)
+          .filter(
+            alias =>
+              normalizeStopSuggestionText(
+                alias,
+              ) !== normalizedName,
+          )
+          .sort(
+            (a, b) =>
+              a.localeCompare(
+                b,
+                'fr',
+              ),
+          ),
+      services:
+        collectCurrentStopSuggestionServices(),
+
+      /*
+       * Le preset complet est la source de vérité pour une station
+       * personnelle. `services` reste utilisé pour classer et afficher
+       * rapidement les suggestions.
+       */
+      preset:
+        buildCurrentPersonalStopPreset(),
+
+      source: 'PERSONAL',
+      officialSuggestionId,
+    }
+
+  if (existing) {
+    personalStopSuggestions.value =
+      personalStopSuggestions.value.map(
+        suggestion =>
+          suggestion.id === existing!.id
+            ? personalSuggestion
+            : suggestion,
+      )
+  }
+  else {
+    personalStopSuggestions.value = [
+      ...personalStopSuggestions.value,
+      personalSuggestion,
+    ]
+  }
+
+  personalStopSuggestions.value =
+    [...personalStopSuggestions.value]
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(
+            b.name,
+            'fr',
+          ),
+      )
+
+  persistPersonalStopSuggestions()
+
+  stopData.value.stopSuggestionId =
+    personalSuggestion.id
+
+  stopData.value.stopSuggestionSource =
+    'PERSONAL'
+
+  stopData.value.officialStopSuggestionId =
+    officialSuggestionId
+
+  stopNameFocused.value = false
+}
+
+const currentPersonalStopSuggestion =
+  computed(() => {
+    if (
+      stopData.value.stopSuggestionSource
+        !== 'PERSONAL'
+      || !stopData.value.stopSuggestionId
+    ) {
+      return null
+    }
+
+    return (
+      personalStopSuggestions.value.find(
+        suggestion =>
+          suggestion.id
+          === stopData.value.stopSuggestionId,
+      )
+      ?? null
+    )
+  })
+
+const canDeleteCurrentPersonalStopSuggestion =
+  computed(
+    () =>
+      currentPersonalStopSuggestion.value
+      !== null,
+  )
+
+function deleteCurrentPersonalStopSuggestion() {
+  const suggestion =
+    currentPersonalStopSuggestion.value
+
+  if (!suggestion) {
+    return
+  }
+
+  const accepted =
+    window.confirm(
+      `Supprimer « ${suggestion.name} » de votre catalogue personnel ?`,
+    )
+
+  if (!accepted) {
+    return
+  }
+
+  personalStopSuggestions.value =
+    personalStopSuggestions.value.filter(
+      personalSuggestion =>
+        personalSuggestion.id
+        !== suggestion.id,
+    )
+
+  persistPersonalStopSuggestions()
+
+  /*
+   * On ne modifie pas l'arrêt visible sur le plan :
+   * seule sa fiche enregistrée est supprimée.
+   *
+   * Une éventuelle origine CLU est conservée afin que le bouton
+   * Réinitialiser continue de fonctionner.
+   */
+  stopData.value.stopSuggestionId = null
+  stopData.value.stopSuggestionSource = null
+
+  if (
+    !suggestion.officialSuggestionId
+  ) {
+    stopData.value.officialStopSuggestionId =
+      null
+  }
+
+  stopNameFocused.value = false
+}
+
+const officialStopSuggestion =
+  computed(() => {
+    const officialId =
+      stopData.value.officialStopSuggestionId
+      ?? (
+        stopData.value.stopSuggestionSource
+          === 'CLU'
+          ? stopData.value.stopSuggestionId
+          : null
+      )
+
+    if (!officialId) {
+      return null
+    }
+
+    return getStopSuggestionById(
+      officialId,
+    )
+  })
+
+const canResetOfficialStopSuggestion =
+  computed(
+    () =>
+      officialStopSuggestion.value !== null,
+  )
+
+function resetOfficialStopSuggestion() {
+  const suggestion =
+    officialStopSuggestion.value
+
+  if (!suggestion) {
+    return
+  }
+
+  applyStopSuggestion(suggestion)
+}
+
+const currentStopSuggestionSourceLabel =
+  computed(() => {
+    if (
+      stopData.value.stopSuggestionSource
+      === 'PERSONAL'
+    ) {
+      return 'Personnel'
+    }
+
+    if (
+      stopData.value.stopSuggestionSource
+      === 'CLU'
+    ) {
+      return 'CLU'
+    }
+
+    return null
+  })
 
 const terminusArrowEnabled = computed({
   get: () =>
@@ -1116,14 +2499,159 @@ function openConnectionsEditor() {
               {{ $t('ui.dialogs.stop_properties.stop_name') }}
             </label>
 
-            <Textarea
-              :id="`${stop.id}_title`"
-              v-model="stop.$stop.name"
-              pt:root:class="important-h-auto"
-              :spellcheck="false"
-              auto-resize
-              autofocus
-            />
+            <div class="stop-name-suggestion-field">
+              <Textarea
+                :id="`${stop.id}_title`"
+                v-model="stop.$stop.name"
+                pt:root:class="important-h-auto"
+                :spellcheck="false"
+                auto-resize
+                autofocus
+                autocomplete="off"
+                @focus="onStopNameFocus"
+                @input="onStopNameInput"
+                @blur="onStopNameBlur"
+                @keydown="onStopNameKeydown"
+              />
+
+              <div
+                v-if="showStopSuggestions"
+                class="stop-suggestions"
+                role="listbox"
+                aria-label="Suggestions d’arrêts CLU"
+              >
+                <button
+                  v-for="(suggestion, index) in stopSuggestions"
+                  :key="suggestion.id"
+                  type="button"
+                  class="stop-suggestion"
+                  :class="{
+                    active:
+                      index
+                      === activeStopSuggestionIndex,
+                  }"
+                  role="option"
+                  :aria-selected="
+                    index
+                    === activeStopSuggestionIndex
+                  "
+                  @mouseenter="
+                    activeStopSuggestionIndex = index
+                  "
+                  @mousedown.prevent="
+                    applyStopSuggestion(suggestion)
+                  "
+                >
+                  <div class="stop-suggestion-heading">
+                    <span class="stop-suggestion-name">
+                      {{ suggestion.name }}
+                    </span>
+
+                    <span
+                      class="stop-suggestion-source"
+                      :class="{
+                        personal:
+                          suggestion.source
+                          === 'PERSONAL',
+                      }"
+                    >
+                      {{
+                        stopSuggestionSourceLabel(
+                          suggestion,
+                        )
+                      }}
+                    </span>
+                  </div>
+
+                  <div class="stop-suggestion-services">
+                    <span
+                      v-for="service in suggestion.services"
+                      :key="`${service.mode}-${service.index}`"
+                      class="stop-suggestion-service"
+                      :class="{
+                        current:
+                          isCurrentSuggestionService(
+                            service,
+                          ),
+                      }"
+                    >
+                      {{
+                        stopSuggestionServiceLabel(
+                          service,
+                        )
+                      }}
+                    </span>
+                  </div>
+                </button>
+
+                <div class="stop-suggestions-hint">
+                  <span>
+                    ↑ ↓ naviguer
+                  </span>
+
+                  <span>
+                    Entrée appliquer
+                  </span>
+
+                  <span>
+                    Échap fermer
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="stop-catalog-actions">
+              <div class="stop-catalog-status">
+                <span
+                  v-if="currentStopSuggestionSourceLabel"
+                  class="stop-catalog-source"
+                  :class="{
+                    personal:
+                      stopData.stopSuggestionSource
+                      === 'PERSONAL',
+                  }"
+                >
+                  {{
+                    currentStopSuggestionSourceLabel
+                  }}
+                </span>
+
+                <span class="field-description">
+                  Enregistre le nom et les correspondances dans votre catalogue personnel.
+                </span>
+              </div>
+
+              <div class="stop-catalog-buttons">
+                <Button
+                  label="Sauvegarder"
+                  icon="i-tabler-bookmark-plus"
+                  severity="secondary"
+                  size="small"
+                  :disabled="!canSaveCurrentStopSuggestion"
+                  @click="saveCurrentStopToPersonalCatalog"
+                />
+
+                <Button
+                  v-if="canDeleteCurrentPersonalStopSuggestion"
+                  label="Supprimer"
+                  icon="i-tabler-trash"
+                  severity="danger"
+                  size="small"
+                  text
+                  @click="deleteCurrentPersonalStopSuggestion"
+                />
+
+                <Button
+                  v-if="canResetOfficialStopSuggestion"
+                  label="Réinitialiser"
+                  icon="i-tabler-restore"
+                  severity="secondary"
+                  size="small"
+                  text
+                  @click="resetOfficialStopSuggestion"
+                />
+              </div>
+            </div>
           </div>
 
           <div class="property-field">
@@ -2091,6 +3619,287 @@ function openConnectionsEditor() {
 .property-field :deep(.p-select),
 .property-field :deep(.p-selectbutton) {
   width: 100%;
+}
+
+/*
+ * =========================================================
+ * SUGGESTIONS D'ARRÊTS CLU
+ * =========================================================
+ */
+
+.stop-name-suggestion-field {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+
+.stop-suggestions {
+  overflow: hidden;
+
+  border:
+    1px solid
+    color-mix(
+      in srgb,
+      var(--p-primary-color) 22%,
+      var(--p-content-border-color)
+    );
+
+  border-radius: .75rem;
+
+  background:
+    var(--p-content-background);
+
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 10%);
+}
+
+.stop-suggestion {
+  appearance: none;
+
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+
+  width: 100%;
+
+  padding: .62rem .7rem;
+
+  border: 0;
+  border-bottom:
+    1px solid
+    color-mix(
+      in srgb,
+      var(--p-content-border-color) 65%,
+      transparent
+    );
+
+  background: transparent;
+
+  color:
+    var(--p-text-color);
+
+  font: inherit;
+  text-align: left;
+
+  cursor: pointer;
+
+  transition:
+    background-color .12s ease;
+}
+
+.stop-suggestion:hover,
+.stop-suggestion.active {
+  background:
+    color-mix(
+      in srgb,
+      var(--p-primary-color) 8%,
+      var(--p-content-background)
+    );
+}
+
+.stop-suggestion:last-of-type {
+  border-bottom: 0;
+}
+
+.stop-suggestion-heading {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.stop-suggestion-name {
+  min-width: 0;
+
+  overflow: hidden;
+
+  font-size: .82rem;
+  font-weight: 700;
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stop-suggestion-source {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  flex-shrink: 0;
+
+  padding: .12rem .38rem;
+
+  border-radius: 999px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--p-primary-color) 12%,
+      var(--p-content-background)
+    );
+
+  color:
+    var(--p-primary-color);
+
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.stop-suggestion-source.personal,
+.stop-catalog-source.personal {
+  background:
+    color-mix(
+      in srgb,
+      var(--p-green-500, #22c55e) 12%,
+      var(--p-content-background)
+    );
+
+  color:
+    var(--p-green-600, #16a34a);
+}
+
+.stop-catalog-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+
+  padding-top: .05rem;
+}
+
+.stop-catalog-status {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: .45rem;
+
+  min-width: 0;
+}
+
+.stop-catalog-source {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  flex-shrink: 0;
+
+  padding: .13rem .42rem;
+
+  border-radius: 999px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--p-primary-color) 12%,
+      var(--p-content-background)
+    );
+
+  color:
+    var(--p-primary-color);
+
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.stop-catalog-buttons {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .25rem;
+
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .stop-catalog-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stop-catalog-buttons {
+    justify-content: flex-start;
+  }
+}
+
+.stop-suggestion-services {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: .25rem;
+}
+
+.stop-suggestion-service {
+  display: inline-flex;
+  align-items: center;
+
+  padding: .1rem .3rem;
+
+  border:
+    1px solid
+    var(--p-content-border-color);
+
+  border-radius: .4rem;
+
+  background:
+    var(--p-content-hover-background);
+
+  color:
+    var(--p-text-muted-color);
+
+  font-size: .62rem;
+  line-height: 1.25;
+}
+
+.stop-suggestion-service.current {
+  border-color:
+    color-mix(
+      in srgb,
+      var(--p-primary-color) 45%,
+      var(--p-content-border-color)
+    );
+
+  background:
+    color-mix(
+      in srgb,
+      var(--p-primary-color) 9%,
+      var(--p-content-background)
+    );
+
+  color:
+    var(--p-primary-color);
+
+  font-weight: 700;
+}
+
+.stop-suggestions-hint {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .55rem;
+
+  padding: .38rem .55rem;
+
+  border-top:
+    1px solid
+    var(--p-content-border-color);
+
+  background:
+    color-mix(
+      in srgb,
+      var(--p-content-hover-background) 65%,
+      transparent
+    );
+
+  color:
+    var(--p-text-muted-color);
+
+  font-size: .6rem;
 }
 
 .terminus-arrow-editor {

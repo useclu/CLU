@@ -17,7 +17,25 @@ type SignageStyle =
   | 'IDFM'
   | 'SNCF'
 
+type LineWithStopSuggestions = Line & {
+  stopSuggestionsEnabled?: boolean
+}
+
 const { line } = storeToRefs(useProject())
+
+const stopSuggestionsEnabled = computed<boolean>({
+  get: () =>
+    (
+      line.value as LineWithStopSuggestions
+    ).stopSuggestionsEnabled
+    ?? true,
+
+  set: (enabled) => {
+    (
+      line.value as LineWithStopSuggestions
+    ).stopSuggestionsEnabled = enabled
+  },
+})
 
 const emit = defineEmits<{
   openCustomMapSize: []
@@ -440,6 +458,33 @@ function setTramStyle(style: TramStyle) {
             "
           />
         </label>
+
+        <label
+          for="property-stop-suggestions"
+          class="option-row"
+        >
+          <div class="option-content">
+            <div class="option-icon">
+              <i class="i-tabler-sparkles" />
+            </div>
+
+            <div class="option-text">
+              <span>
+                Suggestions d’arrêts
+              </span>
+
+              <span class="option-description">
+                Propose des stations connues pendant la saisie. Décoche pour désactiver.
+              </span>
+            </div>
+          </div>
+
+          <Checkbox
+            v-model="stopSuggestionsEnabled"
+            input-id="property-stop-suggestions"
+            binary
+          />
+        </label>
       </div>
     </section>
 
@@ -756,6 +801,20 @@ function setTramStyle(style: TramStyle) {
     var(--p-text-muted-color);
 
   font-size: .9rem;
+}
+
+.option-text {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+
+.option-description {
+  color:
+    var(--p-text-muted-color);
+
+  font-size: .68rem;
+  line-height: 1.3;
 }
 
 /*
