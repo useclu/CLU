@@ -1086,6 +1086,35 @@ function applyStopSuggestion(
     suggestion.name
 
   /*
+   * Un arrêt ancien peut être implicitement desservi par plusieurs
+   * lignes directes de la Branch (ex. Nation sur M1 + M2) sans avoir
+   * encore de lineIds persistés.
+   *
+   * Lorsqu'une suggestion est explicitement appliquée, on peut
+   * matérialiser ce choix sans aucun risque pour Sortable. Cela force
+   * immédiatement le rendu multi-ligne et évite de devoir décocher /
+   * recocher la ligne secondaire pour obtenir le marqueur partagé.
+   */
+  if (
+    !stopData.value.lineIds
+    || stopData.value.lineIds.length === 0
+  ) {
+    const implicitIds =
+      implicitStopLineIds()
+
+    stopData.value.lineIds =
+      [...implicitIds]
+
+    implicitIds.forEach(
+      lineId =>
+        syncPhysicalLineWithStopChoice(
+          lineId,
+          true,
+        ),
+    )
+  }
+
+  /*
    * Une suggestion personnelle récente possède un preset complet.
    *
    * C'est lui qui permet de restaurer fidèlement :
@@ -1771,57 +1800,85 @@ interface ParentForkContext {
 function findParentForkContext(
   targetBranchId: string,
 ): ParentForkContext | null {
-  function scanSection(
-    section: LineSection,
-    ownerFork: Fork | null = null,
-    ownerSourceBranch: Branch | null = null,
-    ownerOutputIndex: 0 | 1 | null = null,
-  ): ParentForkContext | null {
-    let previousBranch: Branch | null = null
+  type LinkedForkData =
+    Fork['$fork'] & {
+      parallelBranchesId?: string
+    }
+
+  type LinkedParallelData =
+    ParallelBranches['$parallelBranches'] & {
+      forkId?: string
+    }
+
+  function sourceBranchForFork(
+    elements: LineElement[],
+    forkIndex: number,
+    fork: Fork,
+  ): Branch | null {
+    const step =
+      fork.$fork.toward === 'LEFT'
+        ? 1
+        : -1
 
     for (
-      const element
-      of section.$lineSection.elements ?? []
+      let index = forkIndex + step;
+      index >= 0
+      && index < elements.length;
+      index += step
     ) {
+      const candidate =
+        elements[index]
+
+      if ('$branch' in candidate) {
+        return candidate
+      }
+
+      if ('$parallelBranches' in candidate) {
+        continue
+      }
+
+      if ('$fork' in candidate) {
+        break
+      }
+    }
+
+    return null
+  }
+
+  function scanSection(
+    currentSection: LineSection,
+    ownerFork: Fork | null = null,
+    ownerForkSourceBranch: Branch | null = null,
+    ownerOutputIndex: 0 | 1 | null = null,
+  ): ParentForkContext | null {
+    const sectionElements =
+      currentSection.$lineSection.elements
+      ?? []
+
+    for (
+      let elementIndex = 0;
+      elementIndex < sectionElements.length;
+      elementIndex++
+    ) {
+      const element =
+        sectionElements[elementIndex]
+
       if ('$branch' in element) {
         if (
           element.id === targetBranchId
           && ownerFork
-          && ownerSourceBranch
+          && ownerForkSourceBranch
           && ownerOutputIndex !== null
         ) {
           return {
-            fork: ownerFork,
-            sourceBranch: ownerSourceBranch,
-            outputIndex: ownerOutputIndex,
-          }
-        }
+            fork:
+              ownerFork,
 
-        previousBranch = element
-        continue
-      }
+            sourceBranch:
+              ownerForkSourceBranch,
 
-      if ('$fork' in element) {
-        if (previousBranch) {
-          const childSections =
-            element.$fork.sections ?? []
-
-          for (
-            let index = 0;
-            index < childSections.length;
-            index++
-          ) {
-            const found =
-              scanSection(
-                childSections[index],
-                element,
-                previousBranch,
-                index as 0 | 1,
-              )
-
-            if (found) {
-              return found
-            }
+            outputIndex:
+              ownerOutputIndex,
           }
         }
 
@@ -1829,16 +1886,115 @@ function findParentForkContext(
       }
 
       if ('$parallelBranches' in element) {
+        const linkedForkId =
+          (
+            element.$parallelBranches as LinkedParallelData
+          ).forkId
+
+        const linkedForkIndex =
+          linkedForkId
+            ? sectionElements.findIndex(
+                candidate =>
+                  '$fork' in candidate
+                  && candidate.id
+                    === linkedForkId,
+              )
+            : -1
+
+        const linkedFork =
+          linkedForkIndex >= 0
+            ? sectionElements[
+                linkedForkIndex
+              ]
+            : null
+
+        const actualFork =
+          linkedFork
+          && '$fork' in linkedFork
+            ? linkedFork
+            : ownerFork
+
+        const actualSourceBranch =
+          actualFork
+          && '$fork' in actualFork
+          && linkedForkIndex >= 0
+            ? sourceBranchForFork(
+                sectionElements,
+                linkedForkIndex,
+                actualFork,
+              )
+            : ownerForkSourceBranch
+
+        const childSections =
+          element.$parallelBranches.sections
+          ?? []
+
         for (
-          const childSection
-          of element.$parallelBranches.sections ?? []
+          let index = 0;
+          index < childSections.length;
+          index++
         ) {
           const found =
             scanSection(
-              childSection,
-              ownerFork,
-              ownerSourceBranch,
-              ownerOutputIndex,
+              childSections[index],
+              actualFork,
+              actualSourceBranch,
+              linkedForkIndex >= 0
+                ? index as 0 | 1
+                : ownerOutputIndex,
+            )
+
+          if (found) {
+            return found
+          }
+        }
+
+        continue
+      }
+
+      if ('$fork' in element) {
+        const linkedPairId =
+          (
+            element.$fork as LinkedForkData
+          ).parallelBranchesId
+
+        /*
+         * Une Fork appairée possède ses sorties dans le vrai
+         * ParallelBranches sibling, qui sera parcouru séparément.
+         */
+        if (linkedPairId) {
+          continue
+        }
+
+        /*
+         * Compatibilité avec les anciens projets encore autonomes.
+         */
+        const sourceBranch =
+          sourceBranchForFork(
+            sectionElements,
+            elementIndex,
+            element,
+          )
+
+        if (!sourceBranch) {
+          continue
+        }
+
+        const childSections =
+          element.$fork.sections
+          ?? []
+
+        for (
+          let index = 0;
+          index < childSections.length;
+          index++
+        ) {
+          const found =
+            scanSection(
+              childSections[index],
+              element,
+              sourceBranch,
+              index as 0 | 1,
             )
 
           if (found) {
@@ -1852,11 +2008,13 @@ function findParentForkContext(
   }
 
   for (
-    const section
+    const rootSection
     of project.line.topology ?? []
   ) {
     const found =
-      scanSection(section)
+      scanSection(
+        rootSection,
+      )
 
     if (found) {
       return found
@@ -1865,6 +2023,7 @@ function findParentForkContext(
 
   return null
 }
+
 
 /*
  * Ligne par défaut RÉELLE de la Branch courante.
@@ -2278,6 +2437,53 @@ const availableBranchLines =
     return lines
   })
 
+function implicitStopLineIds() {
+  const branchData =
+    branch.$branch as BranchWithPassthrough
+
+  const passthroughIds =
+    new Set(
+      branchData.passthroughLineIds
+      ?? [],
+    )
+
+  const ids: string[] = []
+
+  /*
+   * Sur un corridor réellement partagé (ex. Métro 1 + Métro 2),
+   * un ancien arrêt sans lineIds explicites appartient naturellement
+   * à toutes les lignes DIRECTES de la Branch.
+   *
+   * Les lignes seulement "passthrough" d'une sortie de Fork restent
+   * exclues tant que le Stop ne les a pas explicitement choisies.
+   */
+  if (
+    branch.$branch.primaryLineVisible
+    !== false
+    && !passthroughIds.has('primary')
+  ) {
+    ids.push('primary')
+  }
+
+  for (
+    const line
+    of branch.$branch.additionalLines
+    ?? []
+  ) {
+    if (!passthroughIds.has(line.id)) {
+      ids.push(line.id)
+    }
+  }
+
+  if (ids.length > 0) {
+    return ids
+  }
+
+  return [
+    defaultStopLineId.value,
+  ]
+}
+
 function isStopOnLine(
   lineId: string,
 ) {
@@ -2288,10 +2494,8 @@ function isStopOnLine(
     !stored
     || stored.length === 0
   ) {
-    return (
-      lineId
-      === defaultStopLineId.value
-    )
+    return implicitStopLineIds()
+      .includes(lineId)
   }
 
   return stored.includes(lineId)

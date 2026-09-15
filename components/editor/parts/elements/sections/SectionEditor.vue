@@ -3,6 +3,7 @@ import type { SortableEvent } from 'vue-draggable-plus'
 import { useToast } from 'primevue/usetoast'
 import {
   computed,
+  inject,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -12,7 +13,8 @@ import {
   watch,
 } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
-import { isBranch, isFork } from '~/utils/types'
+import { v4 as uuidv4 } from 'uuid'
+import { isBranch, isFork, isParallelBranches } from '~/utils/types'
 import { useProject } from '~/stores/useProject'
 
 const {
@@ -35,6 +37,185 @@ const elements = computed({
   get: () => section.value.$lineSection.elements,
   set: val => section.value.$lineSection.elements = val,
 })
+
+type ForkPairData =
+  Fork['$fork'] & {
+    parallelBranchesId?: string
+  }
+
+type ParallelBranchesPairData =
+  ParallelBranches['$parallelBranches'] & {
+    forkId?: string
+  }
+
+function pairedParallelBranchesForFork(
+  fork: Fork,
+): ParallelBranches | null {
+  const pairId =
+    (fork.$fork as ForkPairData)
+      .parallelBranchesId
+
+  if (!pairId) {
+    return null
+  }
+
+  const pair =
+    section.value.$lineSection.elements
+      .find(
+        element =>
+          element.id === pairId,
+      )
+
+  return (
+    pair
+    && isParallelBranches(pair)
+      ? pair
+      : null
+  )
+}
+
+function pairedForkForParallelBranches(
+  parallelBranches: ParallelBranches,
+): Fork | null {
+  const forkId =
+    (
+      parallelBranches.$parallelBranches as ParallelBranchesPairData
+    ).forkId
+
+  if (!forkId) {
+    return null
+  }
+
+  const fork =
+    section.value.$lineSection.elements
+      .find(
+        element =>
+          element.id === forkId,
+      )
+
+  return (
+    fork
+    && isFork(fork)
+      ? fork
+      : null
+  )
+}
+
+/*
+ * Fork.vue et le dialogue ParallelBranches ont besoin de retrouver
+ * leur partenaire sans jamais se baser sur "le voisin le plus proche".
+ * L'association est persistée par identifiants.
+ */
+provide(
+  'parallelBranchesForFork',
+  (
+    forkId: string,
+  ): ParallelBranches | null => {
+    const fork =
+      section.value.$lineSection.elements
+        .find(
+          element =>
+            element.id === forkId,
+        )
+
+    return (
+      fork
+      && isFork(fork)
+        ? pairedParallelBranchesForFork(fork)
+        : null
+    )
+  },
+)
+
+provide(
+  'forkForParallelBranches',
+  (
+    parallelBranchesId: string,
+  ): Fork | null => {
+    const pair =
+      section.value.$lineSection.elements
+        .find(
+          element =>
+            element.id
+            === parallelBranchesId,
+        )
+
+    return (
+      pair
+      && isParallelBranches(pair)
+        ? pairedForkForParallelBranches(pair)
+        : null
+    )
+  },
+)
+
+/*
+ * Les Branch de sortie d'un vrai ParallelBranches sont des siblings
+ * de Fork.vue, donc elles ne peuvent plus hériter directement d'un
+ * provide() placé dans Fork.vue.
+ *
+ * On garde un petit registre au niveau du SectionEditor commun :
+ * Fork.vue y enregistre son calcul et toutes les SectionEditor enfants
+ * peuvent le relire via la chaîne provide/inject.
+ */
+type ForkOutputGapProvider =
+  (branchId: string) => number
+
+const inheritedForkOutputGap =
+  inject<ForkOutputGapProvider>(
+    'forkOutputPrimaryLineGapForBranch',
+    () => 0,
+  )
+
+const localForkOutputGapProviders =
+  new Map<string, ForkOutputGapProvider>()
+
+provide(
+  'registerForkOutputPrimaryLineGapProvider',
+  (
+    forkId: string,
+    provider: ForkOutputGapProvider,
+  ) => {
+    localForkOutputGapProviders.set(
+      forkId,
+      provider,
+    )
+  },
+)
+
+provide(
+  'unregisterForkOutputPrimaryLineGapProvider',
+  (
+    forkId: string,
+  ) => {
+    localForkOutputGapProviders.delete(
+      forkId,
+    )
+  },
+)
+
+provide(
+  'forkOutputPrimaryLineGapForBranch',
+  (
+    branchId: string,
+  ) => {
+    for (
+      const provider
+      of localForkOutputGapProviders.values()
+    ) {
+      const value =
+        provider(branchId)
+
+      if (value > 0) {
+        return value
+      }
+    }
+
+    return inheritedForkOutputGap(
+      branchId,
+    )
+  },
+)
 
 const offset = computed(() =>
   `calc(${
@@ -144,6 +325,23 @@ const forkGroupLayouts = computed(() => {
     of section.value.$lineSection.elements
   ) {
     if (!isFork(element)) {
+      /*
+       * Le vrai ParallelBranches appairé fait partie de la même unité
+       * visuelle que sa Fork. Il ne doit donc pas casser un groupe de
+       * Fork D/S superposées.
+       */
+      if (
+        isParallelBranches(element)
+        && pairedForkForParallelBranches(element)
+      ) {
+        layouts.push({
+          overlayOffsetPx: 0,
+          overlayCompensationPx: 0,
+        })
+
+        continue
+      }
+
       activeLines = new Set()
       groupWidth = 0
 
@@ -256,6 +454,13 @@ function forkOverlayPeerForElement(
 
   for (const element of elements) {
     if (!isFork(element)) {
+      if (
+        isParallelBranches(element)
+        && pairedForkForParallelBranches(element)
+      ) {
+        continue
+      }
+
       flushGroup()
       continue
     }
@@ -616,7 +821,17 @@ const projectAdditionalLineCatalog =
           }
         }
 
-        if (isFork(element)) {
+        if (
+          isFork(element)
+          && !(
+            element.$fork as ForkPairData
+          ).parallelBranchesId
+        ) {
+          /*
+           * Une Fork appairée est déjà parcourue via son vrai
+           * ParallelBranches sibling. On évite de scanner deux fois
+           * l'alias de compatibilité non sérialisé.
+           */
           for (
             const child
             of element.$fork.sections ?? []
@@ -670,6 +885,66 @@ function logicalLinesOfBranch(
   }
 }
 
+function sourceBranchForForkAtIndex(
+  index: number,
+  fork: Fork,
+): Branch | null {
+  const currentElements =
+    section.value.$lineSection.elements
+
+  const step =
+    fork.$fork.toward === 'LEFT'
+      ? 1
+      : -1
+
+  for (
+    let cursor = index + step;
+    cursor >= 0
+    && cursor < currentElements.length;
+    cursor += step
+  ) {
+    const candidate =
+      currentElements[cursor]
+
+    if (isBranch(candidate)) {
+      return candidate
+    }
+
+    /*
+     * Un ParallelBranches appairé appartient à la sortie d'une Fork.
+     * Il ne doit pas casser la recherche du rail d'entrée.
+     */
+    if (isParallelBranches(candidate)) {
+      continue
+    }
+
+    /*
+     * Une autre Fork marque une nouvelle zone de bifurcation :
+     * on ne traverse pas arbitrairement plusieurs Fork pour chercher
+     * une Branch source.
+     */
+    if (isFork(candidate)) {
+      break
+    }
+  }
+
+  return null
+}
+
+function forkOutputSections(
+  fork: Fork,
+): LineSection[] | null {
+  const pair =
+    pairedParallelBranchesForFork(fork)
+
+  if (pair) {
+    return pair.$parallelBranches.sections
+  }
+
+  return fork.$fork.sections ?? null
+}
+
+
 
 /*
  * Pour chaque élément de cette Section, contexte logique du dernier
@@ -681,49 +956,51 @@ function logicalLinesOfBranch(
  * imbriquée. Il n'y a donc aucune recherche ambiguë dans le DOM.
  */
 const forkCorridorContexts = computed(() => {
-  const contexts:
-    ForkCorridorContext[] = []
+  const currentElements =
+    section.value.$lineSection.elements
 
-  let current:
-    ForkCorridorContext = {
-      sourceBranchId: null,
-      primaryVisible: true,
-      additionalLines: [],
-      primaryLineGapEm:
-        structuralPrimaryLineGapEm.value,
-    }
+  return currentElements.map(
+    (element, index): ForkCorridorContext => {
+      let sourceBranch: Branch | null = null
 
-  for (
-    const element
-    of section.value.$lineSection.elements
-  ) {
-    if (isBranch(element)) {
-      current =
-        logicalLinesOfBranch(
-          element,
-        )
-    }
+      if (isFork(element)) {
+        sourceBranch =
+          sourceBranchForForkAtIndex(
+            index,
+            element,
+          )
+      }
+      else {
+        for (
+          let cursor = index;
+          cursor >= 0;
+          cursor--
+        ) {
+          const candidate =
+            currentElements[cursor]
 
-    contexts.push({
-      sourceBranchId:
-        current.sourceBranchId,
+          if (isBranch(candidate)) {
+            sourceBranch = candidate
+            break
+          }
+        }
+      }
 
-      primaryVisible:
-        current.primaryVisible,
+      if (!sourceBranch) {
+        return {
+          sourceBranchId: null,
+          primaryVisible: true,
+          additionalLines: [],
+          primaryLineGapEm:
+            structuralPrimaryLineGapEm.value,
+        }
+      }
 
-      additionalLines:
-        current.additionalLines.map(
-          line => ({
-            ...line,
-          }),
-        ),
-
-      primaryLineGapEm:
-        current.primaryLineGapEm,
-    })
-  }
-
-  return contexts
+      return logicalLinesOfBranch(
+        sourceBranch,
+      )
+    },
+  )
 })
 
 /*
@@ -1025,18 +1302,165 @@ function sectionElementAnchorStyle(
     LineSection['$lineSection']['elements'][number],
   index: number,
 ) {
+  /*
+   * Avec un vrai ParallelBranches sibling, une Fork + son PB forment
+   * une SEULE unité horizontale.
+   *
+   * Pour une seconde Fork D/S superposée, déplacer seulement le contenu
+   * interne de Fork.vue laissait son PB dans le flux normal :
+   *
+   *   Fork 2 déplacée à gauche  +  PB 2 resté à droite
+   *                            => grand trou entre les deux.
+   *
+   * On déplace donc maintenant le PREMIER SectionElement de la paire.
+   * Le second suit naturellement dans le flex.
+   */
+  if (isParallelBranches(element)) {
+    const fork =
+      pairedForkForParallelBranches(
+        element,
+      )
+
+    if (!fork) {
+      return undefined
+    }
+
+    const forkIndex =
+      section.value.$lineSection.elements
+        .findIndex(
+          candidate =>
+            candidate.id === fork.id,
+        )
+
+    if (forkIndex < 0) {
+      return undefined
+    }
+
+    const layout =
+      forkGroupLayouts.value[forkIndex]
+
+    const overlayOffset =
+      layout?.overlayOffsetPx
+      ?? 0
+
+    const compensation =
+      layout?.overlayCompensationPx
+      ?? 0
+
+    const style:
+      Record<string, string> = {}
+
+    /*
+     * LEFT => ordre DOM : PB puis Fork.
+     * Le PB est donc le premier élément de l'unité et porte le recul.
+     */
+    if (
+      fork.$fork.toward === 'LEFT'
+      && overlayOffset > 0
+    ) {
+      style.marginLeft =
+        `-${overlayOffset}px`
+    }
+
+    /*
+     * RIGHT => ordre DOM : Fork puis PB.
+     * Le PB est le dernier élément : c'est lui qui réserve la
+     * compensation de largeur du groupe.
+     */
+    if (
+      fork.$fork.toward === 'RIGHT'
+      && compensation > 0
+    ) {
+      style.marginRight =
+        `${compensation}px`
+    }
+
+    return (
+      Object.keys(style).length > 0
+        ? style
+        : undefined
+    )
+  }
+
   if (!isFork(element)) {
     return undefined
   }
 
-  const alreadyOverlayed =
-    (
-      forkGroupLayouts.value[index]
-        ?.overlayOffsetPx
-      ?? 0
-    ) > 0
+  const pair =
+    pairedParallelBranchesForFork(
+      element,
+    )
 
-  if (alreadyOverlayed) {
+  const layout =
+    forkGroupLayouts.value[index]
+
+  const overlayOffset =
+    layout?.overlayOffsetPx
+    ?? 0
+
+  const compensation =
+    layout?.overlayCompensationPx
+    ?? 0
+
+  if (pair) {
+    const style:
+      Record<string, string> = {}
+
+    /*
+     * RIGHT => ordre DOM : Fork puis PB.
+     * La Fork est le premier élément de l'unité :
+     * le recul est appliqué à son SectionElement complet, ce qui
+     * entraîne aussi le PB qui vient juste derrière.
+     */
+    if (
+      element.$fork.toward === 'RIGHT'
+      && overlayOffset > 0
+    ) {
+      style.marginLeft =
+        `-${overlayOffset}px`
+    }
+
+    /*
+     * LEFT => ordre DOM : PB puis Fork.
+     * La Fork est le dernier élément de l'unité :
+     * elle réserve la compensation éventuelle à droite.
+     */
+    if (
+      element.$fork.toward === 'LEFT'
+      && compensation > 0
+    ) {
+      style.marginRight =
+        `${compensation}px`
+    }
+
+    if (Object.keys(style).length > 0) {
+      return style
+    }
+
+    /*
+     * Une Fork appairée non superposée garde le comportement d'ancrage
+     * "après quel arrêt ?" déjà validé.
+     */
+    const pullback =
+      forkAnchorPullbackPx[
+        element.id
+      ] ?? 0
+
+    if (pullback > 0) {
+      return {
+        marginLeft:
+          `-${pullback}px`,
+      }
+    }
+
+    return undefined
+  }
+
+  /*
+   * Ancien modèle / compatibilité :
+   * comportement historique inchangé.
+   */
+  if (overlayOffset > 0) {
     return undefined
   }
 
@@ -1053,6 +1477,56 @@ function sectionElementAnchorStyle(
     marginLeft:
       `-${pullback}px`,
   }
+}
+
+function forkOverlayOffsetForElement(
+  element:
+    LineSection['$lineSection']['elements'][number],
+  index: number,
+) {
+  if (!isFork(element)) {
+    return 0
+  }
+
+  /*
+   * Si la Fork possède un vrai PB sibling, le recul est désormais
+   * appliqué au SectionElement de la paire par sectionElementAnchorStyle().
+   * Il ne faut surtout pas le réappliquer à l'intérieur de Fork.vue.
+   */
+  if (pairedParallelBranchesForFork(element)) {
+    return 0
+  }
+
+  return (
+    forkGroupLayouts.value[index]
+      ?.overlayOffsetPx
+    ?? 0
+  )
+}
+
+function forkOverlayCompensationForElement(
+  element:
+    LineSection['$lineSection']['elements'][number],
+  index: number,
+) {
+  if (!isFork(element)) {
+    return 0
+  }
+
+  /*
+   * Avec des sorties externes, la compensation doit être réservée
+   * APRÈS le vrai ParallelBranches, pas entre le SVG de Fork et ses
+   * sorties. sectionElementAnchorStyle() l'applique donc au partenaire.
+   */
+  if (pairedParallelBranchesForFork(element)) {
+    return 0
+  }
+
+  return (
+    forkGroupLayouts.value[index]
+      ?.overlayCompensationPx
+    ?? 0
+  )
 }
 
 onMounted(async () => {
@@ -1113,21 +1587,34 @@ type ForkOutputBranchData =
  * que celui obtenu après F5.
  */
 function syncForkOutputsFromSectionModel() {
-  let sourceBranch: Branch | null = null
+  const currentElements =
+    section.value.$lineSection.elements
 
   for (
-    const element
-    of section.value.$lineSection.elements
+    let elementIndex = 0;
+    elementIndex < currentElements.length;
+    elementIndex++
   ) {
-    if (isBranch(element)) {
-      sourceBranch = element
+    const element =
+      currentElements[elementIndex]
+
+    if (!isFork(element)) {
       continue
     }
 
+    const sourceBranch =
+      sourceBranchForForkAtIndex(
+        elementIndex,
+        element,
+      )
+
+    const sections =
+      forkOutputSections(element)
+
     if (
-      !isFork(element)
-      || !sourceBranch
-      || !element.$fork.sections
+      !sourceBranch
+      || !sections
+      || sections.length < 2
     ) {
       continue
     }
@@ -1208,7 +1695,11 @@ function syncForkOutputsFromSectionModel() {
       outputIndex++
     ) {
       const outputSection =
-        element.$fork.sections[outputIndex]
+        sections[outputIndex]
+
+      if (!outputSection) {
+        continue
+      }
 
       const outputBranch =
         outputSection.$lineSection.elements.find(
@@ -1379,7 +1870,7 @@ function forkOutputLineMembershipSignature(
 
   for (
     const outputSection
-    of fork.$fork.sections ?? []
+    of forkOutputSections(fork) ?? []
   ) {
     for (
       const outputElement
@@ -1478,6 +1969,449 @@ function sectionElementRenderKey(
 }
 
 
+
+/*
+ * =========================================================
+ * FOURCHE <-> VRAI PARALLELBRANCHES : APPARIEMENT PERSISTANT
+ * =========================================================
+ *
+ * Toutes les nouvelles Fork, ligne simple COMME multi-ligne, utilisent
+ * désormais un vrai LineElement $parallelBranches.
+ *
+ * Pour ne jamais confondre les sorties de deux Fork voisines, la paire
+ * est persistée dans les deux sens :
+ *
+ *   fork.$fork.parallelBranchesId
+ *   parallel.$parallelBranches.forkId
+ *
+ * fork.$fork.sections reste un alias de compatibilité vers les mêmes
+ * LineSection. Fork.vue et les anciennes routines multi-lignes peuvent
+ * donc continuer à lire leurs sorties sans les rendre elles-mêmes.
+ * Après un F5, l'alias est rétabli automatiquement depuis la paire.
+ */
+function linkForkAndParallelBranches(
+  fork: Fork,
+  parallelBranches: ParallelBranches,
+) {
+  const forkData =
+    fork.$fork as ForkPairData
+
+  const parallelData =
+    (
+      parallelBranches.$parallelBranches as ParallelBranchesPairData
+    )
+
+  forkData.parallelBranchesId =
+    parallelBranches.id
+
+  parallelData.forkId =
+    fork.id
+
+  /*
+   * Même référence en mémoire :
+   * - le vrai ParallelBranches est le rendu / l'édition canonique ;
+   * - $fork.sections reste uniquement un alias de compatibilité.
+   *
+   * L'alias est volontairement NON énumérable : JSON.stringify()
+   * n'enregistre donc pas une deuxième copie des mêmes Branch.
+   * Après F5, ensureForkParallelPairs() le recrée depuis les IDs.
+   */
+  delete fork.$fork.sections
+
+  Object.defineProperty(
+    fork.$fork,
+    'sections',
+    {
+      value:
+        parallelBranches
+          .$parallelBranches
+          .sections,
+      writable: true,
+      configurable: true,
+      enumerable: false,
+    },
+  )
+}
+
+function createParallelBranchesForFork(
+  fork: Fork,
+): ParallelBranches | null {
+  const sections =
+    fork.$fork.sections
+
+  if (
+    !sections
+    || sections.length < 2
+  ) {
+    return null
+  }
+
+  const multiplier =
+    fork.$fork.offsetMultiplier
+    ?? 1
+
+  sections[0].$lineSection.levelOffset =
+    fork.$fork.linksOffset[0]
+    * multiplier
+
+  sections[1].$lineSection.levelOffset =
+    fork.$fork.linksOffset[1]
+    * multiplier
+
+  const parallelBranches: ParallelBranches = {
+    id: uuidv4(),
+    $parallelBranches: {
+      alignement:
+        fork.$fork.toward === 'RIGHT'
+          ? 'LEFT'
+          : 'RIGHT',
+      sections,
+    },
+  }
+
+  linkForkAndParallelBranches(
+    fork,
+    parallelBranches,
+  )
+
+  return parallelBranches
+}
+
+function preferredLegacyParallelNeighbor(
+  forkIndex: number,
+  fork: Fork,
+): ParallelBranches | null {
+  const currentElements =
+    section.value.$lineSection.elements
+
+  const preferredIndex =
+    fork.$fork.toward === 'LEFT'
+      ? forkIndex - 1
+      : forkIndex + 1
+
+  const fallbackIndex =
+    fork.$fork.toward === 'LEFT'
+      ? forkIndex + 1
+      : forkIndex - 1
+
+  for (
+    const candidateIndex
+    of [preferredIndex, fallbackIndex]
+  ) {
+    const candidate =
+      currentElements[candidateIndex]
+
+    if (
+      !candidate
+      || !isParallelBranches(candidate)
+    ) {
+      continue
+    }
+
+    const pairData =
+      (
+        candidate.$parallelBranches as ParallelBranchesPairData
+      )
+
+    /*
+     * Une paire déjà attribuée à une autre Fork est intouchable.
+     */
+    if (
+      pairData.forkId
+      && pairData.forkId !== fork.id
+    ) {
+      continue
+    }
+
+    return candidate
+  }
+
+  return null
+}
+
+function movePairedParallelBranches(
+  forkId: string,
+) {
+  const currentElements =
+    section.value.$lineSection.elements
+
+  let forkIndex =
+    currentElements.findIndex(
+      element =>
+        element.id === forkId,
+    )
+
+  if (forkIndex < 0) {
+    return
+  }
+
+  const fork =
+    currentElements[forkIndex]
+
+  if (!isFork(fork)) {
+    return
+  }
+
+  const pair =
+    pairedParallelBranchesForFork(fork)
+
+  if (!pair) {
+    return
+  }
+
+  const pairIndex =
+    currentElements.findIndex(
+      element =>
+        element.id === pair.id,
+    )
+
+  if (pairIndex < 0) {
+    return
+  }
+
+  const wantsBefore =
+    fork.$fork.toward === 'LEFT'
+
+  const alreadyCorrect =
+    wantsBefore
+      ? pairIndex === forkIndex - 1
+      : pairIndex === forkIndex + 1
+
+  if (alreadyCorrect) {
+    return
+  }
+
+  currentElements.splice(
+    pairIndex,
+    1,
+  )
+
+  forkIndex =
+    currentElements.findIndex(
+      element =>
+        element.id === forkId,
+    )
+
+  if (forkIndex < 0) {
+    return
+  }
+
+  currentElements.splice(
+    wantsBefore
+      ? forkIndex
+      : forkIndex + 1,
+    0,
+    pair,
+  )
+
+  /*
+   * On change l'alignement seulement quand le sens impose réellement
+   * un changement de côté. Un alignement manuel (dont FLUID) reste
+   * donc intact tant que l'orientation ne change pas.
+   */
+  pair.$parallelBranches.alignement =
+    wantsBefore
+      ? 'RIGHT'
+      : 'LEFT'
+}
+
+function ensureForkParallelPairs() {
+  const currentElements =
+    section.value.$lineSection.elements
+
+  /*
+   * 1. Restaure d'abord toutes les associations persistées.
+   */
+  for (const element of currentElements) {
+    if (!isParallelBranches(element)) {
+      continue
+    }
+
+    const forkId =
+      (
+        element.$parallelBranches as ParallelBranchesPairData
+      ).forkId
+
+    if (!forkId) {
+      continue
+    }
+
+    const fork =
+      currentElements.find(
+        candidate =>
+          candidate.id === forkId,
+      )
+
+    if (
+      fork
+      && isFork(fork)
+    ) {
+      linkForkAndParallelBranches(
+        fork,
+        element,
+      )
+    }
+    else {
+      delete (
+        element.$parallelBranches as ParallelBranchesPairData
+      ).forkId
+    }
+  }
+
+  const forkIds =
+    currentElements
+      .filter(
+        element =>
+          isFork(element),
+      )
+      .map(
+        element =>
+          element.id,
+      )
+
+  /*
+   * 2. Migre les Fork présentes :
+   *    - ancienne Fork autonome multi-ligne => crée un vrai PB ;
+   *    - ancienne Fork simple déjà convertie => rattache son PB voisin.
+   */
+  for (const forkId of forkIds) {
+    let forkIndex =
+      currentElements.findIndex(
+        element =>
+          element.id === forkId,
+      )
+
+    if (forkIndex < 0) {
+      continue
+    }
+
+    const fork =
+      currentElements[forkIndex]
+
+    if (!isFork(fork)) {
+      continue
+    }
+
+    let pair =
+      pairedParallelBranchesForFork(
+        fork,
+      )
+
+    if (!pair) {
+      if (
+        fork.$fork.sections
+        && fork.$fork.sections.length >= 2
+      ) {
+        pair =
+          createParallelBranchesForFork(
+            fork,
+          )
+
+        if (pair) {
+          currentElements.splice(
+            fork.$fork.toward === 'LEFT'
+              ? forkIndex
+              : forkIndex + 1,
+            0,
+            pair,
+          )
+        }
+      }
+      else {
+        /*
+         * Compatibilité avec les Fork simples créées par les patchs
+         * précédents : elles ont déjà un PB adjacent mais aucun ID.
+         */
+        const legacyPair =
+          preferredLegacyParallelNeighbor(
+            forkIndex,
+            fork,
+          )
+
+        if (legacyPair) {
+          linkForkAndParallelBranches(
+            fork,
+            legacyPair,
+          )
+
+          pair = legacyPair
+        }
+      }
+    }
+    else {
+      linkForkAndParallelBranches(
+        fork,
+        pair,
+      )
+    }
+
+    if (pair) {
+      movePairedParallelBranches(
+        fork.id,
+      )
+    }
+  }
+
+  syncForkOutputsFromSectionModel()
+}
+
+const forkParallelPairSignature =
+  computed(() =>
+    JSON.stringify(
+      section.value.$lineSection.elements.map(
+        element => {
+          if (isFork(element)) {
+            return {
+              type: 'FORK',
+              id: element.id,
+              toward:
+                element.$fork.toward,
+              pairId:
+                (
+                  element.$fork as ForkPairData
+                ).parallelBranchesId
+                ?? null,
+              hasSections:
+                Boolean(
+                  element.$fork.sections,
+                ),
+            }
+          }
+
+          if (isParallelBranches(element)) {
+            return {
+              type: 'PARALLEL_BRANCHES',
+              id: element.id,
+              forkId:
+                (
+                  element.$parallelBranches as ParallelBranchesPairData
+                ).forkId
+                ?? null,
+            }
+          }
+
+          return {
+            type: 'OTHER',
+            id: element.id,
+          }
+        },
+      ),
+    ),
+  )
+
+watch(
+  forkParallelPairSignature,
+  async () => {
+    await nextTick()
+
+    ensureForkParallelPairs()
+  },
+  {
+    immediate: true,
+    flush: 'post',
+  },
+)
+
 type Action =
   | 'ADD'
   | 'REMOVE'
@@ -1535,6 +2469,20 @@ function onAction(
       })
     }
   }
+
+  if (action === 'ADD') {
+    /*
+     * @add expose déjà le clone dans le v-model dans notre version de
+     * vue-draggable-plus. On crée donc la paire immédiatement pour éviter
+     * un frame où les anciennes sorties internes seraient visibles.
+     * Le nextTick reste un garde-fou si Sortable finalise encore l'ordre.
+     */
+    ensureForkParallelPairs()
+
+    void nextTick().then(() => {
+      ensureForkParallelPairs()
+    })
+  }
 }
 </script>
 
@@ -1572,10 +2520,16 @@ function onAction(
           )
         "
         :fork-overlay-offset-px="
-          forkGroupLayouts[i]?.overlayOffsetPx ?? 0
+          forkOverlayOffsetForElement(
+            element,
+            i,
+          )
         "
         :fork-overlay-compensation-px="
-          forkGroupLayouts[i]?.overlayCompensationPx ?? 0
+          forkOverlayCompensationForElement(
+            element,
+            i,
+          )
         "
         :fork-corridor-primary-visible="
           forkCorridorContexts[i]?.primaryVisible ?? true

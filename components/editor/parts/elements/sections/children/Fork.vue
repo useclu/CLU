@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useCssVar } from '@vueuse/core'
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import leftArrow from '~/assets/svg/left-arrow.svg'
 import rightArrow from '~/assets/svg/right-arrow.svg'
 import { useProject } from '~/stores/useProject'
@@ -57,6 +57,39 @@ const emSize = computed(() => {
 
 const lineContext = inject<LineContext>(LineContextKey)!
 const project = useProject()
+
+const getParallelBranchesForFork =
+  inject<
+    (
+      forkId: string,
+    ) => ParallelBranches | null
+  >(
+    'parallelBranchesForFork',
+    () => null,
+  )
+
+const pairedParallelBranches =
+  computed(() =>
+    getParallelBranchesForFork(
+      meta.id,
+    ),
+  )
+
+const outputSections =
+  computed<LineSection[] | null>(() =>
+    pairedParallelBranches.value
+      ?.$parallelBranches
+      .sections
+    ?? meta.$fork.sections
+    ?? null,
+  )
+
+const hasExternalParallelBranches =
+  computed(() =>
+    pairedParallelBranches.value
+    !== null,
+  )
+
 
 interface ForkCorridorContext {
   sourceBranchId: string | null
@@ -1048,47 +1081,73 @@ function outputPrimaryLineGapForIndex(
   )
 }
 
-provide(
-  'forkOutputPrimaryLineGapForBranch',
-  (
-    branchId: string,
-  ) => {
-    const sections =
-      meta.$fork.sections
+type ForkOutputGapProvider =
+  (branchId: string) => number
 
-    if (!sections) {
-      return 0
-    }
+const registerForkOutputGapProvider =
+  inject<
+    (
+      forkId: string,
+      provider: ForkOutputGapProvider,
+    ) => void
+  >(
+    'registerForkOutputPrimaryLineGapProvider',
+    () => {},
+  )
 
-    for (
-      let index = 0;
-      index < sections.length;
-      index++
-    ) {
-      const outputBranch =
-        sections[index]
-          .$lineSection
-          .elements
-          .find(
-            element =>
-              '$branch' in element,
-          )
+const unregisterForkOutputGapProvider =
+  inject<
+    (
+      forkId: string,
+    ) => void
+  >(
+    'unregisterForkOutputPrimaryLineGapProvider',
+    () => {},
+  )
 
-      if (
-        outputBranch
-        && '$branch' in outputBranch
-        && outputBranch.id === branchId
-      ) {
-        return (
-          outputPrimaryLineGapForIndex(
-            index as 0 | 1,
-          )
-        )
-      }
-    }
+function forkOutputGapForBranch(
+  branchId: string,
+) {
+  const sections =
+    outputSections.value
 
+  if (!sections) {
     return 0
-  },
+  }
+
+  for (
+    let index = 0;
+    index < sections.length;
+    index++
+  ) {
+    const outputBranch =
+      sections[index]
+        .$lineSection
+        .elements
+        .find(
+          element =>
+            '$branch' in element,
+        )
+
+    if (
+      outputBranch
+      && '$branch' in outputBranch
+      && outputBranch.id === branchId
+    ) {
+      return (
+        outputPrimaryLineGapForIndex(
+          index as 0 | 1,
+        )
+      )
+    }
+  }
+
+  return 0
+}
+
+registerForkOutputGapProvider(
+  meta.id,
+  forkOutputGapForBranch,
 )
 
 let passThroughFrame:
@@ -1507,12 +1566,21 @@ function findNearestRail(
             ),
           )
     )
-      .filter(candidate =>
-        !(
-          el.value
-          && (el.value as HTMLElement).contains(candidate)
-        ),
-      )
+      .filter((candidate) => {
+        const externalRoot =
+          externalParallelBranchesRoot()
+
+        return (
+          !(
+            el.value
+            && (el.value as HTMLElement).contains(candidate)
+          )
+          && !(
+            externalRoot
+            && externalRoot.contains(candidate)
+          )
+        )
+      })
 
   if (candidates.length === 0) {
     return null
@@ -1610,8 +1678,18 @@ function findInputRail(
       ),
     )
       .filter(
-        candidate =>
-          !el.value!.contains(candidate),
+        (candidate) => {
+          const externalRoot =
+            externalParallelBranchesRoot()
+
+          return (
+            !el.value!.contains(candidate)
+            && !(
+              externalRoot
+              && externalRoot.contains(candidate)
+            )
+          )
+        },
       )
       .map(candidate => ({
         candidate,
@@ -1805,12 +1883,21 @@ function updateTargetRailOffset() {
             selector,
           ),
         )
-          .filter(candidate =>
-            !(
-              el.value
-              && (el.value as HTMLElement).contains(candidate)
-            ),
-          )
+          .filter((candidate) => {
+            const externalRoot =
+              externalParallelBranchesRoot()
+
+            return (
+              !(
+                el.value
+                && (el.value as HTMLElement).contains(candidate)
+              )
+              && !(
+                externalRoot
+                && externalRoot.contains(candidate)
+              )
+            )
+          })
 
       if (candidates.length === 0) {
         targetRailOffsetPx.value = 0
@@ -2032,6 +2119,31 @@ function snapForkToTargetRail() {
   }
 
   /*
+   * Fourche simple créée comme premier élément de sa Section :
+   *
+   * SectionEditor nous donne alors sourceBranchId = null.
+   * Après conversion en :
+   *
+   *   Fork + vrai ParallelBranches
+   *
+   * les deux rails du ParallelBranches deviennent des siblings DOM.
+   * Ils ne doivent JAMAIS servir d'ancre d'entrée à cette Fork.
+   *
+   * Pour la ligne principale, l'absence de source topologique signifie
+   * simplement : rester sur l'axe naturel de la Section.
+   *
+   * On remet explicitement l'offset DOM à zéro afin qu'un ancien snap
+   * calculé pendant un frame précédent ne survive pas à la conversion.
+   */
+  if (
+    targetLineId.value === 'primary'
+    && !forkCorridorContext.value?.sourceBranchId
+  ) {
+    targetRailOffsetPx.value = 0
+    return true
+  }
+
+  /*
    * Le corridor source peut avoir changé de hauteur juste avant
    * cette mesure (notamment quand offsetMultiplier change).
    * On mémorise donc d'abord son écart D/S réellement rendu.
@@ -2205,6 +2317,84 @@ function verticalOverlap(
   )
 }
 
+
+function externalParallelBranchesRoot():
+  HTMLElement | null {
+  if (
+    typeof document === 'undefined'
+  ) {
+    return null
+  }
+
+  const pair =
+    pairedParallelBranches.value
+
+  if (!pair) {
+    return null
+  }
+
+  return document.querySelector<HTMLElement>(
+    `[data-parallel-branches-id="${CSS.escape(pair.id)}"]`,
+  )
+}
+
+function forkOutputContainerElement():
+  HTMLElement | null {
+  if (hasExternalParallelBranches.value) {
+    return externalParallelBranchesRoot()
+  }
+
+  return (
+    el.value
+      ?.querySelector<HTMLElement>(
+        ':scope > .fork-sections',
+      )
+    ?? null
+  )
+}
+
+function forkOutputSlots() {
+  const container =
+    forkOutputContainerElement()
+
+  if (!container) {
+    return [] as HTMLElement[]
+  }
+
+  const selector =
+    hasExternalParallelBranches.value
+      ? ':scope > .child-branch'
+      : ':scope > .fork-section'
+
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      selector,
+    ),
+  )
+}
+
+function applyExternalOutputRenderOffsets() {
+  if (!hasExternalParallelBranches.value) {
+    return
+  }
+
+  const slots =
+    forkOutputSlots()
+
+  slots.forEach((slot, index) => {
+    const outputIndex =
+      index as 0 | 1
+
+    slot.style.transform =
+      `translateY(${forkOutputOffsetsPx.value[outputIndex] ?? 0}px)`
+
+    slot.style.setProperty(
+      '--fork-output-content-offset-x',
+      `${forkOutputContentOffsetPx.value[outputIndex] ?? 0}px`,
+    )
+  })
+}
+
 /*
  * Calcule uniquement un décalage X du contenu de la sortie basse.
  *
@@ -2219,17 +2409,13 @@ function updateOutputHorizontalClearance() {
   if (
     typeof window === 'undefined'
     || !el.value
-    || !meta.$fork.sections
+    || !outputSections.value
   ) {
     return
   }
 
   const slots =
-    Array.from(
-      el.value.querySelectorAll<HTMLElement>(
-        ':scope > .fork-sections > .fork-section',
-      ),
-    )
+    forkOutputSlots()
 
   if (slots.length < 2) {
     forkOutputContentOffsetPx.value = [
@@ -2386,6 +2572,8 @@ function updateOutputHorizontalClearance() {
   ) {
     forkOutputContentOffsetPx.value =
       next
+
+    applyExternalOutputRenderOffsets()
   }
 }
 
@@ -2393,7 +2581,7 @@ function updateOutputClearance() {
   if (
     typeof window === 'undefined'
     || !el.value
-    || !meta.$fork.sections
+    || !outputSections.value
   ) {
     return
   }
@@ -2412,11 +2600,7 @@ function updateOutputClearance() {
   }
 
   const slots =
-    Array.from(
-      el.value.querySelectorAll<HTMLElement>(
-        ':scope > .fork-sections > .fork-section',
-      ),
-    )
+    forkOutputSlots()
 
   if (slots.length < 2) {
     autoExtraOutputLevels.value = 0
@@ -2624,14 +2808,38 @@ function emitForkExtent() {
     return
   }
 
+  const forkRoot =
+    el.value as HTMLElement
+
+  let width =
+    forkRoot.offsetWidth
+
   /*
-   * offsetWidth mesure la largeur de layout de la Fork complète :
-   * SVG + ses deux sections de sortie.
-   *
-   * Les marges d'overlay ne modifient pas cette mesure.
+   * Quand les sorties sont un vrai ParallelBranches sibling, la largeur
+   * logique de la paire doit rester celle que l'ancien modèle autonome
+   * exposait à SectionEditor. C'est indispensable pour superposer deux
+   * Fork de lignes différentes au même X.
    */
-  const width =
-    (el.value as HTMLElement).offsetWidth
+  const externalRoot =
+    externalParallelBranchesRoot()
+
+  if (externalRoot) {
+    const forkRect =
+      forkRoot.getBoundingClientRect()
+
+    const parallelRect =
+      externalRoot.getBoundingClientRect()
+
+    width =
+      Math.max(
+        forkRect.right,
+        parallelRect.right,
+      )
+      - Math.min(
+          forkRect.left,
+          parallelRect.left,
+        )
+  }
 
   if (width > 0) {
     emit(
@@ -2641,6 +2849,90 @@ function emitForkExtent() {
   }
 }
 
+
+
+function bindForkOutputObservers() {
+  outputClearanceResizeObserver?.disconnect()
+  outputClearanceMutationObserver?.disconnect()
+
+  outputClearanceResizeObserver = null
+  outputClearanceMutationObserver = null
+
+  const forkSectionsElement =
+    forkOutputContainerElement()
+
+  if (forkSectionsElement) {
+    outputClearanceResizeObserver =
+      new ResizeObserver(
+        () => {
+          if (
+            pauseForkObserverDuringSortableDrag()
+          ) {
+            return
+          }
+
+          scheduleOutputClearance()
+        },
+      )
+
+    outputClearanceResizeObserver.observe(
+      forkSectionsElement,
+    )
+
+    forkOutputSlots()
+      .forEach((slot) => {
+        outputClearanceResizeObserver?.observe(
+          slot,
+        )
+      })
+
+    outputClearanceMutationObserver =
+      new MutationObserver(
+        () => {
+          if (
+            pauseForkObserverDuringSortableDrag()
+          ) {
+            return
+          }
+
+          scheduleOutputClearance()
+        },
+      )
+
+    outputClearanceMutationObserver.observe(
+      forkSectionsElement,
+      {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: [
+          'class',
+          'data-line-id',
+          'data-line-ids',
+          'transform',
+        ],
+      },
+    )
+  }
+}
+
+watch(
+  () =>
+    pairedParallelBranches.value?.id
+    ?? null,
+  async () => {
+    await nextTick()
+
+    bindForkOutputObservers()
+    alignForkOutputSections()
+    scheduleOutputClearance()
+    schedulePassThroughRails()
+  },
+  {
+    flush: 'post',
+  },
+)
 
 onMounted(async () => {
   /*
@@ -2686,67 +2978,7 @@ onMounted(async () => {
     el.value,
   )
 
-  const forkSectionsElement =
-    el.value.querySelector<HTMLElement>(
-      ':scope > .fork-sections',
-    )
-
-  if (forkSectionsElement) {
-    outputClearanceResizeObserver =
-      new ResizeObserver(
-        () => {
-          if (
-            pauseForkObserverDuringSortableDrag()
-          ) {
-            return
-          }
-
-          scheduleOutputClearance()
-        },
-      )
-
-    outputClearanceResizeObserver.observe(
-      forkSectionsElement,
-    )
-
-    forkSectionsElement
-      .querySelectorAll<HTMLElement>(
-        '.fork-section',
-      )
-      .forEach((slot) => {
-        outputClearanceResizeObserver?.observe(
-          slot,
-        )
-      })
-
-    outputClearanceMutationObserver =
-      new MutationObserver(
-        () => {
-          if (
-            pauseForkObserverDuringSortableDrag()
-          ) {
-            return
-          }
-
-          scheduleOutputClearance()
-        },
-      )
-
-    outputClearanceMutationObserver.observe(
-      forkSectionsElement,
-      {
-        subtree: true,
-        childList: true,
-        characterData: true,
-        attributes: true,
-        attributeFilter: [
-          'class',
-          'data-line-id',
-          'data-line-ids',
-        ],
-      },
-    )
-  }
+  bindForkOutputObservers()
 
   scheduleOutputClearance()
 
@@ -2813,6 +3045,10 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  unregisterForkOutputGapProvider(
+    meta.id,
+  )
+
   railResizeObserver?.disconnect()
   railMutationObserver?.disconnect()
   forkExtentObserver?.disconnect()
@@ -3041,7 +3277,7 @@ function updatePassThroughRails() {
   if (
     typeof window === 'undefined'
     || !el.value
-    || !meta.$fork.sections
+    || !outputSections.value
   ) {
     passThroughRails.value = []
     return
@@ -3099,11 +3335,7 @@ function updatePassThroughRails() {
     svg.getBoundingClientRect()
 
   const slots =
-    Array.from(
-      el.value.querySelectorAll<HTMLElement>(
-        ':scope > .fork-sections > .fork-section',
-      ),
-    )
+    forkOutputSlots()
 
   const topOutputIndex: 0 | 1 =
     renderedLinksOffsets.value[0]
@@ -3138,7 +3370,7 @@ function updatePassThroughRails() {
         )
 
       const outputBranch =
-        meta.$fork.sections?.[
+        outputSections.value?.[
           outputIndex
         ]?.$lineSection.elements.find(
           element =>
@@ -3299,7 +3531,7 @@ function alignForkOutputSections() {
   if (
     typeof window === 'undefined'
     || !el.value
-    || !meta.$fork.sections
+    || !outputSections.value
   ) {
     return
   }
@@ -3317,11 +3549,7 @@ function alignForkOutputSections() {
     forkGeometry.getBoundingClientRect()
 
   const slots =
-    Array.from(
-      el.value.querySelectorAll<HTMLElement>(
-        ':scope > .fork-sections > .fork-section',
-      ),
-    )
+    forkOutputSlots()
 
   const nextOffsets: [number, number] = [
     forkOutputOffsetsPx.value[0],
@@ -3378,6 +3606,8 @@ function alignForkOutputSections() {
   forkOutputOffsetsPx.value =
     nextOffsets
 
+  applyExternalOutputRenderOffsets()
+
   /*
    * Les transforms des sections enfants viennent de changer.
    * On mesure le raccord S/D au frame suivant, une fois ces
@@ -3389,7 +3619,7 @@ function alignForkOutputSections() {
 
 
 function syncForkOutputBranches() {
-  const sections = meta.$fork.sections
+  const sections = outputSections.value
 
   if (!sections) {
     return
@@ -3574,19 +3804,29 @@ watch(
   () => [
     meta.$fork.linksOffset[0],
     meta.$fork.linksOffset[1],
+    meta.$fork.offsetMultiplier ?? 1,
   ],
   async () => {
-    const sections = meta.$fork.sections
+    const sections = outputSections.value
 
-    if (!sections) {
+    if (
+      !sections
+      || sections.length < 2
+    ) {
       return
     }
 
+    const multiplier =
+      meta.$fork.offsetMultiplier
+      ?? 1
+
     sections[0].$lineSection.levelOffset =
       meta.$fork.linksOffset[0]
+      * multiplier
 
     sections[1].$lineSection.levelOffset =
       meta.$fork.linksOffset[1]
+      * multiplier
 
     await nextTick()
 
@@ -3600,9 +3840,10 @@ watch(
 )
 
 const forkSections = computed(() =>
-  meta.$fork.sections ?? null,
+  hasExternalParallelBranches.value
+    ? null
+    : outputSections.value,
 )
-
 
 watch(
   renderedLinksOffsets,

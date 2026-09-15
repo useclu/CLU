@@ -1,11 +1,39 @@
 <script setup lang="ts">
+import {
+  computed,
+  inject,
+} from 'vue'
+
+type ParallelAlignment =
+  | 'LEFT'
+  | 'FLUID'
+  | 'RIGHT'
+
 const visible = defineModel<boolean>('visible', {
   required: true,
 })
 
-const parallelBranches = defineModel<ParallelBranches>({
-  required: true,
-})
+const parallelBranches =
+  defineModel<ParallelBranches>({
+    required: true,
+  })
+
+const getForkForParallelBranches =
+  inject<
+    (
+      parallelBranchesId: string,
+    ) => Fork | null
+  >(
+    'forkForParallelBranches',
+    () => null,
+  )
+
+const pairedFork =
+  computed(() =>
+    getForkForParallelBranches(
+      parallelBranches.value.id,
+    ),
+  )
 
 const alignements = [
   {
@@ -21,6 +49,85 @@ const alignements = [
     value: 'RIGHT',
   },
 ]
+
+const alignment =
+  computed<ParallelAlignment>({
+    get() {
+      return parallelBranches
+        .value
+        .$parallelBranches
+        .alignement
+    },
+
+    set(value) {
+      parallelBranches
+        .value
+        .$parallelBranches
+        .alignement = value
+    },
+  })
+
+function sectionLevel(
+  index: 0 | 1,
+) {
+  return computed<number>({
+    get() {
+      return (
+        parallelBranches
+          .value
+          .$parallelBranches
+          .sections[index]
+          ?.$lineSection
+          .levelOffset
+        ?? 0
+      )
+    },
+
+    set(value) {
+      const section =
+        parallelBranches
+          .value
+          .$parallelBranches
+          .sections[index]
+
+      if (!section) {
+        return
+      }
+
+      section.$lineSection.levelOffset =
+        value
+
+      /*
+       * Pour une paire créée automatiquement, les niveaux du vrai
+       * ParallelBranches sont aussi les extrémités de la Fork.
+       * Le dialogue reste donc pleinement manipulable sans créer de
+       * cassure visuelle entre les deux éléments.
+       */
+      const fork =
+        pairedFork.value
+
+      if (!fork) {
+        return
+      }
+
+      const multiplier =
+        Math.max(
+          0.0001,
+          fork.$fork.offsetMultiplier
+          ?? 1,
+        )
+
+      fork.$fork.linksOffset[index] =
+        value / multiplier
+    },
+  })
+}
+
+const section1Level =
+  sectionLevel(0)
+
+const section2Level =
+  sectionLevel(1)
 </script>
 
 <template>
@@ -99,11 +206,7 @@ const alignements = [
 
         <div class="property-card-body">
           <SelectButton
-            v-model="
-              parallelBranches
-                .$parallelBranches
-                .alignement
-            "
+            v-model="alignment"
             class="property-select"
             pt:pc-toggle-button:root:class="flex-grow"
             :options="alignements"
@@ -154,13 +257,7 @@ const alignements = [
               </div>
 
               <BInputNumber
-                v-model="
-                  parallelBranches
-                    .$parallelBranches
-                    .sections[0]
-                    .$lineSection
-                    .levelOffset
-                "
+                v-model="section1Level"
               />
             </div>
 
@@ -180,13 +277,7 @@ const alignements = [
               </div>
 
               <BInputNumber
-                v-model="
-                  parallelBranches
-                    .$parallelBranches
-                    .sections[1]
-                    .$lineSection
-                    .levelOffset
-                "
+                v-model="section2Level"
               />
             </div>
           </div>

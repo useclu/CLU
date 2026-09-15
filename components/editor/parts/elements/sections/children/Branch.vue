@@ -536,6 +536,57 @@ function defaultStopLineIdForBranch() {
   )
 }
 
+
+/*
+ * Appartenance implicite complète d'un ancien Stop sans lineIds.
+ *
+ * - corridor partagé D + S : le Stop appartient aux deux lignes directes ;
+ * - sortie de Fork : les lignes seulement passthrough restent exclues ;
+ * - si aucune ligne directe n'est disponible, on retombe sur la ligne
+ *   naturelle historique de la Branch.
+ *
+ * Cette fonction ne persiste rien : elle sert uniquement de source de
+ * vérité commune au rendu et aux recalculs physiques de Branch.vue.
+ */
+function implicitStopLineIdsForBranch() {
+  const branchData =
+    branch.value.$branch as BranchWithPassthrough
+
+  const passthroughIds =
+    new Set(
+      branchData.passthroughLineIds
+      ?? [],
+    )
+
+  const ids: string[] = []
+
+  if (
+    branch.value.$branch.primaryLineVisible
+    !== false
+    && !passthroughIds.has('primary')
+  ) {
+    ids.push('primary')
+  }
+
+  for (
+    const line
+    of branch.value.$branch.additionalLines
+    ?? []
+  ) {
+    if (!passthroughIds.has(line.id)) {
+      ids.push(line.id)
+    }
+  }
+
+  if (ids.length > 0) {
+    return ids
+  }
+
+  return [
+    defaultStopLineIdForBranch(),
+  ]
+}
+
 function branchUsesLine(
   lineId: string,
 ) {
@@ -557,10 +608,8 @@ function branchUsesLine(
       !ids
       || ids.length === 0
     ) {
-      return (
-        lineId
-        === defaultStopLineIdForBranch()
-      )
+      return implicitStopLineIdsForBranch()
+        .includes(lineId)
     }
 
     return ids.includes(lineId)
@@ -1152,7 +1201,7 @@ function updateMultiLineSpacing() {
 
     return ids.length > 0
       ? ids
-      : ['primary']
+      : implicitStopLineIdsForBranch()
   }
 
   function visibleRects(
@@ -1606,19 +1655,69 @@ interface ParentForkContext {
 function findParentForkContext(
   targetBranchId: string,
 ): ParentForkContext | null {
+  type LinkedForkData =
+    Fork['$fork'] & {
+      parallelBranchesId?: string
+    }
+
+  type LinkedParallelData =
+    ParallelBranches['$parallelBranches'] & {
+      forkId?: string
+    }
+
+  function sourceBranchForFork(
+    elements: LineElement[],
+    forkIndex: number,
+    fork: Fork,
+  ): Branch | null {
+    const step =
+      fork.$fork.toward === 'LEFT'
+        ? 1
+        : -1
+
+    for (
+      let index = forkIndex + step;
+      index >= 0
+      && index < elements.length;
+      index += step
+    ) {
+      const candidate =
+        elements[index]
+
+      if ('$branch' in candidate) {
+        return candidate
+      }
+
+      if ('$parallelBranches' in candidate) {
+        continue
+      }
+
+      if ('$fork' in candidate) {
+        break
+      }
+    }
+
+    return null
+  }
+
   function scanSection(
     currentSection: LineSection,
     ownerFork: Fork | null = null,
     ownerForkSourceBranch: Branch | null = null,
     ownerOutputIndex: 0 | 1 | null = null,
   ): ParentForkContext | null {
-    let previousBranch:
-      Branch | null = null
+    const sectionElements =
+      currentSection.$lineSection.elements
+      ?? []
 
     for (
-      const element
-      of currentSection.$lineSection.elements ?? []
+      let elementIndex = 0;
+      elementIndex < sectionElements.length;
+      elementIndex++
     ) {
+      const element =
+        sectionElements[elementIndex]
+
       if ('$branch' in element) {
         if (
           element.id === targetBranchId
@@ -1638,54 +1737,119 @@ function findParentForkContext(
           }
         }
 
-        previousBranch =
-          element
-
         continue
       }
 
-      if ('$fork' in element) {
-        const sourceBranch =
-          previousBranch
+      if ('$parallelBranches' in element) {
+        const linkedForkId =
+          (
+            element.$parallelBranches as LinkedParallelData
+          ).forkId
 
-        if (sourceBranch) {
-          const childSections =
-            element.$fork.sections
-            ?? []
-
-          for (
-            let index = 0;
-            index < childSections.length;
-            index++
-          ) {
-            const found =
-              scanSection(
-                childSections[index],
-                element,
-                sourceBranch,
-                index as 0 | 1,
+        const linkedForkIndex =
+          linkedForkId
+            ? sectionElements.findIndex(
+                candidate =>
+                  '$fork' in candidate
+                  && candidate.id
+                    === linkedForkId,
               )
+            : -1
 
-            if (found) {
-              return found
-            }
+        const linkedFork =
+          linkedForkIndex >= 0
+            ? sectionElements[
+                linkedForkIndex
+              ]
+            : null
+
+        const actualFork =
+          linkedFork
+          && '$fork' in linkedFork
+            ? linkedFork
+            : ownerFork
+
+        const actualSourceBranch =
+          actualFork
+          && '$fork' in actualFork
+          && linkedForkIndex >= 0
+            ? sourceBranchForFork(
+                sectionElements,
+                linkedForkIndex,
+                actualFork,
+              )
+            : ownerForkSourceBranch
+
+        const childSections =
+          element.$parallelBranches.sections
+          ?? []
+
+        for (
+          let index = 0;
+          index < childSections.length;
+          index++
+        ) {
+          const found =
+            scanSection(
+              childSections[index],
+              actualFork,
+              actualSourceBranch,
+              linkedForkIndex >= 0
+                ? index as 0 | 1
+                : ownerOutputIndex,
+            )
+
+          if (found) {
+            return found
           }
         }
 
         continue
       }
 
-      if ('$parallelBranches' in element) {
+      if ('$fork' in element) {
+        const linkedPairId =
+          (
+            element.$fork as LinkedForkData
+          ).parallelBranchesId
+
+        /*
+         * Une Fork appairée possède ses sorties dans le vrai
+         * ParallelBranches sibling, qui sera parcouru séparément.
+         */
+        if (linkedPairId) {
+          continue
+        }
+
+        /*
+         * Compatibilité avec les anciens projets encore autonomes.
+         */
+        const sourceBranch =
+          sourceBranchForFork(
+            sectionElements,
+            elementIndex,
+            element,
+          )
+
+        if (!sourceBranch) {
+          continue
+        }
+
+        const childSections =
+          element.$fork.sections
+          ?? []
+
         for (
-          const childSection
-          of element.$parallelBranches.sections ?? []
+          let index = 0;
+          index < childSections.length;
+          index++
         ) {
           const found =
             scanSection(
-              childSection,
-              ownerFork,
-              ownerForkSourceBranch,
-              ownerOutputIndex,
+              childSections[index],
+              element,
+              sourceBranch,
+              index as 0 | 1,
             )
 
           if (found) {
@@ -1715,6 +1879,7 @@ function findParentForkContext(
   return null
 }
 
+
 function stopRequestedLineIds() {
   const ids =
     new Set<string>()
@@ -1734,7 +1899,12 @@ function stopRequestedLineIds() {
       !stored
       || stored.length === 0
     ) {
-      ids.add('primary')
+      implicitStopLineIdsForBranch()
+        .forEach(
+          lineId =>
+            ids.add(lineId),
+        )
+
       continue
     }
 
@@ -2125,9 +2295,7 @@ function stopDisplayedLineIds(
    * - Branch S seule : ancien arrêt => première ligne visible,
    *   afin de ne pas remettre le Stop au centre du slot primary.
    */
-  return branchLines.value[0]
-    ? [branchLines.value[0].id]
-    : ['primary']
+  return implicitStopLineIdsForBranch()
 }
 
 /*
@@ -2150,9 +2318,7 @@ function stopStoredLineIds(
     !stored
     || stored.length === 0
   ) {
-    return branchLines.value[0]
-      ? [branchLines.value[0].id]
-      : ['primary']
+    return implicitStopLineIdsForBranch()
   }
 
   const availableIds =

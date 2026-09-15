@@ -498,8 +498,86 @@ function findForkPlacementContext():
   return null
 }
 
+type BranchWithPassthrough =
+  Branch['$branch'] & {
+    passthroughLineIds?: string[]
+  }
+
+/*
+ * Même règle d'appartenance implicite que Branch.vue et
+ * StopPropertiesDialog :
+ *
+ * - un Stop avec lineIds explicites utilise ces IDs ;
+ * - un Stop ancien / nouvellement posé sans lineIds appartient aux
+ *   lignes DIRECTES de sa Branch ;
+ * - une ligne seulement passthrough ne devient pas automatiquement
+ *   la ligne du Stop.
+ *
+ * C'est essentiel après une première Fork :
+ * Bonsoir/Test peuvent vivre physiquement dans la Branch M2 sans avoir
+ * encore lineIds persisté. L'ancien code les classait alors toujours
+ * "primary", donc une deuxième Fork ciblant M2 ne les proposait pas dans
+ * "Après quel arrêt ?".
+ */
+function implicitStopLineIdsForBranch(
+  branch: Branch,
+) {
+  const data =
+    branch.$branch as BranchWithPassthrough
+
+  const passthroughIds =
+    new Set(
+      data.passthroughLineIds
+      ?? [],
+    )
+
+  const ids: string[] = []
+
+  if (
+    branch.$branch.primaryLineVisible
+    !== false
+    && !passthroughIds.has('primary')
+  ) {
+    ids.push('primary')
+  }
+
+  for (
+    const line
+    of branch.$branch.additionalLines
+    ?? []
+  ) {
+    if (!passthroughIds.has(line.id)) {
+      ids.push(line.id)
+    }
+  }
+
+  if (ids.length > 0) {
+    return ids
+  }
+
+  /*
+   * Fallback anciens projets :
+   * si toute la Branch est marquée passthrough, on conserve au moins
+   * une identité existante sans inventer une nouvelle ligne.
+   */
+  if (
+    branch.$branch.primaryLineVisible
+    !== false
+  ) {
+    return ['primary']
+  }
+
+  const firstAdditional =
+    branch.$branch.additionalLines?.[0]
+
+  return firstAdditional
+    ? [firstAdditional.id]
+    : ['primary']
+}
+
 function stopUsesSelectedLine(
   stop: Stop,
+  branch: Branch,
 ) {
   const ids =
     (
@@ -513,8 +591,12 @@ function stopUsesSelectedLine(
     || ids.length === 0
   ) {
     return (
-      selectedLineId.value
-      === 'primary'
+      implicitStopLineIdsForBranch(
+        branch,
+      )
+        .includes(
+          selectedLineId.value,
+        )
     )
   }
 
@@ -757,6 +839,109 @@ function restorePreviouslyMovedElements() {
 }
 
 
+
+type ForkPairData =
+  Fork['$fork'] & {
+    parallelBranchesId?: string
+  }
+
+interface ParallelBranchesLocation {
+  section: LineSection
+  index: number
+  parallelBranches: ParallelBranches
+}
+
+/*
+ * Depuis le nouveau modèle, les sorties d'une Fork sont un vrai
+ * ParallelBranches sibling.
+ *
+ * Quand "Après quel arrêt ?" déplace la Fork dans une Section enfant,
+ * son ParallelBranches doit impérativement voyager avec elle.
+ */
+function findPairedParallelBranchesLocation():
+  ParallelBranchesLocation | null {
+  const pairId =
+    (
+      fork.value.$fork as ForkPairData
+    ).parallelBranchesId
+
+  if (!pairId) {
+    return null
+  }
+
+  function scanSection(
+    section: LineSection,
+  ): ParallelBranchesLocation | null {
+    for (
+      let index = 0;
+      index < section.$lineSection.elements.length;
+      index++
+    ) {
+      const element =
+        section.$lineSection.elements[index]
+
+      if (
+        '$parallelBranches' in element
+        && element.id === pairId
+      ) {
+        return {
+          section,
+          index,
+          parallelBranches: element,
+        }
+      }
+
+      if ('$parallelBranches' in element) {
+        for (
+          const child
+          of element.$parallelBranches.sections ?? []
+        ) {
+          const found =
+            scanSection(child)
+
+          if (found) {
+            return found
+          }
+        }
+      }
+
+      if (
+        '$fork' in element
+        && element.id !== fork.value.id
+      ) {
+        for (
+          const child
+          of element.$fork.sections ?? []
+        ) {
+          const found =
+            scanSection(child)
+
+          if (found) {
+            return found
+          }
+        }
+      }
+    }
+
+    return null
+  }
+
+  for (
+    const rootSection
+    of project.line.topology ?? []
+  ) {
+    const found =
+      scanSection(rootSection)
+
+    if (found) {
+      return found
+    }
+  }
+
+  return null
+}
+
+
 function applyForkAfterStop(
   stopId: string,
 ) {
@@ -790,6 +975,9 @@ function applyForkAfterStop(
   if (!oldLocation) {
     return
   }
+
+  const oldPairLocation =
+    findPairedParallelBranchesLocation()
 
   /*
    * 3. On mémorise uniquement des identifiants logiques.
@@ -871,6 +1059,45 @@ function applyForkAfterStop(
    *    Plus aucune correction verticale basée sur Viry n'est
    *    nécessaire pour déterminer son niveau structurel.
    */
+  /*
+   * 6. La Fork ET son vrai ParallelBranches sont une seule unité.
+   *
+   * Une deuxième Fork placée après Bonsoir/Test se déplace dans la
+   * LineSection qui contient réellement ces arrêts. Si on déplaçait
+   * uniquement la Fork, son ParallelBranches resterait dans l'ancienne
+   * Section et la paire serait cassée.
+   */
+  const pair =
+    oldPairLocation
+      ?.parallelBranches
+    ?? null
+
+  /*
+   * On retire d'abord les deux objets de leurs anciennes Sections.
+   * On les retrouve par id juste avant le splice car Fork et PB peuvent
+   * déjà être dans la même Section.
+   */
+  if (pair && oldPairLocation) {
+    const pairIndex =
+      oldPairLocation.section
+        .$lineSection
+        .elements
+        .findIndex(
+          element =>
+            element.id === pair.id,
+        )
+
+    if (pairIndex >= 0) {
+      oldPairLocation.section
+        .$lineSection
+        .elements
+        .splice(
+          pairIndex,
+          1,
+        )
+    }
+  }
+
   const currentForkIndex =
     oldLocation.section
       .$lineSection
@@ -891,10 +1118,8 @@ function applyForkAfterStop(
   }
 
   /*
-   * Si la Fork venait déjà de cette même Section et se trouvait
-   * avant la Branch cible, la suppression ci-dessus a décalé
-   * l'index de la Branch d'une place. On retrouve donc son index
-   * APRÈS suppression plutôt que de réutiliser l'ancien index.
+   * Les suppressions peuvent avoir décalé l'index de la Branch cible.
+   * On la retrouve donc APRÈS avoir retiré la paire.
    */
   const targetBranchIndex =
     target.section
@@ -907,35 +1132,97 @@ function applyForkAfterStop(
 
   if (targetBranchIndex < 0) {
     /*
-     * Cas théoriquement impossible : on remet la Fork dans
-     * son ancienne Section plutôt que de perdre l'élément.
+     * Sécurité : restaure l'unité dans l'ancienne Section.
      */
-    oldLocation.section
-      .$lineSection
-      .elements
-      .splice(
-        Math.min(
-          oldLocation.forkIndex,
-          oldLocation.section
-            .$lineSection
-            .elements
-            .length,
-        ),
-        0,
-        fork.value,
+    const restoreIndex =
+      Math.min(
+        oldLocation.forkIndex,
+        oldLocation.section
+          .$lineSection
+          .elements
+          .length,
       )
+
+    if (
+      pair
+      && fork.value.$fork.toward === 'LEFT'
+    ) {
+      oldLocation.section
+        .$lineSection
+        .elements
+        .splice(
+          restoreIndex,
+          0,
+          pair,
+          fork.value,
+        )
+    }
+    else if (pair) {
+      oldLocation.section
+        .$lineSection
+        .elements
+        .splice(
+          restoreIndex,
+          0,
+          fork.value,
+          pair,
+        )
+    }
+    else {
+      oldLocation.section
+        .$lineSection
+        .elements
+        .splice(
+          restoreIndex,
+          0,
+          fork.value,
+        )
+    }
 
     return
   }
 
-  target.section
-    .$lineSection
-    .elements
-    .splice(
-      targetBranchIndex + 1,
-      0,
-      fork.value,
-    )
+  const insertIndex =
+    targetBranchIndex + 1
+
+  if (
+    pair
+    && fork.value.$fork.toward === 'LEFT'
+  ) {
+    target.section
+      .$lineSection
+      .elements
+      .splice(
+        insertIndex,
+        0,
+        pair,
+        fork.value,
+      )
+  }
+  else if (pair) {
+    target.section
+      .$lineSection
+      .elements
+      .splice(
+        insertIndex,
+        0,
+        fork.value,
+        pair,
+      )
+  }
+  else {
+    /*
+     * Compatibilité anciens projets sans vrai ParallelBranches sibling.
+     */
+    target.section
+      .$lineSection
+      .elements
+      .splice(
+        insertIndex,
+        0,
+        fork.value,
+      )
+  }
 }
 
 
@@ -964,6 +1251,7 @@ const anchorStopOptions =
               || seen.has(branchElement.id)
               || !stopUsesSelectedLine(
                 branchElement,
+                element,
               )
             ) {
               continue
@@ -1065,6 +1353,7 @@ const anchorStopOptions =
             && !seen.has(element.id)
             && stopUsesSelectedLine(
               element,
+              outputBranch,
             )
           ) {
             seen.add(element.id)

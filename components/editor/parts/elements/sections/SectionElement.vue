@@ -106,6 +106,98 @@ const annotationStyle = computed(() => {
   }
 })
 
+type BranchWithPassthrough =
+  Branch['$branch'] & {
+    passthroughLineIds?: string[]
+  }
+
+function stopExplicitlyUsesLine(
+  currentBranch: Branch,
+  lineId: string,
+) {
+  return (
+    currentBranch.$branch.elements
+    ?? []
+  ).some((child) => {
+    if (!('$stop' in child)) {
+      return false
+    }
+
+    const ids =
+      (
+        child.$stop as Stop['$stop'] & {
+          lineIds?: string[]
+        }
+      ).lineIds
+
+    return Boolean(
+      ids?.includes(lineId),
+    )
+  })
+}
+
+/*
+ * Certaines sorties multi-lignes servent uniquement de conteneur
+ * logique pour une ligne passthrough. Tant qu'aucun Stop ne l'utilise,
+ * Branch.vue ne dessine volontairement aucun rail.
+ *
+ * L'ancien SectionElement restait pourtant large et cliquable : on
+ * obtenait alors une grande zone vide ouvrant "Propriétés de la
+ * branche" entre la Fork et son vrai ParallelBranches.
+ *
+ * On collapse uniquement CES Branch totalement invisibles. Dès qu'une
+ * ligne devient réellement visible, le SectionElement retrouve
+ * automatiquement son comportement normal.
+ */
+const branchIsFullyInvisible =
+  computed(() => {
+    if (!isBranch(element.value)) {
+      return false
+    }
+
+    const currentBranch =
+      element.value
+
+    const data =
+      currentBranch.$branch as BranchWithPassthrough
+
+    const passthrough =
+      new Set(
+        data.passthroughLineIds
+        ?? [],
+      )
+
+    const primaryVisible =
+      currentBranch.$branch.primaryLineVisible
+      !== false
+      && (
+        !passthrough.has('primary')
+        || stopExplicitlyUsesLine(
+          currentBranch,
+          'primary',
+        )
+      )
+
+    if (primaryVisible) {
+      return false
+    }
+
+    const additionalVisible =
+      (
+        currentBranch.$branch.additionalLines
+        ?? []
+      ).some(
+        line =>
+          !passthrough.has(line.id)
+          || stopExplicitlyUsesLine(
+            currentBranch,
+            line.id,
+          ),
+      )
+
+    return !additionalVisible
+  })
+
 function onElementClick() {
   if (suppressNextClick) {
     suppressNextClick = false
@@ -228,7 +320,11 @@ onUnmounted(() => {
 <template>
   <div
     class="section-element dynamic-part"
-    :class="{ fluid }"
+    :class="{
+      fluid,
+      'fully-invisible-branch':
+        branchIsFullyInvisible,
+    }"
     :style="{ zIndex }"
     @click="onElementClick"
     @click.stop
@@ -369,6 +465,15 @@ onUnmounted(() => {
   transition: background-color .2s ease;
   border-radius: .25em;
   cursor: grab;
+
+  &.fully-invisible-branch {
+    min-width: 0;
+    width: 0;
+    flex: 0 0 0;
+    pointer-events: none;
+    overflow: visible;
+    background: transparent !important;
+  }
 
   &:active {
     cursor: grabbing;
