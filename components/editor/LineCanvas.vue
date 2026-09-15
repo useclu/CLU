@@ -3959,7 +3959,7 @@ function deleteAnnotation(
   align-items: center;
   justify-content: center;
 
-  gap: .18em;
+  gap: 0.05mm;
 
   flex-wrap: wrap;
 }
