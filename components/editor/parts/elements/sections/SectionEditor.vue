@@ -893,50 +893,28 @@ function sourceBranchForForkAtIndex(
     section.value.$lineSection.elements
 
   /*
-   * Source déterministe du corridor.
+   * IMPORTANT :
+   * cette fonction est appelée PAR forkCorridorContexts.
+   * Elle ne doit donc JAMAIS relire forkCorridorContexts.value,
+   * sinon on crée une récursion de computed :
    *
-   * Avec deux Fork D/S superposées, la structure peut être :
+   * forkCorridorContexts
+   *   -> sourceBranchForForkAtIndex()
+   *   -> forkCorridorContexts.value
+   *   -> sourceBranchForForkAtIndex()
+   *   -> ...
    *
-   *   Branch source
-   *   Fork D
-   *   ParallelBranches D
-   *   Fork S
-   *   ParallelBranches S
+   * Sur certains presets complexes (notamment la ligne 10),
+   * cela finit en "Maximum call stack size exceeded" et déclenche
+   * l'écran générique "Une erreur est survenue".
    *
-   * L'ancien scan de proximité de Fork S rencontrait Fork D avant
-   * d'atteindre la Branch source et s'arrêtait donc trop tôt.
-   * Résultat : la Fork secondaire n'avait plus de source logique et son
-   * ParallelBranches ne recevait pas correctement les lignes D/S.
+   * On retrouve la Branch source directement dans la structure.
    *
-   * forkCorridorContexts connaît déjà, pour CHAQUE élément, la dernière
-   * Branch logique du corridor. On utilise donc son sourceBranchId en
-   * priorité : deux Fork superposées partagent naturellement la même
-   * Branch source, sans ambiguïté.
-   */
-  const sourceBranchId =
-    forkCorridorContexts.value[index]
-      ?.sourceBranchId
-    ?? null
-
-  if (sourceBranchId) {
-    const exactSource =
-      currentElements.find(
-        candidate =>
-          isBranch(candidate)
-          && candidate.id === sourceBranchId,
-      )
-
-    if (
-      exactSource
-      && isBranch(exactSource)
-    ) {
-      return exactSource
-    }
-  }
-
-  /*
-   * Fallback pour anciennes structures / Sections où le contexte n'a
-   * pas encore d'identité explicite.
+   * RIGHT : la source est à gauche de la Fork.
+   * LEFT  : la source est à droite de la Fork.
+   *
+   * Les Fork / ParallelBranches d'un même groupe D/S sont traversés :
+   * ils ne constituent pas une frontière logique du corridor.
    */
   const step =
     fork.$fork.toward === 'LEFT'
@@ -956,18 +934,17 @@ function sourceBranchForForkAtIndex(
       return candidate
     }
 
-    if (isParallelBranches(candidate)) {
+    if (
+      isParallelBranches(candidate)
+      || isFork(candidate)
+    ) {
       continue
     }
 
     /*
-     * Une autre Fork n'est plus nécessairement une frontière :
-     * dans un groupe D/S superposé elle partage justement le même
-     * corridor d'entrée. On la traverse donc dans ce fallback.
+     * Les autres éléments (Stop, Texte, etc.) ne cassent pas
+     * la recherche de la Branch logique du corridor.
      */
-    if (isFork(candidate)) {
-      continue
-    }
   }
 
   return null
