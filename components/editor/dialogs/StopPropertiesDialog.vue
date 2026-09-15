@@ -305,8 +305,9 @@ function onImageSizeInput(
  * Les autres identifiants viennent des lignes ajoutées
  * directement à la branche.
  *
- * Un ancien arrêt qui ne possède pas encore lineIds
- * reste automatiquement affecté à la ligne principale.
+ * Un arrêt sans lineIds explicites appartient à UNE seule ligne
+ * naturelle par défaut. Les autres lignes sont toujours choisies
+ * explicitement par l'utilisateur.
  */
 type MultiLineStopData = Stop['$stop'] & {
   lineIds?: string[]
@@ -2438,47 +2439,20 @@ const availableBranchLines =
   })
 
 function implicitStopLineIds() {
-  const branchData =
-    branch.$branch as BranchWithPassthrough
-
-  const passthroughIds =
-    new Set(
-      branchData.passthroughLineIds
-      ?? [],
-    )
-
-  const ids: string[] = []
-
   /*
-   * Sur un corridor réellement partagé (ex. Métro 1 + Métro 2),
-   * un ancien arrêt sans lineIds explicites appartient naturellement
-   * à toutes les lignes DIRECTES de la Branch.
+   * Un Stop sans lineIds explicites ne devient PLUS automatiquement
+   * un arrêt commun à toutes les lignes du corridor.
    *
-   * Les lignes seulement "passthrough" d'une sortie de Fork restent
-   * exclues tant que le Stop ne les a pas explicitement choisies.
+   * Règle :
+   * - corridor M1 + M2 => une seule ligne naturelle par défaut ;
+   * - sortie de Fork M2 => M2 reste la ligne naturelle ;
+   * - l'utilisateur coche ensuite explicitement les autres lignes
+   *   s'il veut un arrêt commun.
+   *
+   * Cela évite aussi le faux état "deux cases cochées" alors qu'aucun
+   * lineIds n'est encore persisté, qui obligeait à décocher/recocher
+   * pour déclencher le vrai rendu multi-ligne.
    */
-  if (
-    branch.$branch.primaryLineVisible
-    !== false
-    && !passthroughIds.has('primary')
-  ) {
-    ids.push('primary')
-  }
-
-  for (
-    const line
-    of branch.$branch.additionalLines
-    ?? []
-  ) {
-    if (!passthroughIds.has(line.id)) {
-      ids.push(line.id)
-    }
-  }
-
-  if (ids.length > 0) {
-    return ids
-  }
-
   return [
     defaultStopLineId.value,
   ]

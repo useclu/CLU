@@ -509,8 +509,8 @@ type BranchWithPassthrough =
  * StopPropertiesDialog :
  *
  * - un Stop avec lineIds explicites utilise ces IDs ;
- * - un Stop ancien / nouvellement posé sans lineIds appartient aux
- *   lignes DIRECTES de sa Branch ;
+ * - un Stop ancien / nouvellement posé sans lineIds appartient à UNE
+ *   seule ligne naturelle de sa Branch ;
  * - une ligne seulement passthrough ne devient pas automatiquement
  *   la ligne du Stop.
  *
@@ -532,35 +532,35 @@ function implicitStopLineIdsForBranch(
       ?? [],
     )
 
-  const ids: string[] = []
-
+  /*
+   * Même règle que Branch.vue / StopPropertiesDialog :
+   * un Stop sans lineIds n'appartient qu'à UNE ligne naturelle.
+   *
+   * Cela conserve le cas important d'une sortie de Fork M2 :
+   * si primary n'est que passthrough, M2 devient naturellement la ligne
+   * du Stop et celui-ci reste disponible dans "Après quel arrêt ?" M2.
+   */
   if (
     branch.$branch.primaryLineVisible
     !== false
     && !passthroughIds.has('primary')
   ) {
-    ids.push('primary')
+    return ['primary']
   }
 
-  for (
-    const line
-    of branch.$branch.additionalLines
-    ?? []
-  ) {
-    if (!passthroughIds.has(line.id)) {
-      ids.push(line.id)
-    }
+  const directAdditional =
+    (
+      branch.$branch.additionalLines
+      ?? []
+    ).find(
+      line =>
+        !passthroughIds.has(line.id),
+    )
+
+  if (directAdditional) {
+    return [directAdditional.id]
   }
 
-  if (ids.length > 0) {
-    return ids
-  }
-
-  /*
-   * Fallback anciens projets :
-   * si toute la Branch est marquée passthrough, on conserve au moins
-   * une identité existante sans inventer une nouvelle ligne.
-   */
   if (
     branch.$branch.primaryLineVisible
     !== false

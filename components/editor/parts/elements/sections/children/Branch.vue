@@ -538,50 +538,20 @@ function defaultStopLineIdForBranch() {
 
 
 /*
- * Appartenance implicite complète d'un ancien Stop sans lineIds.
+ * Appartenance implicite d'un Stop sans lineIds.
  *
- * - corridor partagé D + S : le Stop appartient aux deux lignes directes ;
- * - sortie de Fork : les lignes seulement passthrough restent exclues ;
- * - si aucune ligne directe n'est disponible, on retombe sur la ligne
- *   naturelle historique de la Branch.
- *
- * Cette fonction ne persiste rien : elle sert uniquement de source de
- * vérité commune au rendu et aux recalculs physiques de Branch.vue.
+ * Une seule ligne naturelle est utilisée par défaut. Le caractère
+ * "arrêt commun" doit toujours venir d'un choix explicite utilisateur.
  */
 function implicitStopLineIdsForBranch() {
-  const branchData =
-    branch.value.$branch as BranchWithPassthrough
-
-  const passthroughIds =
-    new Set(
-      branchData.passthroughLineIds
-      ?? [],
-    )
-
-  const ids: string[] = []
-
-  if (
-    branch.value.$branch.primaryLineVisible
-    !== false
-    && !passthroughIds.has('primary')
-  ) {
-    ids.push('primary')
-  }
-
-  for (
-    const line
-    of branch.value.$branch.additionalLines
-    ?? []
-  ) {
-    if (!passthroughIds.has(line.id)) {
-      ids.push(line.id)
-    }
-  }
-
-  if (ids.length > 0) {
-    return ids
-  }
-
+  /*
+   * IMPORTANT : un Stop sans lineIds explicites n'est plus considéré
+   * comme commun à toutes les lignes directes de la Branch.
+   *
+   * Il appartient uniquement à sa ligne naturelle. Le multi-ligne
+   * devient explicite : une deuxième ligne n'est rendue pour cet arrêt
+   * qu'après sélection réelle dans Propriétés de l'arrêt.
+   */
   return [
     defaultStopLineIdForBranch(),
   ]
