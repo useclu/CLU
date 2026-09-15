@@ -85,20 +85,17 @@ function clone(element: Element): LineElement {
 
           /*
            * Une nouvelle Fork cible explicitement la ligne principale.
-           * On évite ainsi l'état "non défini" au premier rendu :
-           * elle se place immédiatement sur la principale, puis
-           * l'utilisateur peut choisir librement une autre ligne.
+           *
+           * IMPORTANT :
+           * la Fork naît désormais SEULE, sans sections de sortie.
+           * L'utilisateur ajoute ensuite manuellement un vrai
+           * "Branches parallèles" depuis la toolbox.
+           *
+           * Si ce ParallelBranches est posé juste à côté de la Fork,
+           * SectionEditor les associe par IDs et toute la logique
+           * simple / multi-ligne reprend automatiquement.
            */
           lineId: 'primary',
-
-          /*
-           * La Fork possède directement ses deux sections
-           * de sortie. Elles suivent les deux linksOffset.
-           */
-          sections: [
-            createForkSection(1),
-            createForkSection(-1),
-          ],
         },
       }
 

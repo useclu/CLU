@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { v4 as uuidv4 } from 'uuid'
 import { useProject } from '~/stores/useProject'
 
 const visible = defineModel<boolean>('visible', { required: true })
@@ -942,6 +943,214 @@ function findPairedParallelBranchesLocation():
 }
 
 
+type ParallelBranchesPairData =
+  ParallelBranches['$parallelBranches'] & {
+    forkId?: string
+  }
+
+function currentForkSourceBranch():
+  Branch | null {
+  const location =
+    findForkLocation()
+
+  if (!location) {
+    return null
+  }
+
+  const elements =
+    location.section
+      .$lineSection
+      .elements
+
+  for (
+    let index =
+      location.forkIndex - 1;
+    index >= 0;
+    index--
+  ) {
+    const candidate =
+      elements[index]
+
+    if ('$branch' in candidate) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+/*
+ * Le bouton est volontairement réservé au contexte multi-ligne.
+ *
+ * Il apparaît si :
+ * - la Fork cible explicitement une ligne secondaire ; ou
+ * - la Branch source transporte au moins une ligne additionnelle.
+ */
+const isMultiLineForkContext =
+  computed(() => {
+    if (
+      selectedLineId.value
+      !== 'primary'
+    ) {
+      return true
+    }
+
+    const source =
+      currentForkSourceBranch()
+
+    return (
+      source?.$branch
+        .additionalLines
+        ?.length
+      ?? 0
+    ) > 0
+  })
+
+const hasPairedParallelBranches =
+  computed(() =>
+    findPairedParallelBranchesLocation()
+    !== null,
+  )
+
+function createOutputBranch(): Branch {
+  return {
+    id: uuidv4(),
+    $branch: {
+      elementSpacing: 0,
+      marginLeft: 0,
+      marginRight: 0,
+      invertedElements: false,
+      elements: [],
+    },
+  }
+}
+
+function createOutputSection(
+  levelOffset: number,
+): LineSection {
+  return {
+    id: uuidv4(),
+    $lineSection: {
+      levelOffset,
+      elements: [
+        createOutputBranch(),
+      ],
+    },
+  }
+}
+
+/*
+ * AJOUT EXPLICITE DES BRANCHES PARALLÈLES
+ *
+ * La Fork reste seule tant que l'utilisateur n'appuie pas sur le bouton.
+ * Quand il le fait :
+ *
+ * - on crée un VRAI ParallelBranches ;
+ * - on l'insère exactement à côté de CETTE Fork ;
+ * - on lie les deux éléments par IDs persistants ;
+ * - $fork.sections devient uniquement un alias runtime non sérialisé
+ *   vers les sections du vrai ParallelBranches.
+ *
+ * SectionEditor détecte ensuite la nouvelle structure et applique
+ * automatiquement toute la synchronisation D/S existante.
+ */
+function addParallelBranchesToFork() {
+  if (
+    !isMultiLineForkContext.value
+    || hasPairedParallelBranches.value
+  ) {
+    return
+  }
+
+  const location =
+    findForkLocation()
+
+  if (!location) {
+    return
+  }
+
+  const multiplier =
+    fork.value.$fork.offsetMultiplier
+    ?? 1
+
+  const parallelBranches: ParallelBranches = {
+    id: uuidv4(),
+    $parallelBranches: {
+      alignement:
+        fork.value.$fork.toward
+        === 'LEFT'
+          ? 'RIGHT'
+          : 'LEFT',
+
+      sections: [
+        createOutputSection(
+          fork.value.$fork.linksOffset[0]
+          * multiplier,
+        ),
+
+        createOutputSection(
+          fork.value.$fork.linksOffset[1]
+          * multiplier,
+        ),
+      ],
+    },
+  }
+
+  const forkData =
+    fork.value.$fork as ForkPairData
+
+  const parallelData =
+    parallelBranches.$parallelBranches as ParallelBranchesPairData
+
+  forkData.parallelBranchesId =
+    parallelBranches.id
+
+  parallelData.forkId =
+    fork.value.id
+
+  /*
+   * Alias runtime uniquement :
+   * le JSON ne duplique jamais les sections.
+   */
+  delete fork.value.$fork.sections
+
+  Object.defineProperty(
+    fork.value.$fork,
+    'sections',
+    {
+      value:
+        parallelBranches
+          .$parallelBranches
+          .sections,
+
+      writable: true,
+      configurable: true,
+      enumerable: false,
+    },
+  )
+
+  /*
+   * RIGHT : Fork puis PB
+   * LEFT  : PB puis Fork
+   *
+   * Aucune détection de curseur, aucun choix aléatoire :
+   * le bouton agit forcément sur la Fork dont le dialogue est ouvert.
+   */
+  location.section
+    .$lineSection
+    .elements
+    .splice(
+      fork.value.$fork.toward
+      === 'LEFT'
+        ? location.forkIndex
+        : location.forkIndex + 1,
+
+      0,
+      parallelBranches,
+    )
+}
+
+
 function applyForkAfterStop(
   stopId: string,
 ) {
@@ -1547,6 +1756,50 @@ const forkStyles = [
                 class="i-tabler-check"
               />
             </button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-if="isMultiLineForkContext"
+        class="property-card"
+      >
+        <div class="property-card-header">
+          <div class="property-card-heading">
+            <div class="property-card-icon">
+              <i class="i-bulb-parallel-branches" />
+            </div>
+
+            <div>
+              <div class="property-card-title">
+                Branches parallèles
+              </div>
+
+              <div class="property-card-description">
+                Ajoutez explicitement les deux sorties à cette fourche multi-ligne.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="property-card-body">
+          <Button
+            v-if="!hasPairedParallelBranches"
+            label="Ajouter les branches parallèles"
+            icon="i-tabler-git-branch"
+            class="w-full"
+            @click="addParallelBranchesToFork"
+          />
+
+          <div
+            v-else
+            class="parallel-branches-added"
+          >
+            <i class="i-tabler-circle-check" />
+
+            <span>
+              Les branches parallèles sont déjà liées à cette fourche.
+            </span>
           </div>
         </div>
       </section>
@@ -2300,6 +2553,43 @@ const forkStyles = [
 
   color:
     var(--p-primary-500);
+}
+
+.parallel-branches-added {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+
+  padding: .7rem .8rem;
+
+  border:
+    1px
+    solid
+    color-mix(
+      in srgb,
+      var(--p-green-500) 24%,
+      transparent
+    );
+
+  border-radius: 12px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--p-green-500) 7%,
+      transparent
+    );
+
+  color:
+    var(--p-text-color);
+
+  font-size: .78rem;
+}
+
+.parallel-branches-added i {
+  flex-shrink: 0;
+  color: var(--p-green-500);
+  font-size: 1rem;
 }
 
 .anchor-hint {

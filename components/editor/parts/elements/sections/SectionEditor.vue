@@ -892,6 +892,52 @@ function sourceBranchForForkAtIndex(
   const currentElements =
     section.value.$lineSection.elements
 
+  /*
+   * Source déterministe du corridor.
+   *
+   * Avec deux Fork D/S superposées, la structure peut être :
+   *
+   *   Branch source
+   *   Fork D
+   *   ParallelBranches D
+   *   Fork S
+   *   ParallelBranches S
+   *
+   * L'ancien scan de proximité de Fork S rencontrait Fork D avant
+   * d'atteindre la Branch source et s'arrêtait donc trop tôt.
+   * Résultat : la Fork secondaire n'avait plus de source logique et son
+   * ParallelBranches ne recevait pas correctement les lignes D/S.
+   *
+   * forkCorridorContexts connaît déjà, pour CHAQUE élément, la dernière
+   * Branch logique du corridor. On utilise donc son sourceBranchId en
+   * priorité : deux Fork superposées partagent naturellement la même
+   * Branch source, sans ambiguïté.
+   */
+  const sourceBranchId =
+    forkCorridorContexts.value[index]
+      ?.sourceBranchId
+    ?? null
+
+  if (sourceBranchId) {
+    const exactSource =
+      currentElements.find(
+        candidate =>
+          isBranch(candidate)
+          && candidate.id === sourceBranchId,
+      )
+
+    if (
+      exactSource
+      && isBranch(exactSource)
+    ) {
+      return exactSource
+    }
+  }
+
+  /*
+   * Fallback pour anciennes structures / Sections où le contexte n'a
+   * pas encore d'identité explicite.
+   */
   const step =
     fork.$fork.toward === 'LEFT'
       ? 1
@@ -910,21 +956,17 @@ function sourceBranchForForkAtIndex(
       return candidate
     }
 
-    /*
-     * Un ParallelBranches appairé appartient à la sortie d'une Fork.
-     * Il ne doit pas casser la recherche du rail d'entrée.
-     */
     if (isParallelBranches(candidate)) {
       continue
     }
 
     /*
-     * Une autre Fork marque une nouvelle zone de bifurcation :
-     * on ne traverse pas arbitrairement plusieurs Fork pour chercher
-     * une Branch source.
+     * Une autre Fork n'est plus nécessairement une frontière :
+     * dans un groupe D/S superposé elle partage justement le même
+     * corridor d'entrée. On la traverse donc dans ce fallback.
      */
     if (isFork(candidate)) {
-      break
+      continue
     }
   }
 
@@ -1972,22 +2014,25 @@ function sectionElementRenderKey(
 
 /*
  * =========================================================
- * FOURCHE <-> VRAI PARALLELBRANCHES : APPARIEMENT PERSISTANT
+ * FOURCHE <-> VRAI PARALLELBRANCHES : APPARIEMENT MANUEL
  * =========================================================
  *
- * Toutes les nouvelles Fork, ligne simple COMME multi-ligne, utilisent
- * désormais un vrai LineElement $parallelBranches.
+ * Nouveau comportement :
  *
- * Pour ne jamais confondre les sorties de deux Fork voisines, la paire
- * est persistée dans les deux sens :
+ *   1. déposer une Fork        => la Fork reste SEULE ;
+ *   2. déposer manuellement un ParallelBranches juste à côté ;
+ *   3. SectionEditor associe alors la paire par IDs.
+ *
+ * Aucun ParallelBranches n'est donc créé automatiquement.
+ *
+ * Une fois la paire créée, on conserve exactement le moteur validé :
  *
  *   fork.$fork.parallelBranchesId
  *   parallel.$parallelBranches.forkId
  *
- * fork.$fork.sections reste un alias de compatibilité vers les mêmes
- * LineSection. Fork.vue et les anciennes routines multi-lignes peuvent
- * donc continuer à lire leurs sorties sans les rendre elles-mêmes.
- * Après un F5, l'alias est rétabli automatiquement depuis la paire.
+ * et fork.$fork.sections devient un alias runtime NON sérialisé vers
+ * les sections du vrai ParallelBranches. Toute la logique D/S existante
+ * peut ainsi continuer à fonctionner sans dupliquer la topologie.
  */
 function linkForkAndParallelBranches(
   fork: Fork,
@@ -2007,15 +2052,6 @@ function linkForkAndParallelBranches(
   parallelData.forkId =
     fork.id
 
-  /*
-   * Même référence en mémoire :
-   * - le vrai ParallelBranches est le rendu / l'édition canonique ;
-   * - $fork.sections reste uniquement un alias de compatibilité.
-   *
-   * L'alias est volontairement NON énumérable : JSON.stringify()
-   * n'enregistre donc pas une deuxième copie des mêmes Branch.
-   * Après F5, ensureForkParallelPairs() le recrée depuis les IDs.
-   */
   delete fork.$fork.sections
 
   Object.defineProperty(
@@ -2033,57 +2069,44 @@ function linkForkAndParallelBranches(
   )
 }
 
-function createParallelBranchesForFork(
+function clearRuntimeForkPairAlias(
   fork: Fork,
-): ParallelBranches | null {
-  const sections =
-    fork.$fork.sections
+) {
+  const descriptor =
+    Object.getOwnPropertyDescriptor(
+      fork.$fork,
+      'sections',
+    )
 
+  /*
+   * On supprime uniquement l'alias runtime créé par
+   * linkForkAndParallelBranches().
+   *
+   * Une ancienne Fork de projet qui possède encore de vraies
+   * $fork.sections énumérables reste intacte.
+   */
   if (
-    !sections
-    || sections.length < 2
+    descriptor
+    && descriptor.enumerable === false
   ) {
-    return null
+    delete fork.$fork.sections
   }
-
-  const multiplier =
-    fork.$fork.offsetMultiplier
-    ?? 1
-
-  sections[0].$lineSection.levelOffset =
-    fork.$fork.linksOffset[0]
-    * multiplier
-
-  sections[1].$lineSection.levelOffset =
-    fork.$fork.linksOffset[1]
-    * multiplier
-
-  const parallelBranches: ParallelBranches = {
-    id: uuidv4(),
-    $parallelBranches: {
-      alignement:
-        fork.$fork.toward === 'RIGHT'
-          ? 'LEFT'
-          : 'RIGHT',
-      sections,
-    },
-  }
-
-  linkForkAndParallelBranches(
-    fork,
-    parallelBranches,
-  )
-
-  return parallelBranches
 }
 
-function preferredLegacyParallelNeighbor(
+function preferredManualParallelNeighbor(
   forkIndex: number,
   fork: Fork,
 ): ParallelBranches | null {
   const currentElements =
     section.value.$lineSection.elements
 
+  /*
+   * L'utilisateur peut déposer le PB "après" une Fork RIGHT.
+   * Pour une Fork LEFT on accepte aussi ce geste : une fois appairé,
+   * movePairedParallelBranches() le replace automatiquement avant.
+   *
+   * On regarde donc les deux voisins, avec priorité au côté attendu.
+   */
   const preferredIndex =
     fork.$fork.toward === 'LEFT'
       ? forkIndex - 1
@@ -2114,7 +2137,7 @@ function preferredLegacyParallelNeighbor(
       )
 
     /*
-     * Une paire déjà attribuée à une autre Fork est intouchable.
+     * Un PB déjà lié à une autre Fork ne peut jamais être volé.
      */
     if (
       pairData.forkId
@@ -2204,23 +2227,19 @@ function movePairedParallelBranches(
     pair,
   )
 
-  /*
-   * On change l'alignement seulement quand le sens impose réellement
-   * un changement de côté. Un alignement manuel (dont FLUID) reste
-   * donc intact tant que l'orientation ne change pas.
-   */
   pair.$parallelBranches.alignement =
     wantsBefore
       ? 'RIGHT'
       : 'LEFT'
 }
 
-function ensureForkParallelPairs() {
+function restorePersistedForkParallelPairs() {
   const currentElements =
     section.value.$lineSection.elements
 
   /*
-   * 1. Restaure d'abord toutes les associations persistées.
+   * 1. Les IDs persistés sont la source de vérité après F5.
+   * On recrée seulement l'alias runtime $fork.sections.
    */
   for (const element of currentElements) {
     if (!isParallelBranches(element)) {
@@ -2250,109 +2269,200 @@ function ensureForkParallelPairs() {
         fork,
         element,
       )
-    }
-    else {
-      delete (
-        element.$parallelBranches as ParallelBranchesPairData
-      ).forkId
-    }
-  }
 
-  const forkIds =
-    currentElements
-      .filter(
-        element =>
-          isFork(element),
-      )
-      .map(
-        element =>
-          element.id,
-      )
-
-  /*
-   * 2. Migre les Fork présentes :
-   *    - ancienne Fork autonome multi-ligne => crée un vrai PB ;
-   *    - ancienne Fork simple déjà convertie => rattache son PB voisin.
-   */
-  for (const forkId of forkIds) {
-    let forkIndex =
-      currentElements.findIndex(
-        element =>
-          element.id === forkId,
-      )
-
-    if (forkIndex < 0) {
-      continue
-    }
-
-    const fork =
-      currentElements[forkIndex]
-
-    if (!isFork(fork)) {
-      continue
-    }
-
-    let pair =
-      pairedParallelBranchesForFork(
-        fork,
-      )
-
-    if (!pair) {
-      if (
-        fork.$fork.sections
-        && fork.$fork.sections.length >= 2
-      ) {
-        pair =
-          createParallelBranchesForFork(
-            fork,
-          )
-
-        if (pair) {
-          currentElements.splice(
-            fork.$fork.toward === 'LEFT'
-              ? forkIndex
-              : forkIndex + 1,
-            0,
-            pair,
-          )
-        }
-      }
-      else {
-        /*
-         * Compatibilité avec les Fork simples créées par les patchs
-         * précédents : elles ont déjà un PB adjacent mais aucun ID.
-         */
-        const legacyPair =
-          preferredLegacyParallelNeighbor(
-            forkIndex,
-            fork,
-          )
-
-        if (legacyPair) {
-          linkForkAndParallelBranches(
-            fork,
-            legacyPair,
-          )
-
-          pair = legacyPair
-        }
-      }
-    }
-    else {
-      linkForkAndParallelBranches(
-        fork,
-        pair,
-      )
-    }
-
-    if (pair) {
       movePairedParallelBranches(
         fork.id,
       )
     }
   }
 
+  /*
+   * 2. Si le PB lié a été supprimé manuellement, la Fork redevient
+   * immédiatement une Fork seule.
+   */
+  for (const element of currentElements) {
+    if (!isFork(element)) {
+      continue
+    }
+
+    const forkData =
+      element.$fork as ForkPairData
+
+    if (!forkData.parallelBranchesId) {
+      continue
+    }
+
+    const pair =
+      currentElements.find(
+        candidate =>
+          candidate.id
+          === forkData.parallelBranchesId,
+      )
+
+    if (
+      pair
+      && isParallelBranches(pair)
+    ) {
+      continue
+    }
+
+    delete forkData.parallelBranchesId
+
+    clearRuntimeForkPairAlias(
+      element,
+    )
+  }
+
   syncForkOutputsFromSectionModel()
+}
+
+function initializeManualPairLevels(
+  fork: Fork,
+  parallelBranches: ParallelBranches,
+) {
+  const multiplier =
+    fork.$fork.offsetMultiplier
+    ?? 1
+
+  const sections =
+    parallelBranches
+      .$parallelBranches
+      .sections
+
+  if (sections[0]) {
+    sections[0].$lineSection.levelOffset =
+      fork.$fork.linksOffset[0]
+      * multiplier
+  }
+
+  if (sections[1]) {
+    sections[1].$lineSection.levelOffset =
+      fork.$fork.linksOffset[1]
+      * multiplier
+  }
+
+  parallelBranches
+    .$parallelBranches
+    .alignement =
+      fork.$fork.toward === 'LEFT'
+        ? 'RIGHT'
+        : 'LEFT'
+}
+
+/*
+ * Appelé UNIQUEMENT lors d'un @add.
+ *
+ * Une Fork ajoutée depuis la toolbox ne crée rien.
+ * Un ParallelBranches ajouté manuellement peut, lui, s'appairer à
+ * une Fork adjacente encore libre.
+ */
+async function pairNewManualParallelBranches(
+  event: SortableEvent,
+) {
+  if (event.pullMode !== 'clone') {
+    return
+  }
+
+  const hintedIndex =
+    event.newIndex
+
+  if (hintedIndex === undefined) {
+    return
+  }
+
+  await nextTick()
+
+  const currentElements =
+    section.value.$lineSection.elements
+
+  const inserted =
+    currentElements[hintedIndex]
+
+  if (
+    !inserted
+    || !isParallelBranches(inserted)
+  ) {
+    return
+  }
+
+  const insertedPairData =
+    (
+      inserted.$parallelBranches as ParallelBranchesPairData
+    )
+
+  /*
+   * Déplacement / ancien élément déjà appairé :
+   * on ne crée jamais une nouvelle association.
+   */
+  if (insertedPairData.forkId) {
+    return
+  }
+
+  const candidateIndexes = [
+    hintedIndex - 1,
+    hintedIndex + 1,
+  ]
+
+  for (const candidateIndex of candidateIndexes) {
+    const candidate =
+      currentElements[candidateIndex]
+
+    if (
+      !candidate
+      || !isFork(candidate)
+    ) {
+      continue
+    }
+
+    const forkData =
+      candidate.$fork as ForkPairData
+
+    const existingPair =
+      forkData.parallelBranchesId
+        ? currentElements.find(
+            element =>
+              element.id
+              === forkData.parallelBranchesId,
+          )
+        : null
+
+    /*
+     * Cette Fork possède déjà son propre PB.
+     */
+    if (
+      existingPair
+      && isParallelBranches(existingPair)
+    ) {
+      continue
+    }
+
+    /*
+     * Si un ancien ID est devenu orphelin, on le nettoie avant
+     * d'établir la nouvelle paire manuelle.
+     */
+    if (forkData.parallelBranchesId) {
+      delete forkData.parallelBranchesId
+      clearRuntimeForkPairAlias(candidate)
+    }
+
+    initializeManualPairLevels(
+      candidate,
+      inserted,
+    )
+
+    linkForkAndParallelBranches(
+      candidate,
+      inserted,
+    )
+
+    movePairedParallelBranches(
+      candidate.id,
+    )
+
+    syncForkOutputsFromSectionModel()
+
+    return
+  }
 }
 
 const forkParallelPairSignature =
@@ -2404,7 +2514,7 @@ watch(
   async () => {
     await nextTick()
 
-    ensureForkParallelPairs()
+    restorePersistedForkParallelPairs()
   },
   {
     immediate: true,
@@ -2472,15 +2582,18 @@ function onAction(
 
   if (action === 'ADD') {
     /*
-     * @add expose déjà le clone dans le v-model dans notre version de
-     * vue-draggable-plus. On crée donc la paire immédiatement pour éviter
-     * un frame où les anciennes sorties internes seraient visibles.
-     * Le nextTick reste un garde-fou si Sortable finalise encore l'ordre.
+     * Une Fork reste volontairement seule.
+     *
+     * La seule association créée automatiquement ici est celle demandée
+     * explicitement par l'utilisateur lorsqu'il dépose MANUELLEMENT un
+     * vrai ParallelBranches juste à côté d'une Fork libre.
      */
-    ensureForkParallelPairs()
+    void pairNewManualParallelBranches(
+      event,
+    )
 
     void nextTick().then(() => {
-      ensureForkParallelPairs()
+      restorePersistedForkParallelPairs()
     })
   }
 }
