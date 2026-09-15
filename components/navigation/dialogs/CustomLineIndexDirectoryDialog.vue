@@ -207,14 +207,6 @@ function closeEditor() {
               </div>
             </button>
 
-            <button
-              type="button"
-              class="add-index-card"
-              :title="`Ajouter un indice ${mode.label}`"
-              @click="addIndex(mode.value)"
-            >
-              <i class="i-tabler-plus" />
-            </button>
           </div>
         </section>
       </div>
@@ -460,7 +452,8 @@ function closeEditor() {
  */
 
 .indices-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(10, 4rem);
   align-items: center;
   gap: .5rem;
 
