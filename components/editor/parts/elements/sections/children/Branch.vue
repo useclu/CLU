@@ -5532,6 +5532,22 @@ function onStart(event: DraggableEvent<BranchElement>) {
     var(--line-identity-change-color) !important;
 }
 
+/*
+ * Un arrêt de correspondance garde son contour noir, mais son remplissage
+ * doit suivre l'identité de la portion courante.
+ *
+ * Avant ce correctif, .connection était volontairement exclu des règles
+ * ci-dessus : un arrêt comme Aéroport Charles-de-Gaulle restait donc vert
+ * alors que la ligne après changement d'identité était grise.
+ */
+:deep(
+  .stop-wrapper.line-identity-changed-stop
+  .dot.connection
+) {
+  background-color:
+    var(--line-identity-change-color) !important;
+}
+
 .connection-bridges {
   position: absolute;
   inset: 0;

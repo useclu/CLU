@@ -11,6 +11,15 @@ import {
   watch,
 } from 'vue'
 import AnnotationPropertiesDialog from '~/components/editor/dialogs/AnnotationPropertiesDialog.vue'
+import cdgExpressIcon from '~/assets/svg/services/cdg_express.svg'
+import cdgvalIcon from '~/assets/svg/services/cdgval.svg'
+import funicularIcon from '~/assets/svg/services/funicular.svg'
+import longDistanceBusIcon from '~/assets/svg/services/long_distance_bus.svg'
+import orlybusIcon from '~/assets/svg/services/orlybus.svg'
+import orlyvalIcon from '~/assets/svg/services/orlyval.svg'
+import roissybusIcon from '~/assets/svg/services/roissybus.svg'
+import terIcon from '~/assets/svg/services/ter.svg'
+import tgvIcon from '~/assets/svg/services/tgv.svg'
 import useVersion from '~/composables/useVersion'
 import { useCustomLineIndices } from '~/stores/useCustomLineIndices'
 import { useProject } from '~/stores/useProject'
@@ -37,6 +46,45 @@ type SignageStyle =
   | 'IDFM'
   | 'SNCF'
 
+type TransportService =
+  | 'TGV'
+  | 'TER'
+  | 'CAR'
+  | 'FUNICULAIRE'
+  | 'ROISSYBUS'
+  | 'ORLYBUS'
+  | 'CDGVAL'
+  | 'ORLYVAL'
+  | 'CDG_EXPRESS'
+  | 'CUSTOM'
+
+type CustomTransportService = {
+  name?: string
+  icon?: string | null
+  renderMode?: Mode
+}
+
+type LineWithTransportService = Line & {
+  transportService?: TransportService | null
+  customTransportService?: CustomTransportService
+}
+
+type BuiltinTransportService =
+  Exclude<TransportService, 'CUSTOM'>
+
+const transportServiceIcons:
+  Record<BuiltinTransportService, string> = {
+    TGV: tgvIcon,
+    TER: terIcon,
+    CAR: longDistanceBusIcon,
+    FUNICULAIRE: funicularIcon,
+    ROISSYBUS: roissybusIcon,
+    ORLYBUS: orlybusIcon,
+    CDGVAL: cdgvalIcon,
+    ORLYVAL: orlyvalIcon,
+    CDG_EXPRESS: cdgExpressIcon,
+  }
+
 const signageStyle =
   computed<SignageStyle>(() =>
     (
@@ -50,6 +98,55 @@ const signageStyle =
 const isSncfSignage =
   computed(() =>
     signageStyle.value === 'SNCF',
+  )
+
+const transportService =
+  computed<TransportService | null>(() =>
+    (
+      line.value as LineWithTransportService
+    ).transportService
+    ?? null,
+  )
+
+function getTransportServiceIcon(
+  service: TransportService | null | undefined,
+): string | null {
+  if (!service) {
+    return null
+  }
+
+  /*
+   * Le Service personnalisé ne possède évidemment pas
+   * de SVG statique dans assets/svg/services.
+   *
+   * Son image est enregistrée directement dans le projet
+   * (généralement sous forme de data URL) par
+   * GeneralMapSettings.vue.
+   */
+  if (service === 'CUSTOM') {
+    return (
+      (
+        line.value as LineWithTransportService
+      ).customTransportService?.icon
+      ?? null
+    )
+  }
+
+  return transportServiceIcons[service]
+}
+
+const transportServiceIcon =
+  computed(() =>
+    getTransportServiceIcon(
+      transportService.value,
+    ),
+  )
+
+const isWideTransportService =
+  computed(() =>
+    transportService.value === 'ROISSYBUS'
+    || transportService.value === 'ORLYBUS'
+    || transportService.value === 'CUSTOM',
   )
 
 const {
@@ -369,15 +466,17 @@ const isTramMode = computed(() =>
 )
 
 /*
- * Téléphérique, vélo et navette fluviale utilisent
- * le rendu de plan Bus, mais affichent aussi leur
- * pictogramme de mode juste avant l'indice de ligne
- * afin d'identifier immédiatement le moyen de transport.
+ * Les modes utilisant le bandeau Bus peuvent afficher
+ * leur pictogramme juste avant l'indice de ligne.
  *
- * Le Bus reste volontairement sans pictogramme ajouté ici.
+ * Lorsqu'un Service de transport est actif, son logo
+ * remplace toujours le pictogramme technique de line.mode.
+ * Ainsi OrlyBus / RoissyBus / Car ne montrent jamais
+ * le pictogramme Bus à la place de leur propre identité.
  */
 const showTransportModePictogram = computed(() =>
-  line.value.mode === 'BUS'
+  transportService.value !== null
+  || line.value.mode === 'BUS'
   || line.value.mode === 'BRT'
   || line.value.mode === 'NOCTILIEN'
   || line.value.mode === 'CABLE'
@@ -577,7 +676,11 @@ const mapStops = computed(() =>
  * - les identités utilisées seulement sur une portion via
  *   "Changer de ligne après cet arrêt".
  *
- * Toutes sont dédupliquées par mode + indice.
+ * Toutes sont dédupliquées par identité visible + indice.
+ *
+ * Le Service de la ligne principale est volontairement
+ * séparé d'une éventuelle ligne supplémentaire utilisant
+ * le même mode technique.
  *
  * Exemples :
  * - Métro 16 + Métro 17 :
@@ -591,10 +694,13 @@ type DisplayLineIdentity = {
   key: string
   mode: Mode
   index: LineIndex | null
+  transportService: TransportService | null
 }
 
 type DisplayLineModeGroup = {
+  key: string
   mode: Mode
+  transportService: TransportService | null
   identities: DisplayLineIdentity[]
 }
 
@@ -613,14 +719,20 @@ type StopWithLineTransition = Stop['$stop'] & {
 function lineIdentityKey(
   mode: Mode,
   index: LineIndex | null,
+  service: TransportService | null = null,
 ) {
+  const identityPrefix =
+    service
+      ? `service:${service}`
+      : `mode:${mode}`
+
   if (index === null) {
-    return `${mode}:none`
+    return `${identityPrefix}:none`
   }
 
   if (isBuiltin(index)) {
     return (
-      `${mode}:builtin:`
+      `${identityPrefix}:builtin:`
       + index
         .$builtinLineIndex
         .index
@@ -629,14 +741,14 @@ function lineIdentityKey(
 
   if (isCustom(index)) {
     return (
-      `${mode}:custom:`
+      `${identityPrefix}:custom:`
       + index
         .$customLineIndex
         .id
     )
   }
 
-  return `${mode}:unknown`
+  return `${identityPrefix}:unknown`
 }
 
 function getAdditionalLinesFromSection(
@@ -666,6 +778,7 @@ function getAdditionalLinesFromSection(
           ),
           mode: additionalLine.mode,
           index: additionalLine.index,
+          transportService: null,
         })
       }
 
@@ -700,9 +813,12 @@ const planLineIdentities =
             key: lineIdentityKey(
               line.value.mode,
               line.value.index,
+              transportService.value,
             ),
             mode: line.value.mode,
             index: line.value.index,
+            transportService:
+              transportService.value,
           },
         ]
 
@@ -757,6 +873,7 @@ const planLineIdentities =
           index:
             transition.lineAfterStopIndex
             ?? null,
+          transportService: null,
         })
       }
 
@@ -789,16 +906,26 @@ const planLineModeGroups =
         const identity
         of planLineIdentities.value
       ) {
+        const identityService =
+          identity.transportService
+
         let group =
           groups.find(
             item =>
-              item.mode
-              === identity.mode,
+              item.mode === identity.mode
+              && item.transportService
+              === identityService,
           )
 
         if (!group) {
           group = {
+            key:
+              identityService
+                ? `service:${identityService}`
+                : `mode:${identity.mode}`,
             mode: identity.mode,
+            transportService:
+              identityService,
             identities: [],
           }
 
@@ -962,6 +1089,40 @@ const busCustomIndexImage =
     busCustomIndex.value?.image
     ?? null,
   )
+
+/*
+ * =========================================================
+ * AFFICHAGE DE L'INDICE DANS LE BANDEAU BUS
+ * =========================================================
+ *
+ * Les services OrlyBus et RoissyBus portent déjà leur propre
+ * identité de ligne dans leur logo : aucun cartouche d'indice
+ * Bus ne doit donc être ajouté à côté.
+ *
+ * Pour Car, l'indice reste facultatif :
+ * - aucun indice choisi => aucun cartouche ;
+ * - un indice choisi => le cartouche est affiché.
+ *
+ * Pour les vrais modes BUS / BRT / NOCTILIEN, on conserve le
+ * comportement historique, y compris le '?' si l'indice manque.
+ */
+const showBusIndex =
+  computed(() => {
+    if (
+      transportService.value === 'ORLYBUS'
+      || transportService.value === 'ROISSYBUS'
+    ) {
+      return false
+    }
+
+    if (
+      transportService.value === 'CAR'
+    ) {
+      return line.value.index !== null
+    }
+
+    return true
+  })
 
 const busIndexText =
   computed(() => {
@@ -1801,7 +1962,16 @@ function deleteAnnotation(
   >
     <div class="sncf-signage-header">
       <div class="sncf-signage-identity">
+        <img
+          v-if="transportServiceIcon"
+          :src="transportServiceIcon"
+          class="sncf-signage-service-icon"
+          alt=""
+          aria-hidden="true"
+        >
+
         <Mode
+          v-else
           plain
           :mode="line.mode"
           class="sncf-signage-mode"
@@ -2027,14 +2197,32 @@ function deleteAnnotation(
       <div
         v-if="showTransportModePictogram"
         class="bus-mode-box"
+        :class="{
+          'has-service':
+            Boolean(transportServiceIcon),
+          'wide-service':
+            isWideTransportService,
+        }"
       >
-        <Mode :mode="line.mode" />
+        <img
+          v-if="transportServiceIcon"
+          :src="transportServiceIcon"
+          class="bus-service-icon"
+          alt=""
+          aria-hidden="true"
+        >
+
+        <Mode
+          v-else
+          :mode="line.mode"
+        />
       </div>
 
       <!--
         Indice de ligne.
       -->
       <div
+        v-if="showBusIndex"
         class="bus-index-box"
         :class="{
           'has-custom-image':
@@ -2179,7 +2367,18 @@ function deleteAnnotation(
         <div class="tram-identity-body">
           <div class="tram-mode-index">
             <div class="tram-mode">
-              <Mode :mode="line.mode" />
+              <img
+                v-if="transportServiceIcon"
+                :src="transportServiceIcon"
+                class="tram-service-icon"
+                alt=""
+                aria-hidden="true"
+              >
+
+              <Mode
+                v-else
+                :mode="line.mode"
+              />
             </div>
 
             <div class="tram-native-index">
@@ -2263,10 +2462,28 @@ function deleteAnnotation(
             group
             in planLineModeGroups
           "
-          :key="group.mode"
+          :key="group.key"
           class="classic-line-mode-group"
         >
+          <img
+            v-if="
+              getTransportServiceIcon(
+                group.transportService,
+              )
+            "
+            :src="
+              getTransportServiceIcon(
+                group.transportService,
+              )
+              ?? undefined
+            "
+            class="classic-service-icon"
+            alt=""
+            aria-hidden="true"
+          >
+
           <Mode
+            v-else
             :mode="group.mode"
           />
 
@@ -2567,6 +2784,21 @@ function deleteAnnotation(
   font-size: 7em;
 
   line-height: 1;
+}
+
+.sncf-signage-service-icon {
+  display: block;
+
+  width: auto;
+  height: 7em;
+
+  max-width: 14em;
+  max-height: 7em;
+
+  flex-shrink: 0;
+
+  object-fit: contain;
+  object-position: center;
 }
 
 .sncf-signage-index {
@@ -3318,6 +3550,28 @@ function deleteAnnotation(
   max-height: 100%;
 }
 
+.bus-mode-box.has-service {
+  padding: .25em;
+}
+
+.bus-mode-box.wide-service {
+  width: 6.4em;
+
+  padding:
+    .35em
+    .45em;
+}
+
+.bus-service-icon {
+  display: block;
+
+  width: 100%;
+  height: 100%;
+
+  object-fit: contain;
+  object-position: center;
+}
+
 /*
  * =========================================================
  * CARTOUCHE INDICE
@@ -3890,6 +4144,16 @@ function deleteAnnotation(
   max-height: 1em;
 }
 
+.tram-service-icon {
+  display: block;
+
+  width: 1em;
+  height: 1em;
+
+  object-fit: contain;
+  object-position: center;
+}
+
 .tram-native-index {
   width: 100%;
 
@@ -3951,6 +4215,8 @@ function deleteAnnotation(
   gap: .3em;
 
   flex-shrink: 0;
+  width: max-content;
+  min-width: max-content;
 }
 
 .classic-line-indices {
@@ -3961,7 +4227,33 @@ function deleteAnnotation(
 
   gap: 0.05mm;
 
-  flex-wrap: wrap;
+  /*
+   * Ne jamais autoriser les indices d'une même identité à passer
+   * à la ligne pendant l'export PNG.
+   *
+   * html/canvas calcule parfois la largeur min-content d'un flex
+   * différemment du navigateur vivant ; avec flex-wrap: wrap,
+   * l'indice 19 pouvait donc tomber sous le 18 et chevaucher le
+   * bloc accessibilité.
+   */
+  flex-wrap: nowrap;
+  width: max-content;
+  min-width: max-content;
+}
+
+.classic-service-icon {
+  display: block;
+
+  width: auto;
+  height: 1em;
+
+  max-width: 2.4em;
+  max-height: 1em;
+
+  flex-shrink: 0;
+
+  object-fit: contain;
+  object-position: center;
 }
 
 .classic-line-mode-group :deep(svg),
