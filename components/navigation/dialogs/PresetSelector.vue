@@ -13,11 +13,8 @@ import {
   modeToTerminusFramePolicy,
 } from '~/utils/properties'
 
-const FULL_TEMPLATE = {
-  METRO: ['1', '2', '3', '3bis', '4', '5', '6', '7', '7bis', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19'],
-  RER: ['A', 'B', 'C', 'E'],
-  TRAM: ['1', '2', '3a', '3b', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14'],
-  TRAIN: ['K', 'L', 'N', 'P', 'U', 'V'],
+function hasFullPreset(mode: Mode, index: LineIndex) {
+  return getPreset(mode, index) !== null
 }
 
 
@@ -156,7 +153,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               />
 
               <span
-                v-if="FULL_TEMPLATE.METRO.includes(metro.value.$builtinLineIndex.index)"
+                v-if="hasFullPreset('METRO', metro.value)"
                 class="preset-badge"
                 title="Préréglage complet disponible"
               />
@@ -204,7 +201,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               />
 
               <span
-                v-if="FULL_TEMPLATE.RER.includes(rer.value.$builtinLineIndex.index)"
+                v-if="hasFullPreset('RER', rer.value)"
                 class="preset-badge"
                 title="Préréglage complet disponible"
               />
@@ -252,7 +249,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               />
 
               <span
-                v-if="FULL_TEMPLATE.TRAIN.includes(transilien.value.$builtinLineIndex.index)"
+                v-if="hasFullPreset('TRAIN', transilien.value)"
                 class="preset-badge"
                 title="Préréglage complet disponible"
               />
@@ -300,7 +297,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               />
 
               <span
-                v-if="FULL_TEMPLATE.TRAM.includes(tram.value.$builtinLineIndex.index)"
+                v-if="hasFullPreset('TRAM', tram.value)"
                 class="preset-badge"
                 title="Préréglage complet disponible"
               />

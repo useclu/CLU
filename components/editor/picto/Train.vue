@@ -9,11 +9,12 @@ import TRAIN_P from '~/assets/svg/lines/train/train_P.svg'
 import TRAIN_R from '~/assets/svg/lines/train/train_R.svg'
 import TRAIN_U from '~/assets/svg/lines/train/train_U.svg'
 import TRAIN_V from '~/assets/svg/lines/train/train_V.svg'
+import TRAIN_Y from '~/assets/svg/lines/train/train_Y.svg'
 
 const {
   line,
 } = defineProps<{
-  line: TrainLine
+  line: TrainLine | 'Y'
 }>()
 
 const picto = computed(() => {
@@ -36,13 +37,15 @@ const picto = computed(() => {
       return TRAIN_U
     case 'V':
       return TRAIN_V
+    case 'Y':
+      return TRAIN_Y
   }
   return null
 })
 </script>
 
 <template>
-  <img v-if="picto" :src="picto" alt="metro" class="picto">
+  <img v-if="picto" :src="picto" alt="train" class="picto">
 </template>
 
 <style scoped lang="scss">

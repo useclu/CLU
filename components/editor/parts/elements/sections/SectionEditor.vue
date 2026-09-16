@@ -1930,20 +1930,17 @@ function forkOutputLineMembershipSignature(
 }
 
 /*
- * Signature STRICTEMENT structurelle des Fork directes de cette Section.
+ * Signature STRUCTURELLE des Fork directes de cette Section.
  *
- * Pourquoi :
- * un F5 complet recrée toutes les Fork avec le corridor D/S déjà dans
- * son état final. En live, ajouter / retirer une Fork change la géométrie
- * structurelle de la Section mais les Fork déjà montées gardent leur
- * instance et donc certains états de rendu internes.
+ * Elle sert uniquement à recréer localement les Fork quand la STRUCTURE
+ * du groupe change : ajout / retrait d'une Fork ou changement de ligne
+ * ciblée dans un corridor multi-lignes.
  *
- * Cette signature sert uniquement à la key Vue des Fork :
- * - ajout d'une Fork   => recréation locale des Fork de cette Section ;
- * - retrait d'une Fork => recréation locale des Fork de cette Section ;
- * - changement de géométrie d'une Fork => même recalage local.
- *
- * Elle ne touche ni Branch.vue, ni les données persistées, ni le gap D/S.
+ * IMPORTANT : les réglages de géométrie éditables en direct
+ * (originOffset, linksOffset, offsetMultiplier) ne doivent surtout pas
+ * entrer dans cette key. Sinon chaque frappe dans ForkPropertiesDialog
+ * change la key Vue, démonte SectionElement et ferme immédiatement le
+ * dialogue. Fork.vue sait déjà réagir à ces valeurs sans être remonté.
  */
 const sectionForkLayoutSignature =
   computed(() =>
@@ -1957,15 +1954,6 @@ const sectionForkLayoutSignature =
           lineId:
             element.$fork.lineId
             || 'primary',
-          originOffset:
-            element.$fork.originOffset,
-          linksOffset: [
-            element.$fork.linksOffset[0],
-            element.$fork.linksOffset[1],
-          ],
-          offsetMultiplier:
-            element.$fork.offsetMultiplier
-            ?? 1,
         })),
     ),
   )

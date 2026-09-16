@@ -294,7 +294,25 @@ const color = computed(() =>
 
 const lineWidth = computed(() => {
   const value = Number(lineContext.lineThickness.value)
-  return Number.isFinite(value) && value > 0 ? value : 0.375
+  const safeValue =
+    Number.isFinite(value) && value > 0
+      ? value
+      : 0.375
+
+  /*
+   * Branch.vue réduit déjà l'épaisseur visuelle du Tram à 55 %
+   * de lineThickness afin que le rendu STRIPED garde les bonnes
+   * proportions. La Fork doit utiliser exactement la même règle,
+   * sinon elle apparaît plus épaisse que les branches droites.
+   */
+  if (project.line.mode === 'TRAM') {
+    return Math.max(
+      0.18,
+      safeValue * 0.55,
+    )
+  }
+
+  return safeValue
 })
 
 /*

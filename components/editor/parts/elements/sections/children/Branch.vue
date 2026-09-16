@@ -726,14 +726,16 @@ function branchLayoutIndex(
 }
 
 const lineWidth = computed(() => {
-  if (project.line.mode === 'TRAM') {
-    return Math.max(
-      0.18,
-      lineContext.lineThickness.value * 0.55,
-    )
-  }
+  const value = Number(
+    lineContext.lineThickness.value,
+  )
 
-  return lineContext.lineThickness.value
+  return (
+    Number.isFinite(value)
+    && value > 0
+  )
+    ? value
+    : 0.375
 })
 
 /*
@@ -948,6 +950,24 @@ const totalLineWidth = computed(() => {
 
   return total
 })
+
+/*
+ * Hauteur physique du SVG de rail.
+ *
+ * Les offsets verticaux de Branch.vue utilisent depuis l'origine
+ * l'unité historique `sizeFactor * 16` pixels par em. Le SVG utilisait
+ * pourtant `totalLineWidth` en em CSS, ce qui pouvait être plus petit.
+ * Le trait était alors visuellement rogné au raccord avec une Fork.
+ *
+ * On ne change ni lineWidth, ni les offsets, ni le layout : on donne
+ * simplement au SVG la hauteur correspondant à la même unité que celle
+ * déjà utilisée pour positionner ses rails.
+ */
+const branchSvgHeightPx = computed(() =>
+  totalLineWidth.value
+  * sizeFactor.value
+  * 16,
+)
 
 /*
  * Position verticale d'une ligne dans le SVG,
@@ -5284,7 +5304,7 @@ function onStart(event: DraggableEvent<BranchElement>) {
     <div ref="line" class="line">
       <svg
         width="100%"
-        :height="`${totalLineWidth}em`"
+        :height="`${branchSvgHeightPx}px`"
         overflow="visible"
       >
         <g

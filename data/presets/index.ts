@@ -124,6 +124,10 @@ export function getPreset(mode: Mode, index: LineIndex): Project | null {
 
           return Rers.RER_C as unknown as Project
 
+        case 'D':
+
+          return Rers.RER_D as unknown as Project
+
         case 'E':
 
           return Rers.RER_E as unknown as Project
@@ -154,6 +158,10 @@ export function getPreset(mode: Mode, index: LineIndex): Project | null {
 
           return Trains.TRAIN_P as unknown as Project
 
+        case 'R':
+
+          return Trains.TRAIN_R as unknown as Project
+
         case 'U':
 
           return Trains.TRAIN_U as unknown as Project
@@ -161,6 +169,10 @@ export function getPreset(mode: Mode, index: LineIndex): Project | null {
         case 'V':
 
           return Trains.TRAIN_V as unknown as Project
+
+        case 'Y':
+
+          return Trains.TRAIN_Y as unknown as Project
 
         default:
 

@@ -1,4 +1,5 @@
 import {
+  BLEU_FONCE,
   LILAS,
   MARON,
   OLIVE_CLAIR,
@@ -19,4 +20,5 @@ export const TRANSILIEN_LINES: IndexChoice<BuiltinLineIndex>[] = [
   { value: { mode: 'TRAIN', $builtinLineIndex: { index: 'R' } }, label: 'Transilien R', color: ROSE.value },
   { value: { mode: 'TRAIN', $builtinLineIndex: { index: 'U' } }, label: 'Transilien U', color: ROUGE_FRAMBOISE.value },
   { value: { mode: 'TRAIN', $builtinLineIndex: { index: 'V' } }, label: 'Transilien V', color: OLIVE_FONCE.value },
+  { value: { mode: 'TRAIN', $builtinLineIndex: { index: 'Y' } }, label: 'Transilien Y', color: BLEU_FONCE.value },
 ]
