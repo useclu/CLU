@@ -57,6 +57,34 @@ let dragStartOffsetY = 0
 let annotationEmSize = 16
 let suppressNextClick = false
 
+const sectionElementKind = computed(() => {
+  if (isBranch(element.value)) {
+    return 'BRANCH'
+  }
+
+  if (isFork(element.value)) {
+    return 'FORK'
+  }
+
+  if (isParallelBranches(element.value)) {
+    return 'PARALLEL_BRANCHES'
+  }
+
+  if (isVerticalSegment(element.value)) {
+    return 'VERTICAL_SEGMENT'
+  }
+
+  if (isLoop(element.value)) {
+    return 'LOOP'
+  }
+
+  if (isAnnotation(element.value)) {
+    return 'ANNOTATION'
+  }
+
+  return 'UNKNOWN'
+})
+
 const zIndex = computed(() => {
   if (
     isLoop(element.value)
@@ -320,6 +348,8 @@ onUnmounted(() => {
 <template>
   <div
     class="section-element dynamic-part"
+    :data-section-element-id="element.id"
+    :data-section-element-kind="sectionElementKind"
     :class="{
       fluid,
       'fully-invisible-branch':

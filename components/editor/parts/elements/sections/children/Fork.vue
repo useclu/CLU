@@ -90,6 +90,19 @@ const hasExternalParallelBranches =
     !== null,
   )
 
+/*
+ * Identifiant DOM uniquement utilisé pour relier proprement la Fork
+ * à son vrai ParallelBranches sibling lors des mesures de rendu.
+ *
+ * Rien n'est persisté ici : la source de vérité reste
+ * $fork.parallelBranchesId / $parallelBranches.forkId.
+ */
+const pairedParallelBranchesId =
+  computed(() =>
+    pairedParallelBranches.value?.id
+    ?? null,
+  )
+
 
 interface ForkCorridorContext {
   sourceBranchId: string | null
@@ -4057,7 +4070,12 @@ const linkOffsetsArrowRotations = computed(() => {
   <div
     ref="el"
     class="fork flex-shrink-0"
+    :data-fork-id="meta.id"
     :data-fork-line-id="targetLineId"
+    :data-paired-parallel-branches-id="
+      pairedParallelBranchesId
+      ?? undefined
+    "
     :class="{
       'toward-left': meta.$fork.toward === 'LEFT',
     }"

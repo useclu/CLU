@@ -3311,34 +3311,71 @@ function updateLineToForkExtensions() {
     LineToForkExtension[] = []
 
   /*
-   * Plusieurs Fork peuvent partager le même X.
-   * On parcourt donc les Fork consécutives juste après la Branch.
+   * IMPORTANT :
+   *
+   * On ne cherche JAMAIS une Fork avec un querySelector descendant
+   * dans n'importe quel SectionElement voisin.
+   *
+   * Un vrai ParallelBranches contient lui-même des SectionEditor,
+   * qui peuvent contenir d'autres Fork (cas typique des lignes P/N/L).
+   * L'ancienne recherche descendante prenait alors une Fork IMBRIQUÉE
+   * pour une Fork voisine de la Branch source et traçait un immense
+   * rail horizontal jusqu'à elle.
+   *
+   * SectionElement expose désormais son type directement dans le DOM.
+   * On ne considère donc que les Fork qui sont de vrais siblings
+   * topologiques de cette Branch.
    */
-  let sibling =
-    host.nextElementSibling
-
-  while (
-    sibling instanceof HTMLElement
-    && sibling.classList.contains(
-      'section-element',
-    )
+  function directFork(
+    sectionElement: HTMLElement,
   ) {
-    const fork =
-      sibling.querySelector<HTMLElement>(
-        '.fork[data-fork-line-id]',
-      )
-
-    if (!fork) {
-      break
+    if (
+      sectionElement.dataset
+        .sectionElementKind !== 'FORK'
+    ) {
+      return null
     }
 
+    return (
+      sectionElement
+        .querySelector<HTMLElement>(
+          '.fork[data-fork-line-id]',
+        )
+      ?? null
+    )
+  }
+
+  function directParallelBranches(
+    sectionElement: HTMLElement,
+  ) {
+    if (
+      sectionElement.dataset
+        .sectionElementKind
+      !== 'PARALLEL_BRANCHES'
+    ) {
+      return null
+    }
+
+    return (
+      sectionElement
+        .querySelector<HTMLElement>(
+          '.parallel-branches[data-parallel-branches-id]',
+        )
+      ?? null
+    )
+  }
+
+  function addExtensionToFork(
+    fork: HTMLElement,
+    direction:
+      | 'LEFT'
+      | 'RIGHT',
+  ) {
     const lineId =
       fork.dataset.forkLineId
 
     if (!lineId) {
-      sibling =
-        sibling.nextElementSibling
-      continue
+      return
     }
 
     const visibleLine =
@@ -3349,16 +3386,15 @@ function updateLineToForkExtensions() {
 
     /*
      * Rien n'est inventé :
-     * si cette Branch ne dessine pas cette ligne, on ne fait rien.
+     * si cette Branch ne dessine pas cette ligne,
+     * elle ne peut pas être sa source.
      */
     if (!visibleLine) {
-      sibling =
-        sibling.nextElementSibling
-      continue
+      return
     }
 
     const rail =
-      el.value.querySelector<SVGGElement>(
+      el.value?.querySelector<SVGGElement>(
         `.line > svg [data-line-id="${CSS.escape(lineId)}"]`,
       )
 
@@ -3371,9 +3407,7 @@ function updateLineToForkExtensions() {
       !rail
       || !forkSvg
     ) {
-      sibling =
-        sibling.nextElementSibling
-      continue
+      return
     }
 
     const railRect =
@@ -3382,15 +3416,30 @@ function updateLineToForkExtensions() {
     const forkRect =
       forkSvg.getBoundingClientRect()
 
-    const towardLeft =
-      fork.classList.contains(
-        'toward-left',
-      )
-
+    /*
+     * Centre vertical réel des deux morceaux.
+     *
+     * Le précédent raccord utilisait uniquement railY puis un H.
+     * À cause des sous-pixels / translations verticales de Fork.vue,
+     * un écart d'1 ou 2 px pouvait rester visible au raccord.
+     *
+     * On relie maintenant le centre réel du rail au centre réel
+     * de l'entrée de la Fork. Si les deux Y sont identiques, le
+     * segment reste parfaitement horizontal ; sinon la correction
+     * est imperceptiblement diagonale et supprime la cassure.
+     */
     const railY =
       railRect.top
       + railRect.height / 2
       - wrapperRect.top
+
+    const forkY =
+      forkRect.top
+      + forkRect.height / 2
+      - wrapperRect.top
+
+    const towardLeft =
+      direction === 'LEFT'
 
     const railEdgeX =
       (
@@ -3409,13 +3458,13 @@ function updateLineToForkExtensions() {
       - wrapperRect.left
 
     /*
-     * Seulement une petite superposition pour éviter un cheveu blanc
-     * entre les deux SVG. Aucun offset persistant.
+     * Petite superposition géométrique égale à environ un demi-trait :
+     * assez pour absorber l'anti-aliasing, sans créer de bosse visible.
      */
     const overlap =
       Math.max(
-        1,
-        railRect.height * 0.45,
+        0.75,
+        railRect.height * 0.5,
       )
 
     const startX =
@@ -3430,17 +3479,118 @@ function updateLineToForkExtensions() {
 
     extensions.push({
       key:
-        `line-to-fork-${lineId}-${extensions.length}`,
+        `line-to-fork-${direction}-${lineId}-${extensions.length}`,
       lineId,
       color:
         visibleLine.color,
       path:
-        `M ${startX} ${railY} H ${endX}`,
+        `M ${startX} ${railY} L ${endX} ${forkY}`,
     })
-
-    sibling =
-      sibling.nextElementSibling
   }
+
+  /*
+   * Une paire externe est ordonnée ainsi :
+   *
+   * RIGHT :
+   *   Branch -> Fork -> ParallelBranches
+   *
+   * LEFT :
+   *   ParallelBranches -> Fork -> Branch
+   *
+   * Plusieurs Fork D/S peuvent partager le même X. On doit donc pouvoir
+   * traverser LE ParallelBranches explicitement appairé d'une Fork pour
+   * atteindre la Fork sibling suivante, sans jamais entrer dans son arbre.
+   */
+  function scanSiblings(
+    direction:
+      | 'LEFT'
+      | 'RIGHT',
+  ) {
+    const step = (
+      node: Element,
+    ) =>
+      direction === 'RIGHT'
+        ? node.nextElementSibling
+        : node.previousElementSibling
+
+    let sibling =
+      step(host)
+
+    let expectedParallelBranchesId:
+      string | null = null
+
+    while (
+      sibling instanceof HTMLElement
+      && sibling.classList.contains(
+        'section-element',
+      )
+    ) {
+      const fork =
+        directFork(sibling)
+
+      if (fork) {
+        const forkToward =
+          fork.classList.contains(
+            'toward-left',
+          )
+            ? 'LEFT'
+            : 'RIGHT'
+
+        /*
+         * Une Branch située à gauche ne peut alimenter qu'une Fork RIGHT.
+         * Une Branch située à droite ne peut alimenter qu'une Fork LEFT.
+         */
+        if (forkToward !== direction) {
+          break
+        }
+
+        addExtensionToFork(
+          fork,
+          direction,
+        )
+
+        expectedParallelBranchesId =
+          fork.dataset
+            .pairedParallelBranchesId
+          ?? null
+
+        sibling =
+          step(sibling)
+
+        continue
+      }
+
+      const parallelBranches =
+        directParallelBranches(
+          sibling,
+        )
+
+      if (
+        parallelBranches
+        && expectedParallelBranchesId
+        && parallelBranches.dataset
+          .parallelBranchesId
+          === expectedParallelBranchesId
+      ) {
+        expectedParallelBranchesId = null
+
+        sibling =
+          step(sibling)
+
+        continue
+      }
+
+      /*
+       * Tout autre élément termine le groupe de Fork adjacent.
+       * On ne saute jamais arbitrairement une Branch, une annotation,
+       * un ParallelBranches non appairé ou une structure imbriquée.
+       */
+      break
+    }
+  }
+
+  scanSiblings('RIGHT')
+  scanSiblings('LEFT')
 
   lineToForkExtensions.value =
     extensions
