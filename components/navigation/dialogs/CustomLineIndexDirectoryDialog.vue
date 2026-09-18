@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useCustomLineIndices } from '~/stores/useCustomLineIndices'
 
 const visible = defineModel<boolean>('visible')
+const { t } = useI18n()
 
 const customLineIndices = useCustomLineIndices()
 
@@ -17,51 +19,30 @@ const {
 const editorVisible = ref(false)
 const editedIndex = ref<CustomLineIndexDescription | null>(null)
 
-const modes: {
-  value: Mode
-  label: string
-}[] = [
-  {
-    value: 'RER',
-    label: 'RER',
-  },
-  {
-    value: 'TRAIN',
-    label: 'Transilien',
-  },
-  {
-    value: 'TRAM',
-    label: 'Tramway',
-  },
-  {
-    value: 'METRO',
-    label: 'Métro',
-  },
-  {
-    value: 'CABLE',
-    label: 'Téléphérique',
-  },
-  {
-    value: 'BUS',
-    label: 'Bus',
-  },
-  {
-    value: 'BRT',
-    label: 'Busilien (BHNS)',
-  },
-  {
-    value: 'NOCTILIEN',
-    label: 'Noctilien',
-  },
-  {
-    value: 'BOAT',
-    label: 'Navette fluviale',
-  },
-  {
-    value: 'VELO',
-    label: 'Vélo',
-  },
-]
+const modes = computed(() => [
+  { value: 'RER' as Mode, label: t('data.mode.rer') },
+  { value: 'TRAIN' as Mode, label: t('data.mode.transilien') },
+  { value: 'TRAM' as Mode, label: t('data.mode.tram') },
+  { value: 'METRO' as Mode, label: t('data.mode.metro') },
+  { value: 'CABLE' as Mode, label: t('data.mode.cable') },
+  { value: 'BUS' as Mode, label: t('data.mode.bus') },
+  { value: 'BRT' as Mode, label: t('data.mode.brt') },
+  { value: 'NOCTILIEN' as Mode, label: t('data.mode.noctilien') },
+  { value: 'BOAT' as Mode, label: t('data.mode.boat') },
+  { value: 'VELO' as Mode, label: t('data.mode.bike') },
+])
+
+function formatModeCount(count: number) {
+  if (count === 0) return t('ui.dialogs.custom_indices.none')
+  if (count === 1) return t('ui.dialogs.custom_indices.one', { count })
+  return t('ui.dialogs.custom_indices.many', { count })
+}
+
+function formatTotalCount(count: number) {
+  if (count === 0) return t('ui.dialogs.custom_indices.total_none')
+  if (count === 1) return t('ui.dialogs.custom_indices.total_one', { count })
+  return t('ui.dialogs.custom_indices.total_many', { count })
+}
 
 const totalIndices = computed(() => indices.value.length)
 
@@ -118,11 +99,11 @@ function closeEditor() {
             class="p-dialog-title"
             data-pc-section="title"
           >
-            Répertoire d’indices personnalisés
+            {{ $t('ui.dialogs.custom_indices.header') }}
           </span>
 
           <span class="dialog-heading-description">
-            Crée tes propres lignes fictives pour les utiliser dans le plan
+            {{ $t('ui.dialogs.custom_indices.summary') }}
           </span>
         </div>
       </div>
@@ -133,8 +114,7 @@ function closeEditor() {
         <i class="i-tabler-info-circle" />
 
         <span>
-          Les indices créés ici pourront ensuite être sélectionnés comme
-          indice de ligne ou utilisés dans les correspondances.
+          {{ $t('ui.dialogs.custom_indices.info') }}
         </span>
       </div>
 
@@ -156,11 +136,7 @@ function closeEditor() {
                 </span>
 
                 <span class="mode-count">
-                  {{
-                    getIndicesForMode(mode.value).length === 0
-                      ? 'Aucun indice'
-                      : `${getIndicesForMode(mode.value).length} indice${getIndicesForMode(mode.value).length > 1 ? 's' : ''}`
-                  }}
+                  {{ formatModeCount(getIndicesForMode(mode.value).length) }}
                 </span>
               </div>
             </div>
@@ -170,7 +146,7 @@ function closeEditor() {
               rounded
               size="small"
               severity="secondary"
-              :aria-label="`Ajouter un indice ${mode.label}`"
+              :aria-label="$t('ui.dialogs.custom_indices.add_aria', { mode: mode.label })"
               @click="addIndex(mode.value)"
             />
           </div>
@@ -181,7 +157,7 @@ function closeEditor() {
               :key="index.id"
               type="button"
               class="index-card"
-              title="Modifier cet indice"
+              :title="$t('ui.dialogs.custom_indices.edit_title')"
               @click="editIndex(index)"
             >
               <div
@@ -218,16 +194,12 @@ function closeEditor() {
           <i class="i-tabler-route" />
 
           <span>
-            {{
-              totalIndices === 0
-                ? 'Aucun indice personnalisé'
-                : `${totalIndices} indice${totalIndices > 1 ? 's' : ''} personnalisé${totalIndices > 1 ? 's' : ''}`
-            }}
+            {{ formatTotalCount(totalIndices) }}
           </span>
         </div>
 
         <Button
-          label="Fermer"
+          :label="$t('ui.dialogs.custom_indices.close')"
           @click="visible = false"
         />
       </div>

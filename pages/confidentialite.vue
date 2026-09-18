@@ -1,117 +1,64 @@
 <template>
   <main class="privacy-page">
     <article class="privacy-content">
-      <h1>Politique de confidentialité</h1>
+      <h1>{{ $t('ui.pages.privacy.title') }}</h1>
 
       <p class="updated">
-        Dernière mise à jour : 8 septembre 2026
+        {{ $t('ui.pages.privacy.updated') }}
       </p>
 
-      <p>
-        CLU (Créateur de Lignes Urbaines) est un outil permettant de créer
-        des plans de lignes de transports en commun.
-      </p>
+      <p>{{ $t('ui.pages.privacy.intro') }}</p>
 
       <section>
-        <h2>Données enregistrées par CLU</h2>
-
-        <p>
-          CLU fonctionne principalement directement dans votre navigateur.
-          Certaines données nécessaires au fonctionnement de l'application,
-          notamment les préférences et les projets enregistrés localement,
-          peuvent être conservées dans le stockage de votre navigateur.
-        </p>
+        <h2>{{ $t('ui.pages.privacy.local_title') }}</h2>
+        <p>{{ $t('ui.pages.privacy.local_text') }}</p>
       </section>
 
       <section>
-        <h2>Google Analytics</h2>
-
-        <p>
-          CLU utilise Google Analytics afin de mesurer l'utilisation du site
-          et de mieux comprendre son audience. Ce service peut notamment
-          recueillir des informations relatives à l'utilisation du site,
-          telles que les pages consultées, les interactions, le type
-          d'appareil et des informations géographiques approximatives.
-        </p>
-
-        <p>
-          Ces informations nous permettent d'analyser la fréquentation de CLU
-          et d'améliorer le service.
-        </p>
+        <h2>{{ $t('ui.pages.privacy.analytics_title') }}</h2>
+        <p>{{ $t('ui.pages.privacy.analytics_text_1') }}</p>
+        <p>{{ $t('ui.pages.privacy.analytics_text_2') }}</p>
       </section>
 
       <section>
-        <h2>Google AdSense</h2>
-
-        <p>
-          CLU utilise ou pourra utiliser Google AdSense afin d'afficher des
-          annonces publicitaires.
-        </p>
-
-        <p>
-          Google et ses partenaires peuvent utiliser des cookies ou des
-          technologies similaires afin d'afficher, mesurer et personnaliser
-          des annonces, selon les choix de consentement de l'utilisateur et
-          la réglementation applicable.
-        </p>
+        <h2>{{ $t('ui.pages.privacy.adsense_title') }}</h2>
+        <p>{{ $t('ui.pages.privacy.adsense_text_1') }}</p>
+        <p>{{ $t('ui.pages.privacy.adsense_text_2') }}</p>
       </section>
 
       <section>
-        <h2>Cookies et consentement</h2>
-
-        <p>
-          Pour les utilisateurs concernés, notamment dans l'Espace économique
-          européen, au Royaume-Uni et en Suisse, CLU utilise une plate-forme
-          de gestion du consentement (CMP) de Google.
-        </p>
-
-        <p>
-          Cette plate-forme permet d'accepter, de refuser ou de gérer les
-          différents choix relatifs à l'utilisation des données et des
-          technologies publicitaires.
-        </p>
+        <h2>{{ $t('ui.pages.privacy.consent_title') }}</h2>
+        <p>{{ $t('ui.pages.privacy.consent_text_1') }}</p>
+        <p>{{ $t('ui.pages.privacy.consent_text_2') }}</p>
       </section>
 
       <section>
-        <h2>Services Google</h2>
-
-        <p>
-          Pour en savoir plus sur la manière dont Google utilise les
-          informations provenant de sites ou d'applications utilisant ses
-          services, vous pouvez consulter les informations relatives à la
-          confidentialité fournies par Google.
-        </p>
+        <h2>{{ $t('ui.pages.privacy.google_title') }}</h2>
+        <p>{{ $t('ui.pages.privacy.google_text') }}</p>
 
         <a
-          href="https://policies.google.com/technologies/partner-sites?hl=fr"
+          :href="$i18n.locale === 'en'
+            ? 'https://policies.google.com/technologies/partner-sites?hl=en'
+            : 'https://policies.google.com/technologies/partner-sites?hl=fr'"
           target="_blank"
           rel="noopener noreferrer"
         >
-          Comment Google utilise les informations provenant de sites utilisant ses services
+          {{ $t('ui.pages.privacy.google_link') }}
         </a>
       </section>
 
       <section>
-        <h2>Gestion des données locales</h2>
-
-        <p>
-          Les données enregistrées localement par CLU peuvent être supprimées
-          en effaçant les données du site depuis les paramètres du navigateur.
-        </p>
+        <h2>{{ $t('ui.pages.privacy.manage_title') }}</h2>
+        <p>{{ $t('ui.pages.privacy.manage_text') }}</p>
       </section>
 
       <section>
-        <h2>Modifications</h2>
-
-        <p>
-          Cette politique de confidentialité peut être mise à jour afin de
-          refléter les évolutions de CLU, des services utilisés ou des
-          obligations applicables.
-        </p>
+        <h2>{{ $t('ui.pages.privacy.changes_title') }}</h2>
+        <p>{{ $t('ui.pages.privacy.changes_text') }}</p>
       </section>
 
       <RouterLink class="back" to="/">
-        Retour à CLU
+        {{ $t('ui.pages.privacy.back') }}
       </RouterLink>
     </article>
   </main>

@@ -1,30 +1,29 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useProject } from '~/stores/useProject'
 
 const visible = defineModel<boolean>('visible')
+const { t } = useI18n()
 
 const { line } = storeToRefs(useProject())
 
-const modes: {
-  value: CustomizableModePictogramMode
-  label: string
-}[] = [
-  { value: 'RER', label: 'RER' },
-  { value: 'TRAIN', label: 'Transilien' },
-  { value: 'TRAM', label: 'Tramway' },
-  { value: 'METRO', label: 'Métro' },
-  { value: 'CABLE', label: 'Téléphérique' },
-  { value: 'BUS', label: 'Bus' },
-  { value: 'BRT', label: 'Busilien (BHNS)' },
-  { value: 'NOCTILIEN', label: 'Noctilien' },
-  { value: 'BOAT', label: 'Navette fluviale' },
-  { value: 'VELO', label: 'Vélo' },
-]
+const modes = computed(() => [
+  { value: 'RER' as CustomizableModePictogramMode, label: t('data.mode.rer') },
+  { value: 'TRAIN' as CustomizableModePictogramMode, label: t('data.mode.transilien') },
+  { value: 'TRAM' as CustomizableModePictogramMode, label: t('data.mode.tram') },
+  { value: 'METRO' as CustomizableModePictogramMode, label: t('data.mode.metro') },
+  { value: 'CABLE' as CustomizableModePictogramMode, label: t('data.mode.cable') },
+  { value: 'BUS' as CustomizableModePictogramMode, label: t('data.mode.bus') },
+  { value: 'BRT' as CustomizableModePictogramMode, label: t('data.mode.brt') },
+  { value: 'NOCTILIEN' as CustomizableModePictogramMode, label: t('data.mode.noctilien') },
+  { value: 'BOAT' as CustomizableModePictogramMode, label: t('data.mode.boat') },
+  { value: 'VELO' as CustomizableModePictogramMode, label: t('data.mode.bike') },
+])
 
 const customPictogramCount = computed(() =>
-  modes.filter(mode => hasCustomPictogram(mode.value)).length,
+  modes.value.filter(mode => hasCustomPictogram(mode.value)).length,
 )
 
 const hasAnyCustomPictogram = computed(() =>
@@ -110,11 +109,11 @@ function restoreAllPictograms() {
             class="p-dialog-title"
             data-pc-section="title"
           >
-            Pictogrammes des modes
+            {{ $t('ui.dialogs.custom_mode_pictograms.header') }}
           </span>
 
           <span class="dialog-heading-description">
-            Personnalise l’identité visuelle des modes de transport
+            {{ $t('ui.dialogs.custom_mode_pictograms.summary') }}
           </span>
         </div>
       </div>
@@ -125,8 +124,7 @@ function restoreAllPictograms() {
         <i class="i-tabler-info-circle" />
 
         <span>
-          Remplace les pictogrammes par tes propres images.
-          Les modifications sont appliquées directement au plan.
+          {{ $t('ui.dialogs.custom_mode_pictograms.info') }}
         </span>
       </div>
 
@@ -158,8 +156,8 @@ function restoreAllPictograms() {
                 <span>
                   {{
                     hasCustomPictogram(mode.value)
-                      ? 'Pictogramme personnalisé'
-                      : 'Pictogramme par défaut'
+                      ? $t('ui.dialogs.custom_mode_pictograms.custom_status')
+                      : $t('ui.dialogs.custom_mode_pictograms.default_status')
                   }}
                 </span>
               </div>
@@ -170,8 +168,8 @@ function restoreAllPictograms() {
             <Button
               :label="
                 hasCustomPictogram(mode.value)
-                  ? 'Changer'
-                  : 'Modifier'
+                  ? $t('ui.dialogs.custom_mode_pictograms.change')
+                  : $t('ui.dialogs.custom_mode_pictograms.edit')
               "
               :icon="
                 hasCustomPictogram(mode.value)
@@ -185,7 +183,7 @@ function restoreAllPictograms() {
 
             <Button
               v-if="hasCustomPictogram(mode.value)"
-              label="Rétablir"
+              :label="$t('ui.dialogs.custom_mode_pictograms.restore')"
               icon="i-tabler-restore"
               severity="secondary"
               size="small"
@@ -202,7 +200,7 @@ function restoreAllPictograms() {
         <div class="footer-left">
           <Button
             v-if="hasAnyCustomPictogram"
-            label="Tout rétablir"
+            :label="$t('ui.dialogs.custom_mode_pictograms.restore_all')"
             icon="i-tabler-restore"
             severity="secondary"
             text
@@ -216,13 +214,13 @@ function restoreAllPictograms() {
             <i class="i-tabler-circle-check" />
 
             <span>
-              Pictogrammes par défaut
+              {{ $t('ui.dialogs.custom_mode_pictograms.default_footer') }}
             </span>
           </div>
         </div>
 
         <Button
-          label="Fermer"
+          :label="$t('ui.dialogs.custom_mode_pictograms.close')"
           @click="visible = false"
         />
       </div>

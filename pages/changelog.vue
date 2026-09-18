@@ -20,7 +20,7 @@ const { applicationVersion } = useVersion()
           <h2 class="version flex flex-row items-center gap-4">
             {{ release.version }}
             <Tag v-if="applicationVersion === release.version" severity="info">
-              Version actuelle
+              {{ $t('ui.changelog.current_version') }}
             </Tag>
           </h2>
           <h2 class="text-muted">

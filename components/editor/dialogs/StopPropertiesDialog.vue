@@ -2663,7 +2663,7 @@ function openConnectionsEditor() {
             </div>
 
             <div class="card-description">
-              Nom et informations affichées sur le plan
+              {{ $t('ui.dialogs.stop_properties.information_summary') }}
             </div>
           </div>
         </div>
@@ -2696,7 +2696,7 @@ function openConnectionsEditor() {
                 v-if="showStopSuggestions"
                 class="stop-suggestions"
                 role="listbox"
-                aria-label="Suggestions d’arrêts CLU"
+                :aria-label="$t('ui.dialogs.stop_properties.suggestions_aria')"
               >
                 <button
                   v-for="(suggestion, index) in stopSuggestions"
@@ -2764,15 +2764,15 @@ function openConnectionsEditor() {
 
                 <div class="stop-suggestions-hint">
                   <span>
-                    ↑ ↓ naviguer
+                    {{ $t('ui.dialogs.stop_properties.shortcut_navigation') }}
                   </span>
 
                   <span>
-                    Entrée appliquer
+                    {{ $t('ui.dialogs.stop_properties.shortcut_apply') }}
                   </span>
 
                   <span>
-                    Échap fermer
+                    {{ $t('ui.dialogs.stop_properties.shortcut_close') }}
                   </span>
                 </div>
               </div>
@@ -2795,7 +2795,7 @@ function openConnectionsEditor() {
                 </span>
 
                 <span class="field-description">
-                  Enregistre le nom et les correspondances dans votre catalogue personnel.
+                  {{ $t('ui.dialogs.stop_properties.catalog_hint') }}
                 </span>
               </div>
 
@@ -2811,7 +2811,7 @@ function openConnectionsEditor() {
 
                 <Button
                   v-if="canDeleteCurrentPersonalStopSuggestion"
-                  label="Supprimer"
+                  :label="$t('ui.common.delete')"
                   icon="i-tabler-trash"
                   severity="danger"
                   size="small"
@@ -2821,7 +2821,7 @@ function openConnectionsEditor() {
 
                 <Button
                   v-if="canResetOfficialStopSuggestion"
-                  label="Réinitialiser"
+                  :label="$t('ui.common.reset')"
                   icon="i-tabler-restore"
                   severity="secondary"
                   size="small"
@@ -2851,7 +2851,7 @@ function openConnectionsEditor() {
               v-if="!stop.$stop.terminus || !allowCity"
               class="field-description"
             >
-              Disponible lorsque l’arrêt est un terminus compatible.
+              {{ $t('ui.dialogs.stop_properties.terminus_hint') }}
             </span>
           </div>
 
@@ -2910,7 +2910,7 @@ function openConnectionsEditor() {
             </div>
 
             <div class="card-description">
-              Typographie, couleur et logo de l’arrêt
+              {{ $t('ui.dialogs.stop_properties.name_appearance_summary') }}
             </div>
           </div>
         </div>
@@ -2926,7 +2926,7 @@ function openConnectionsEditor() {
                 :for="`${stop.id}_nameBold`"
                 class="text-style-button"
                 :class="{ active: nameStyle.bold }"
-                title="Gras"
+                :title="$t('ui.dialogs.stop_properties.bold')"
               >
                 <Checkbox
                   v-model="nameStyle.bold"
@@ -2937,14 +2937,14 @@ function openConnectionsEditor() {
 
                 <strong>G</strong>
 
-                <span>Gras</span>
+                <span>{{ $t('ui.dialogs.stop_properties.bold') }}</span>
               </label>
 
               <label
                 :for="`${stop.id}_nameItalic`"
                 class="text-style-button"
                 :class="{ active: nameStyle.italic }"
-                title="Italique"
+                :title="$t('ui.dialogs.stop_properties.italic')"
               >
                 <Checkbox
                   v-model="nameStyle.italic"
@@ -2955,14 +2955,14 @@ function openConnectionsEditor() {
 
                 <em>I</em>
 
-                <span>Italique</span>
+                <span>{{ $t('ui.dialogs.stop_properties.italic') }}</span>
               </label>
 
               <label
                 :for="`${stop.id}_nameUnderline`"
                 class="text-style-button"
                 :class="{ active: nameStyle.underline }"
-                title="Souligné"
+                :title="$t('ui.dialogs.stop_properties.underline')"
               >
                 <Checkbox
                   v-model="nameStyle.underline"
@@ -2973,14 +2973,14 @@ function openConnectionsEditor() {
 
                 <u>S</u>
 
-                <span>Souligné</span>
+                <span>{{ $t('ui.dialogs.stop_properties.underline') }}</span>
               </label>
             </div>
           </div>
 
           <div class="property-field">
             <span class="property-label">
-              Couleur du nom
+              {{ $t('ui.dialogs.stop_properties.name_color') }}
             </span>
 
             <div class="color-control">
@@ -2996,7 +2996,7 @@ function openConnectionsEditor() {
 
                 <div class="color-information">
                   <span class="color-name">
-                    Couleur personnalisée
+                    {{ $t('ui.dialogs.stop_properties.custom_name_color') }}
                   </span>
 
                   <span class="color-value">
@@ -3016,7 +3016,7 @@ function openConnectionsEditor() {
 
               <Button
                 v-else
-                label="Couleur par défaut"
+                :label="$t('ui.dialogs.stop_properties.default_color')"
                 severity="secondary"
                 size="small"
                 text
@@ -3036,13 +3036,13 @@ function openConnectionsEditor() {
                 </div>
 
                 <div class="field-description">
-                  Ajoute autant d’images que nécessaire directement après le nom de l’arrêt.
+                  {{ $t('ui.dialogs.stop_properties.name_images_summary') }}
                 </div>
               </div>
 
               <Button
                 v-if="customImages.length > 0"
-                label="Ajouter"
+                :label="$t('ui.common.add')"
                 severity="secondary"
                 size="small"
                 icon="i-tabler-photo-plus"
@@ -3070,7 +3070,7 @@ function openConnectionsEditor() {
                 <div class="image-preview">
                   <img
                     :src="image.image"
-                    :alt="`Aperçu du logo ${index + 1}`"
+                    :alt="$t('ui.dialogs.stop_properties.image_preview_alt', { index: index + 1 })"
                   >
                 </div>
 
@@ -3081,13 +3081,13 @@ function openConnectionsEditor() {
                     </div>
 
                     <div class="field-description">
-                      Enregistrée dans le projet
+                      {{ $t('ui.dialogs.stop_properties.stored_in_project') }}
                     </div>
                   </div>
 
                   <div class="image-buttons">
                     <Button
-                      label="Changer"
+                      :label="$t('ui.common.change')"
                       severity="secondary"
                       size="small"
                       icon="i-tabler-photo"
@@ -3095,7 +3095,7 @@ function openConnectionsEditor() {
                     />
 
                     <Button
-                      label="Supprimer"
+                      :label="$t('ui.common.delete')"
                       severity="danger"
                       size="small"
                       text
@@ -3110,7 +3110,7 @@ function openConnectionsEditor() {
                         class="property-label"
                         :for="`${stop.id}_nameImageSize_${image.id}`"
                       >
-                        Taille
+                        {{ $t('ui.dialogs.stop_properties.size') }}
                       </label>
 
                       <span class="slider-value">
@@ -3145,11 +3145,11 @@ function openConnectionsEditor() {
 
               <div>
                 <div class="image-empty-title">
-                  Ajouter une image
+                  {{ $t('ui.dialogs.stop_properties.add_image') }}
                 </div>
 
                 <div class="field-description">
-                  PNG, JPG, WEBP ou SVG — plusieurs images possibles
+                  {{ $t('ui.dialogs.stop_properties.image_formats') }}
                 </div>
               </div>
             </button>
@@ -3171,11 +3171,11 @@ function openConnectionsEditor() {
 
           <div>
             <div class="card-title">
-              Configuration de l’arrêt
+              {{ $t('ui.dialogs.stop_properties.configuration') }}
             </div>
 
             <div class="card-description">
-              Type, état et comportement sur le plan
+              {{ $t('ui.dialogs.stop_properties.configuration_summary') }}
             </div>
           </div>
         </div>
@@ -3241,11 +3241,11 @@ function openConnectionsEditor() {
 
                 <div>
                   <div class="option-title">
-                    Terminer la ligne par une flèche
+                    {{ $t('ui.dialogs.stop_properties.arrow_terminus') }}
                   </div>
 
                   <div class="option-description">
-                    Ajoute une indication de direction après le terminus.
+                    {{ $t('ui.dialogs.stop_properties.arrow_terminus_summary') }}
                   </div>
                 </div>
               </div>
@@ -3341,11 +3341,11 @@ function openConnectionsEditor() {
 
                 <div>
                   <div class="option-title">
-                    Arrêt futur / en projet
+                    {{ $t('ui.dialogs.stop_properties.future_stop') }}
                   </div>
 
                   <div class="option-description">
-                    Affiche l’arrêt comme une extension future.
+                    {{ $t('ui.dialogs.stop_properties.future_stop_summary') }}
                   </div>
                 </div>
               </div>
@@ -3369,11 +3369,11 @@ function openConnectionsEditor() {
 
                   <div>
                     <div class="option-title">
-                      Changer de ligne après cet arrêt
+                      {{ $t('ui.dialogs.stop_properties.change_line_after') }}
                     </div>
 
                     <div class="option-description">
-                      Continue le même tracé avec une autre identité de ligne.
+                      {{ $t('ui.dialogs.stop_properties.change_line_after_summary') }}
                     </div>
                   </div>
                 </div>
@@ -3404,13 +3404,13 @@ function openConnectionsEditor() {
                     class="served-line-index"
                   />
 
-                  <span>Nouvelle ligne après l’arrêt</span>
+                  <span>{{ $t('ui.dialogs.stop_properties.new_line_after') }}</span>
                 </div>
 
                 <div class="line-change-editor-grid">
                   <div class="property-field">
                     <label class="property-label">
-                      Mode de transport
+                      {{ $t('ui.dialogs.stop_properties.transport_mode') }}
                     </label>
 
                     <ModeSelect
@@ -3421,7 +3421,7 @@ function openConnectionsEditor() {
 
                   <div class="property-field">
                     <label class="property-label">
-                      Indice
+                      {{ $t('ui.dialogs.stop_properties.index') }}
                     </label>
 
                     <IndexSelect
@@ -3436,7 +3436,7 @@ function openConnectionsEditor() {
                   <i class="i-tabler-info-circle" />
 
                   <span>
-                    Cette ligne peut être différente des lignes déjà présentes sur la branche. Sa couleur et son pictogramme sont déterminés automatiquement par le mode et l’indice choisis, y compris pour un indice personnalisé.
+                    {{ $t('ui.dialogs.stop_properties.new_line_detail') }}
                   </span>
                 </div>
               </div>
@@ -3453,11 +3453,11 @@ function openConnectionsEditor() {
 
                 <div>
                   <div class="option-title">
-                    Hors de la zone tarifaire
+                    {{ $t('ui.dialogs.stop_properties.out_of_fare_zone') }}
                   </div>
 
                   <div class="option-description">
-                    Intègre l’arrêt à une zone hors tarification.
+                    {{ $t('ui.dialogs.stop_properties.out_of_fare_zone_summary') }}
                   </div>
                 </div>
               </div>
@@ -3480,11 +3480,11 @@ function openConnectionsEditor() {
 
                 <div>
                   <div class="option-title">
-                    Arrêt hors plan / atténué
+                    {{ $t('ui.dialogs.stop_properties.faded_stop') }}
                   </div>
 
                   <div class="option-description">
-                    Atténue visuellement cette partie du tracé.
+                    {{ $t('ui.dialogs.stop_properties.faded_stop_summary') }}
                   </div>
                 </div>
               </div>
@@ -3515,11 +3515,11 @@ function openConnectionsEditor() {
 
           <div>
             <div class="card-title">
-              Lignes desservies par l’arrêt
+              {{ $t('ui.dialogs.stop_properties.served_lines') }}
             </div>
 
             <div class="card-description">
-              Choisis la ou les lignes sur lesquelles cet arrêt est présent
+              {{ $t('ui.dialogs.stop_properties.served_lines_summary') }}
             </div>
           </div>
         </div>
@@ -3589,7 +3589,7 @@ function openConnectionsEditor() {
             <i class="i-tabler-arrows-vertical" />
 
             <span>
-              Arrêt commun : un seul marqueur pourra traverser les lignes sélectionnées.
+              {{ $t('ui.dialogs.stop_properties.shared_stop_summary') }}
             </span>
           </div>
         </div>
@@ -3620,7 +3620,7 @@ function openConnectionsEditor() {
           </div>
 
           <div class="connections-button-description">
-            Lignes, modes de transport et temps de correspondance
+            {{ $t('ui.dialogs.stop_properties.connections_summary') }}
           </div>
         </div>
 

@@ -38,11 +38,11 @@ const zoneName = computed({
             class="dialog-title"
             data-pc-section="title"
           >
-            Propriétés de la séparation ville / zone
+            {{ $t('ui.dialogs.area_separator_properties.header') }}
           </div>
 
           <div class="dialog-subtitle">
-            Configurez l'affichage de la ville, de la zone et de la séparation.
+            {{ $t('ui.dialogs.area_separator_properties.summary') }}
           </div>
         </div>
       </div>
@@ -80,7 +80,7 @@ const zoneName = computed({
               <InputText
                 :id="`${areaSeparator.id}_cityName`"
                 v-model="areaSeparator.$areaSeparator.cityName"
-                placeholder="Ex. Esbly"
+                :placeholder="$t('ui.dialogs.area_separator_properties.city_placeholder')"
                 fluid
               />
             </div>
@@ -97,7 +97,7 @@ const zoneName = computed({
               <InputText
                 :id="`${areaSeparator.id}_zoneName`"
                 v-model="zoneName"
-                placeholder="Ex. Zone 5"
+                :placeholder="$t('ui.dialogs.area_separator_properties.zone_placeholder')"
                 fluid
               />
 
@@ -268,7 +268,7 @@ const zoneName = computed({
         </div>
 
         <Button
-          label="Fermer"
+          :label="$t('ui.common.close')"
           severity="secondary"
           icon="i-tabler-x"
           @click.stop="visible = false"

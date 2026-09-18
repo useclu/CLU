@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { isMacOS } from '@basitcodeenv/vue3-device-detect'
 import { useMagicKeys } from '@vueuse/core'
 import { v4 as uuidv4 } from 'uuid'
@@ -10,6 +11,8 @@ import {
 } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { cleanName } from '~/utils/text'
+
+const { t } = useI18n()
 
 const visible = defineModel<boolean>(
   'visible',
@@ -87,26 +90,26 @@ const stopCount = computed(
 
 const stopCountLabel = computed(() => {
   if (stopCount.value === 0) {
-    return 'Aucun arrêt'
+    return t('ui.dialogs.warp_add.count_none')
   }
 
   if (stopCount.value === 1) {
-    return '1 arrêt'
+    return t('ui.dialogs.warp_add.count_one')
   }
 
-  return `${stopCount.value} arrêts`
+  return t('ui.dialogs.warp_add.count_many', { count: stopCount.value })
 })
 
 const addAllLabel = computed(() => {
   if (stopCount.value === 0) {
-    return 'Ajouter les arrêts'
+    return t('ui.dialogs.warp_add.add_all_default')
   }
 
   if (stopCount.value === 1) {
-    return 'Ajouter 1 arrêt'
+    return t('ui.dialogs.warp_add.add_all_one')
   }
 
-  return `Ajouter ${stopCount.value} arrêts`
+  return t('ui.dialogs.warp_add.add_all_many', { count: stopCount.value })
 })
 
 const canSubmitCurrentStop =
@@ -362,11 +365,11 @@ function onNameEnter(
 
         <div class="dialog-heading-text">
           <div class="dialog-title">
-            Ajout rapide d'arrêts
+            {{ $t('ui.dialogs.warp_add.header') }}
           </div>
 
           <div class="dialog-subtitle">
-            Préparez une série d'arrêts puis ajoutez-la à la branche en une seule fois.
+            {{ $t('ui.dialogs.warp_add.summary') }}
           </div>
         </div>
 
@@ -383,21 +386,21 @@ function onNameEnter(
         <div class="shortcut-text">
           <span>
             <kbd>Entrée</kbd>
-            ajoute l'arrêt
+            {{ $t('ui.dialogs.warp_add.shortcut_add_stop') }}
           </span>
 
           <span>
             <kbd>Shift</kbd>
             +
             <kbd>Entrée</kbd>
-            crée une nouvelle ligne dans le nom
+            {{ $t('ui.dialogs.warp_add.shortcut_newline') }}
           </span>
 
           <span>
             <kbd>{{ metakey }}</kbd>
             +
             <kbd>Entrée</kbd>
-            ajoute toute la liste
+            {{ $t('ui.dialogs.warp_add.shortcut_add_all') }}
           </span>
         </div>
       </div>
@@ -406,7 +409,7 @@ function onNameEnter(
         <!--
           =====================================================
           COLONNE GAUCHE
-          Nouvel arrêt + options d'insertion
+          {{ $t('ui.dialogs.warp_add.new_stop') }} + options d'insertion
           =====================================================
         -->
         <div class="warp-column">
@@ -418,11 +421,11 @@ function onNameEnter(
 
               <div>
                 <div class="warp-card-title">
-                  Nouvel arrêt
+                  {{ $t('ui.dialogs.warp_add.new_stop') }}
                 </div>
 
                 <div class="warp-card-description">
-                  Saisissez les informations puis appuyez sur Entrée.
+                  {{ $t('ui.dialogs.warp_add.new_stop_hint') }}
                 </div>
               </div>
             </div>
@@ -449,7 +452,7 @@ function onNameEnter(
                 />
 
                 <div class="field-help">
-                  Shift + Entrée pour écrire le nom sur plusieurs lignes.
+                  {{ $t('ui.dialogs.warp_add.multiline_hint') }}
                 </div>
               </div>
 
@@ -489,7 +492,7 @@ function onNameEnter(
 
               <Button
                 class="add-current-stop"
-                label="Ajouter à la liste"
+                :label="$t('ui.dialogs.warp_add.add_to_list')"
                 icon="i-tabler-plus"
                 :disabled="!canSubmitCurrentStop"
                 @click="submitStop()"
@@ -505,11 +508,11 @@ function onNameEnter(
 
               <div>
                 <div class="warp-card-title">
-                  Insertion
+                  {{ $t('ui.dialogs.warp_add.insertion') }}
                 </div>
 
                 <div class="warp-card-description">
-                  Choisissez l'ordre et l'extrémité de la branche.
+                  {{ $t('ui.dialogs.warp_add.insertion_hint') }}
                 </div>
               </div>
             </div>
@@ -570,11 +573,11 @@ function onNameEnter(
 
             <div class="warp-card-heading-text">
               <div class="warp-card-title">
-                Arrêts à ajouter
+                {{ $t('ui.dialogs.warp_add.stops_to_add') }}
               </div>
 
               <div class="warp-card-description">
-                Glissez les cartes pour changer leur ordre.
+                {{ $t('ui.dialogs.warp_add.drag_hint') }}
               </div>
             </div>
 
@@ -608,7 +611,7 @@ function onNameEnter(
                 <button
                   type="button"
                   class="stop-drag-handle"
-                  title="Réordonner"
+                  :title="$t('ui.dialogs.warp_add.reorder')"
                 >
                   <i class="i-tabler-grip-vertical" />
                 </button>
@@ -646,7 +649,7 @@ function onNameEnter(
                     class="terminus-status"
                   >
                     <i class="i-tabler-track" />
-                    Terminus
+                    {{ $t('ui.dialogs.stop_properties.terminus') }}
                   </div>
                 </div>
 
@@ -699,11 +702,11 @@ function onNameEnter(
               </div>
 
               <div class="empty-state-title">
-                Aucun arrêt préparé
+                {{ $t('ui.dialogs.warp_add.empty_title') }}
               </div>
 
               <div class="empty-state-description">
-                Ajoutez un premier arrêt avec le formulaire de gauche.
+                {{ $t('ui.dialogs.warp_add.empty_hint') }}
               </div>
             </div>
           </div>
@@ -714,7 +717,7 @@ function onNameEnter(
     <template #footer>
       <div class="dialog-footer">
         <Button
-          label="Réinitialiser"
+          :label="$t('ui.common.reset')"
           severity="secondary"
           icon="i-tabler-refresh"
           text

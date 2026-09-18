@@ -148,12 +148,11 @@ const connection = defineModel<Connection>(
 
         <div>
           <div class="unknown-title">
-            Type de correspondance inconnu
+            {{ $t('ui.connections.unknown_type') }}
           </div>
 
           <div class="unknown-description">
-            Cette correspondance ne peut pas être modifiée
-            avec l’éditeur actuel.
+            {{ $t('ui.connections.unknown_description') }}
           </div>
         </div>
       </div>
@@ -169,7 +168,7 @@ const connection = defineModel<Connection>(
         <i class="i-tabler-info-circle" />
 
         <span>
-          Les modifications sont appliquées immédiatement.
+          {{ $t('ui.connections.immediate_changes') }}
         </span>
       </div>
 

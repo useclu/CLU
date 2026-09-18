@@ -46,11 +46,11 @@ const color = computed({
             class="dialog-title"
             data-pc-section="title"
           >
-            Propriétés de l'annotation
+            {{ $t('ui.dialogs.annotation_properties.header') }}
           </div>
 
           <div class="dialog-subtitle">
-            Personnalisez le texte affiché directement sur le plan.
+            {{ $t('ui.dialogs.annotation_properties.summary') }}
           </div>
         </div>
       </div>
@@ -237,7 +237,7 @@ const color = computed({
         </div>
 
         <Button
-          label="Fermer"
+          :label="$t('ui.common.close')"
           severity="secondary"
           icon="i-tabler-x"
           @click="visible = false"

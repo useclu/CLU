@@ -155,7 +155,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               <span
                 v-if="hasFullPreset('METRO', metro.value)"
                 class="preset-badge"
-                title="Préréglage complet disponible"
+                :title="$t('ui.dialogs.use_preset.full_available')"
               />
             </div>
           </Button>
@@ -203,7 +203,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               <span
                 v-if="hasFullPreset('RER', rer.value)"
                 class="preset-badge"
-                title="Préréglage complet disponible"
+                :title="$t('ui.dialogs.use_preset.full_available')"
               />
             </div>
           </Button>
@@ -251,7 +251,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               <span
                 v-if="hasFullPreset('TRAIN', transilien.value)"
                 class="preset-badge"
-                title="Préréglage complet disponible"
+                :title="$t('ui.dialogs.use_preset.full_available')"
               />
             </div>
           </Button>
@@ -299,7 +299,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               <span
                 v-if="hasFullPreset('TRAM', tram.value)"
                 class="preset-badge"
-                title="Préréglage complet disponible"
+                :title="$t('ui.dialogs.use_preset.full_available')"
               />
             </div>
           </Button>
@@ -315,7 +315,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
         </div>
 
         <Button
-          label="Fermer"
+          :label="$t('ui.common.close')"
           severity="secondary"
           icon="i-tabler-x"
           @click="visible = false"

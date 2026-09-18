@@ -2,21 +2,13 @@
 import type Popover from 'primevue/popover'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import de from '~/assets/svg/flags/de.svg'
 import en from '~/assets/svg/flags/en.svg'
-import es from '~/assets/svg/flags/es.svg'
 import fr from '~/assets/svg/flags/fr.svg'
-import it from '~/assets/svg/flags/it.svg'
-import ja from '~/assets/svg/flags/ja.svg'
 
 const LOCALES = [
-  { label: 'Deutsch', value: 'de', flag: de },
-  { label: 'English', value: 'en', flag: en },
-  { label: 'Español', value: 'es', flag: es },
   { label: 'Français', value: 'fr', flag: fr },
-  { label: 'Italiano', value: 'it', flag: it },
-  { label: '日本語', value: 'ja', flag: ja },
-]
+  { label: 'English', value: 'en', flag: en },
+] as const
 
 const { locale: currentLocale } = useI18n()
 const op = ref<InstanceType<typeof Popover> | null>(null)
@@ -25,14 +17,21 @@ function toggle(event: MouseEvent) {
   op.value?.toggle(event)
 }
 
-function selectMember(locale: string) {
+function selectMember(locale: 'fr' | 'en') {
   currentLocale.value = locale
   op.value?.hide()
 }
 </script>
 
 <template>
-  <Button text rounded icon="i-tabler-language" @click="toggle" />
+  <Button
+    text
+    rounded
+    icon="i-tabler-language"
+    aria-label="Language / Langue"
+    title="Language / Langue"
+    @click="toggle"
+  />
 
   <Popover ref="op" class="min-w-10em">
     <div class="flex flex-col">
@@ -46,7 +45,7 @@ function selectMember(locale: string) {
         @click="selectMember(locale.value)"
       >
         <template #icon>
-          <img :src="locale.flag" alt="Flag" class="w-6 h-6 mr-2">
+          <img :src="locale.flag" :alt="locale.label" class="w-6 h-6 mr-2">
         </template>
       </Button>
     </div>

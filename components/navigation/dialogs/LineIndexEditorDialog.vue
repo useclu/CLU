@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { modeToShape } from '~/data/modes'
+
+const { t } = useI18n()
 
 const emit = defineEmits<{
   delete: [id: string]
@@ -52,13 +55,13 @@ function onImageSelected(event: Event) {
 
   if (!isSupportedImage(file)) {
     imageError.value =
-      'Format non pris en charge. Utilise PNG, JPG/JPEG, WEBP, SVG ou AVIF.'
+      t('ui.dialogs.custom_index_editor.unsupported_format')
     return
   }
 
   if (file.size > MAX_CUSTOM_INDEX_IMAGE_SIZE) {
     imageError.value =
-      'Image trop lourde. La taille maximale est de 2 Mo.'
+      t('ui.dialogs.custom_index_editor.too_large')
     return
   }
 
@@ -67,7 +70,7 @@ function onImageSelected(event: Event) {
   reader.onload = () => {
     if (typeof reader.result !== 'string') {
       imageError.value =
-        'Impossible de lire cette image.'
+        t('ui.dialogs.custom_index_editor.read_error')
       return
     }
 
@@ -77,7 +80,7 @@ function onImageSelected(event: Event) {
 
   reader.onerror = () => {
     imageError.value =
-      'Impossible de lire cette image.'
+      t('ui.dialogs.custom_index_editor.read_error')
   }
 
   reader.readAsDataURL(file)
@@ -143,7 +146,7 @@ function closeEditor() {
           </div>
 
           <span class="dialog-heading-description">
-            Crée et personnalise l’indice de ta ligne
+            {{ $t('ui.dialogs.custom_index_editor.summary') }}
           </span>
         </div>
       </div>
@@ -162,11 +165,11 @@ function closeEditor() {
 
             <div>
               <div class="section-title">
-                Identité
+                {{ $t('ui.dialogs.custom_index_editor.identity') }}
               </div>
 
               <div class="section-description">
-                Mode de transport et forme
+                {{ $t('ui.dialogs.custom_index_editor.identity_summary') }}
               </div>
             </div>
           </div>
@@ -205,11 +208,11 @@ function closeEditor() {
 
             <div>
               <div class="section-title">
-                Texte de l’indice
+                {{ $t('ui.dialogs.custom_index_editor.index_text') }}
               </div>
 
               <div class="section-description">
-                Préfixe, valeur principale et suffixe
+                {{ $t('ui.dialogs.custom_index_editor.index_text_summary') }}
               </div>
             </div>
           </div>
@@ -255,11 +258,11 @@ function closeEditor() {
 
             <div>
               <div class="section-title">
-                Couleur
+                {{ $t('ui.dialogs.custom_index_editor.color') }}
               </div>
 
               <div class="section-description">
-                Couleur principale de l’indice
+                {{ $t('ui.dialogs.custom_index_editor.color_summary') }}
               </div>
             </div>
           </div>
@@ -285,11 +288,11 @@ function closeEditor() {
 
             <div>
               <div class="section-title">
-                Image personnalisée
+                {{ $t('ui.dialogs.custom_index_editor.custom_image') }}
               </div>
 
               <div class="section-description">
-                Remplace la forme, le texte et la couleur de l’indice
+                {{ $t('ui.dialogs.custom_index_editor.custom_image_summary') }}
               </div>
             </div>
           </div>
@@ -309,21 +312,21 @@ function closeEditor() {
             >
               <div class="image-upload-copy">
                 <div class="image-upload-title">
-                  {{ hasCustomImage ? 'Image active' : 'Aucune image importée' }}
+                  {{ hasCustomImage ? $t('ui.dialogs.custom_index_editor.image_active') : $t('ui.dialogs.custom_index_editor.no_image') }}
                 </div>
 
                 <div class="image-upload-description">
                   {{
                     hasCustomImage
-                      ? 'L’image remplace actuellement l’indice classique.'
-                      : 'Tu peux garder l’indice classique ou le remplacer par ton propre visuel.'
+                      ? $t('ui.dialogs.custom_index_editor.image_active_summary')
+                      : $t('ui.dialogs.custom_index_editor.image_empty_summary')
                   }}
                 </div>
               </div>
 
               <div class="image-upload-actions">
                 <Button
-                  :label="hasCustomImage ? 'Remplacer' : 'Importer une image'"
+                  :label="hasCustomImage ? $t('ui.dialogs.custom_index_editor.replace') : $t('ui.dialogs.custom_index_editor.import_image')"
                   icon="i-tabler-upload"
                   severity="secondary"
                   outlined
@@ -332,7 +335,7 @@ function closeEditor() {
 
                 <Button
                   v-if="hasCustomImage"
-                  label="Retirer"
+                  :label="$t('ui.dialogs.custom_index_editor.remove')"
                   icon="i-tabler-trash"
                   severity="danger"
                   text
@@ -348,13 +351,13 @@ function closeEditor() {
               <div class="image-file-preview-box">
                 <img
                   :src="index.image ?? ''"
-                  alt="Aperçu de l’indice personnalisé"
+                  :alt="$t('ui.dialogs.custom_index_editor.image_preview_alt')"
                 >
               </div>
 
               <div class="image-file-preview-text">
-                <strong>Visuel personnalisé enregistré</strong>
-                <span>Il sera utilisé partout où cet indice personnalisé est affiché.</span>
+                <strong>{{ $t('ui.dialogs.custom_index_editor.saved_visual') }}</strong>
+                <span>{{ $t('ui.dialogs.custom_index_editor.saved_visual_detail') }}</span>
               </div>
             </div>
 
@@ -367,8 +370,7 @@ function closeEditor() {
             </div>
 
             <div class="image-help">
-              PNG, JPG/JPEG, WEBP, SVG ou AVIF · 2 Mo maximum.
-              L’image est enregistrée directement avec l’indice.
+              {{ $t('ui.dialogs.custom_index_editor.image_help') }}
             </div>
           </div>
         </section>
@@ -386,11 +388,11 @@ function closeEditor() {
 
             <div>
               <div class="preview-title">
-                Prévisualisation
+                {{ $t('ui.dialogs.custom_index_editor.preview') }}
               </div>
 
               <div class="preview-description">
-                Mise à jour en direct
+                {{ $t('ui.dialogs.custom_index_editor.live_update') }}
               </div>
             </div>
           </div>
@@ -422,7 +424,7 @@ function closeEditor() {
           <div class="preview-details">
             <div class="detail-row">
               <span class="detail-label">
-                Mode
+                {{ $t('ui.dialogs.custom_index_editor.mode') }}
               </span>
 
               <span class="detail-value">
@@ -432,11 +434,11 @@ function closeEditor() {
 
             <div class="detail-row">
               <span class="detail-label">
-                Indice
+                {{ $t('ui.dialogs.custom_index_editor.preview_index') }}
               </span>
 
               <strong class="detail-value">
-                {{ hasCustomImage ? 'Image personnalisée' : (index.index || '—') }}
+                {{ hasCustomImage ? $t('ui.dialogs.custom_index_editor.custom_image_value') : (index.index || '—') }}
               </strong>
             </div>
           </div>
@@ -455,7 +457,7 @@ function closeEditor() {
         />
 
         <Button
-          label="Fermer"
+          :label="$t('ui.dialogs.custom_index_editor.close')"
           icon="i-tabler-check"
           @click="closeEditor"
         />

@@ -115,11 +115,11 @@ function deleteConnection(
 
             <div>
               <div class="section-title">
-                Correspondances
+                {{ $t('ui.dialogs.stop_properties.connections') }}
               </div>
 
               <div class="section-description">
-                Lignes et services disponibles à cet arrêt
+                {{ $t('ui.connections.available_at_stop') }}
               </div>
             </div>
           </div>
@@ -165,11 +165,11 @@ function deleteConnection(
         </div>
 
         <div class="empty-state-title">
-          Aucune correspondance
+          {{ $t('ui.connections.none') }}
         </div>
 
         <div class="empty-state-description">
-          Ajoute un mode de transport ou un service à cet arrêt.
+          {{ $t('ui.connections.empty_hint') }}
         </div>
       </section>
 
@@ -180,7 +180,7 @@ function deleteConnection(
       -->
       <div class="quick-add">
         <span class="quick-add-label">
-          Ajouter
+          {{ $t('ui.common.add') }}
         </span>
 
         <button

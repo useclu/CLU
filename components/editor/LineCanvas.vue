@@ -2078,7 +2078,7 @@ function deleteAnnotation(
                 >
                   {{
                     stop.$stop.name
-                    || 'Arrêt sans nom'
+                    || $t('ui.map_editor.toolbox.untitled_stop')
                   }}
                 </div>
 
@@ -2118,7 +2118,7 @@ function deleteAnnotation(
             <button
               type="button"
               class="sncf-signage-stop-delete export-hide"
-              title="Supprimer l’arrêt"
+              :title="$t('ui.map_editor.delete_stop')"
               @click.stop="deleteSncfStop(stop)"
             >
               <i class="i-tabler-trash" />

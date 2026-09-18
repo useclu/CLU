@@ -38,18 +38,17 @@ const deviceName = computed(() => {
   >
     <div class="flex flex-col gap-4">
       <p>
-        Les informations ci-dessous peuvent être utiles pour identifier un problème avec CLU.
-        En cas de bug, vous pouvez
+        {{ $t('ui.dialogs.troubleshooting.intro_before') }}
         <Button
           link
           as="a"
           :href="GITHUB_LINK"
           target="_blank"
           rel="noopener noreferrer"
-          label="ouvrir un ticket sur GitHub"
+          :label="$t('ui.dialogs.troubleshooting.issue_link')"
           pt:root:class="important-p-0"
         />
-        en précisant les informations ci-dessous.
+        {{ $t('ui.dialogs.troubleshooting.intro_after') }}
       </p>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
@@ -65,7 +64,7 @@ const deviceName = computed(() => {
                 />
                 <InputIcon v-if="unsupportedBrowser" class="i-tabler-alert-circle bg-red-500" />
               </IconField>
-              <label>Browser</label>
+              <label>{{ $t('ui.dialogs.troubleshooting.browser') }}</label>
             </IftaLabel>
 
             <IftaLabel>
@@ -75,7 +74,7 @@ const deviceName = computed(() => {
                 variant="filled"
                 readonly
               />
-              <label>Engine</label>
+              <label>{{ $t('ui.dialogs.troubleshooting.engine') }}</label>
             </IftaLabel>
 
             <IftaLabel>
@@ -83,7 +82,7 @@ const deviceName = computed(() => {
                 <InputText class="w-full" :model-value="deviceName" variant="filled" readonly />
                 <InputIcon v-if="isMobile" class="i-tabler-alert-triangle bg-orange-500" />
               </IconField>
-              <label>Device</label>
+              <label>{{ $t('ui.dialogs.troubleshooting.device') }}</label>
             </IftaLabel>
 
             <IftaLabel>
@@ -93,12 +92,12 @@ const deviceName = computed(() => {
                 variant="filled"
                 readonly
               />
-              <label>Operating System</label>
+              <label>{{ $t('ui.dialogs.troubleshooting.operating_system') }}</label>
             </IftaLabel>
 
             <IftaLabel class="grid-col-span-2">
               <InputText class="w-full" :model-value="getUA()" variant="filled" readonly />
-              <label>User Agent</label>
+              <label>{{ $t('ui.dialogs.troubleshooting.user_agent') }}</label>
             </IftaLabel>
           </div>
         </Fieldset>
@@ -116,7 +115,7 @@ const deviceName = computed(() => {
                 <InputIcon v-if="project.outdated" class="i-tabler-alert-circle bg-red-500" />
                 <InputIcon v-else class="i-tabler-circle-check bg-green-500" />
               </IconField>
-              <label>Project Version</label>
+              <label>{{ $t('ui.dialogs.troubleshooting.project_version') }}</label>
             </IftaLabel>
 
             <IftaLabel>
@@ -126,7 +125,7 @@ const deviceName = computed(() => {
                 variant="filled"
                 readonly
               />
-              <label>Minimum Project Version</label>
+              <label>{{ $t('ui.dialogs.troubleshooting.minimum_project_version') }}</label>
             </IftaLabel>
 
             <IftaLabel>
@@ -136,7 +135,7 @@ const deviceName = computed(() => {
                 variant="filled"
                 readonly
               />
-              <label>CLU Version</label>
+              <label>{{ $t('ui.dialogs.troubleshooting.clu_version') }}</label>
             </IftaLabel>
           </div>
         </Fieldset>

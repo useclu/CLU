@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { v4 as uuidv4 } from 'uuid'
 import { computed, ref } from 'vue'
+
+const { t } = useI18n()
 
 const connection = defineModel<ModeConnection>('connection', {
   required: true,
@@ -77,32 +80,13 @@ const durationMinutes = computed<number | null>({
   },
 })
 
-const transferModes: {
-  label: string
-  value: TransferMode
-}[] = [
-  {
-    label: 'À pied',
-    value: 'WALK',
-  },
-  {
-    label: 'Vélo',
-    value: 'BIKE',
-  },
-  {
-    label: 'Voiture',
-    value: 'CAR',
-  },
-  {
-    label: 'Bus',
-    value: 'BUS',
-  },
-  {
-    label: 'Autre',
-    value: 'OTHER',
-  },
-]
-
+const transferModes = computed(() => [
+  { label: t('ui.connections.walk'), value: 'WALK' as TransferMode },
+  { label: t('ui.connections.bike'), value: 'BIKE' as TransferMode },
+  { label: t('ui.connections.car'), value: 'CAR' as TransferMode },
+  { label: t('ui.connections.bus'), value: 'BUS' as TransferMode },
+  { label: t('ui.connections.other'), value: 'OTHER' as TransferMode },
+])
 const localPictogram = computed(
   () =>
     connection.value
@@ -229,14 +213,14 @@ function removeLocalPictogram() {
         <div class="pictogram-heading">
           <div>
             <div class="pictogram-title">
-              Pictogramme
+              {{ $t('ui.connections.pictogram') }}
             </div>
 
             <div class="pictogram-description">
               {{
                 hasLocalPictogram
-                  ? 'Image personnalisée pour cette correspondance'
-                  : 'Pictogramme par défaut du mode de transport'
+                  ? $t('ui.connections.custom_pictogram')
+                  : $t('ui.connections.default_pictogram')
               }}
             </div>
           </div>
@@ -249,8 +233,8 @@ function removeLocalPictogram() {
             <span>
               {{
                 hasLocalPictogram
-                  ? 'Changer'
-                  : 'Importer'
+                  ? $t('ui.common.change')
+                  : $t('ui.common.import')
               }}
             </span>
 
@@ -266,7 +250,7 @@ function removeLocalPictogram() {
 
           <Button
             v-if="hasLocalPictogram"
-            label="Rétablir"
+            :label="$t('ui.common.restore')"
             icon="i-tabler-restore"
             severity="secondary"
             text
@@ -315,7 +299,7 @@ function removeLocalPictogram() {
           </div>
 
           <div class="lines-description">
-            Lignes affichées pour cette correspondance
+            {{ $t('ui.connections.displayed_lines') }}
           </div>
         </div>
 
@@ -389,11 +373,11 @@ function removeLocalPictogram() {
 
           <div>
             <div class="transfer-toggle-title">
-              Déplacement
+              {{ $t('ui.connections.movement') }}
             </div>
 
             <div class="transfer-toggle-description">
-              Moyen de déplacement et durée de correspondance
+              {{ $t('ui.connections.movement_summary') }}
             </div>
           </div>
         </div>
@@ -429,11 +413,11 @@ function removeLocalPictogram() {
         >
           <div>
             <div class="transfer-enable-title">
-              Activer un déplacement
+              {{ $t('ui.connections.movement_enable') }}
             </div>
 
             <div class="transfer-enable-description">
-              Indique qu’un trajet est nécessaire pour effectuer cette correspondance.
+              {{ $t('ui.connections.movement_enable_summary') }}
             </div>
           </div>
 
@@ -454,7 +438,7 @@ function removeLocalPictogram() {
           <i class="i-tabler-info-circle" />
 
           <span>
-            Un déplacement est déjà défini directement sur une ligne.
+            {{ $t('ui.connections.movement_existing') }}
           </span>
         </div>
 
@@ -469,7 +453,7 @@ function removeLocalPictogram() {
               "
               class="field-label"
             >
-              Moyen de déplacement
+              {{ $t('ui.connections.transfer_mode') }}
             </label>
 
             <Select
@@ -491,7 +475,7 @@ function removeLocalPictogram() {
               "
               class="field-label"
             >
-              Durée
+              {{ $t('ui.connections.duration') }}
             </label>
 
             <BInputNumber

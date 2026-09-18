@@ -301,7 +301,7 @@ function updateLineColor(
                 severity="danger"
                 text
                 rounded
-                aria-label="Supprimer la ligne"
+                :aria-label="$t('ui.dialogs.branch_properties.delete_line')"
                 @click="deleteLine(line.id)"
               />
             </div>
@@ -346,7 +346,7 @@ function updateLineColor(
 
           <Button
             class="add-line-button"
-            label="Ajouter une ligne"
+            :label="$t('ui.dialogs.branch_properties.add_line')"
             icon="i-tabler-plus"
             severity="secondary"
             outlined
@@ -484,14 +484,14 @@ function updateLineColor(
         <div class="footer-actions">
           <Button
             class="warpadd-footer-button"
-            label="Ouvrir WarpAdd"
+            :label="$t('ui.dialogs.branch_properties.open_warp_add')"
             icon="i-tabler-bolt"
             severity="secondary"
             @click="showWarpAddDialog = true"
           />
 
           <Button
-            label="Fermer"
+            :label="$t('ui.common.close')"
             severity="secondary"
             icon="i-tabler-x"
             @click="visible = false"

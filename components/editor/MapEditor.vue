@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useEventBus } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { v4 as uuidv4 } from 'uuid'
@@ -14,6 +15,7 @@ const exportMap = useExportMap()
 const exportSignal = useEventBus(ExportSignal)
 const { projectMinimumVersion } = useVersion()
 const checkVersion = useProjectVersionCheck()
+const { t } = useI18n()
 
 const el = ref()
 const error = ref(false)
@@ -94,7 +96,7 @@ function addAnnotation() {
   line.value.annotations.push({
     id: uuidv4(),
     $annotation: {
-      text: 'Annotation',
+      text: t('ui.map_editor.annotation'),
       bold: false,
       italic: false,
       underline: false,
@@ -182,7 +184,7 @@ onBeforeUnmount(() => exportSignal.off(doExport))
             <i class="i-tabler-text-caption" />
 
             <span>
-              Annotation
+              {{ $t('ui.map_editor.annotation') }}
             </span>
           </div>
         </button>

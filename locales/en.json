@@ -13,7 +13,7 @@
       "custom_indices": "Custom indices",
       "line_name": "Line {index}",
       "official_indices": "Official indices",
-      "placeholder": "Select a line index",
+      "placeholder": "Select an index",
       "unknown_index": "Unknown"
     },
     "line_style_select": {
@@ -46,11 +46,11 @@
       "custom": "Custom"
     },
     "dots_color": {
-      "inherit": "Inherit",
+      "inherit": "Inherited",
       "white": "White"
     },
     "line_style": {
-      "plain": "Plain",
+      "plain": "Solid",
       "striped": "Striped"
     },
     "line_thickness": {
@@ -60,7 +60,7 @@
       "thick": "Thick"
     },
     "map_size": {
-      "big": "Big",
+      "big": "Very large",
       "custom": "Custom",
       "huge": "Huge",
       "large": "Large",
@@ -69,26 +69,26 @@
     "mode": {
       "bike": "Bike",
       "boat": "River shuttle",
-      "brt": "Bus Rapid Transit",
+      "brt": "BRT",
       "bus": "Bus",
       "cable": "Cable car",
       "metro": "Metro",
-      "noctilien": "Noctilien",
+      "noctilien": "Night bus",
       "rer": "RER",
-      "tram": "Tramway",
-      "transilien": "Transilien"
+      "tram": "Tram",
+      "transilien": "Suburban rail"
     },
     "services": {
       "airport": "Airport",
-      "bullet_train": "Bullet train",
+      "bullet_train": "High-speed train",
       "cdg_express": "CDG Express",
       "cdgval": "CDGVAL",
       "funicular": "Funicular",
-      "long_distance_bus": "Long-distance bus",
+      "long_distance_bus": "Coach",
       "main_station": "Main station",
       "orlyval": "OrlyVal",
       "suburban_train": "Suburban train",
-      "ter": "TER",
+      "ter": "Regional train",
       "tgv": "TGV"
     },
     "shapes": {
@@ -112,27 +112,32 @@
         "fixed": "Fixed",
         "removed": "Removed"
       },
-      "title": "Changelog"
+      "title": "Changelog",
+      "current_version": "Current version"
     },
     "dialogs": {
       "branch_properties": {
         "element_spacing": "Element spacing",
         "header": "Branch properties",
         "margin_left": "Left margin",
-        "margin_right": "Right margin"
+        "margin_right": "Right margin",
+        "summary": "Configure the branch lines, spacing and order.",
+        "delete_line": "Delete line",
+        "add_line": "Add a line",
+        "open_warp_add": "Open WarpAdd"
       },
       "browser_check": {
-        "dismiss": "I understand",
-        "header": "Browser not supported",
-        "summary_1": "It seems you are using <b>{browserName}</b> as a browser. This browser is not officially supported by BULB. If you continue, some unexpected behaviors may occur, and you may encounter graphical issues.",
-        "summary_2": "For an optimal experience, it is recommended to use a Chromium-based browser such as Google Chrome, Microsoft Edge, Opera, Brave, etc.",
+        "dismiss": "Got it",
+        "header": "Unsupported browser",
+        "summary_1": "It looks like you are using <b>{browserName}</b>. This browser is not officially supported by CLU. If you continue, unexpected behavior or graphical issues may occur.",
+        "summary_2": "For the best experience, use a Chromium-based browser such as Google Chrome, Microsoft Edge, Opera or Brave.",
         "supported_browsers": "Supported browsers",
         "unsupported_browsers": "Unsupported browsers"
       },
       "connections_editor": {
         "group": {
           "delete": "Delete",
-          "header": "Connections group #{index}",
+          "header": "Connection group #{index}",
           "mode": {
             "lines": {
               "add": "Add a line",
@@ -140,8 +145,8 @@
             },
             "mode": "Mode"
           },
-          "ornament": "Ornament",
-          "pedestrian_connection": "Pedestrian connection",
+          "ornament": "Decoration",
+          "pedestrian_connection": "Walking connection",
           "service": {
             "services": {
               "add": "Add a service",
@@ -149,10 +154,11 @@
             }
           }
         },
-        "header": "Connections of “{stopName}”",
+        "header": "Connections for “{stopName}”",
         "mode": "Transport mode",
         "or": "Or",
-        "service": "Transportation service"
+        "service": "Transport service",
+        "summary": "Configure lines, services and connection modes"
       },
       "custom_index_editor": {
         "color": "Color",
@@ -164,10 +170,49 @@
         "preview": "Preview",
         "shape": "Shape",
         "suffix": "Suffix",
-        "value": "Value"
+        "value": "Value",
+        "summary": "Create and customize your line index",
+        "replace": "Replace",
+        "import_image": "Import an image",
+        "remove": "Remove",
+        "saved_visual": "Custom visual saved",
+        "saved_visual_detail": "It will be used wherever this custom index is displayed.",
+        "close": "Close",
+        "unsupported_format": "Unsupported format. Use PNG, JPG/JPEG, WEBP, SVG or AVIF.",
+        "too_large": "Image is too large. Maximum size is 2 MB.",
+        "read_error": "Unable to read this image.",
+        "identity": "Identity",
+        "identity_summary": "Transport mode and shape",
+        "index_text": "Index text",
+        "index_text_summary": "Prefix, main value and suffix",
+        "color_summary": "Main index color",
+        "custom_image": "Custom image",
+        "custom_image_summary": "Replaces the index shape, text and color",
+        "image_active": "Image active",
+        "no_image": "No image imported",
+        "image_active_summary": "The image currently replaces the standard index.",
+        "image_empty_summary": "Keep the standard index or replace it with your own visual.",
+        "image_preview_alt": "Custom index preview",
+        "image_help": "PNG, JPG/JPEG, WEBP, SVG or AVIF · 2 MB maximum. The image is stored directly with the index.",
+        "live_update": "Live update",
+        "preview_index": "Index",
+        "custom_image_value": "Custom image"
       },
       "custom_indices": {
-        "header": "Custom indices directory"
+        "header": "Custom index directory",
+        "summary": "Create your own fictional lines to use on the map",
+        "add_aria": "Add a {mode} index",
+        "edit_title": "Edit this index",
+        "close": "Close",
+        "info": "Indices created here can then be selected as line indices or used in connections.",
+        "none": "No index",
+        "count": "No index | {count} index | {count} indices",
+        "total_count": "No custom index | {count} custom index | {count} custom indices",
+        "one": "{count} index",
+        "many": "{count} indices",
+        "total_none": "No custom index",
+        "total_one": "{count} custom index",
+        "total_many": "{count} custom indices"
       },
       "custom_line_thickness": {
         "accept": "Done",
@@ -177,11 +222,24 @@
         "accept": "Done",
         "header": "Custom frame size"
       },
+      "custom_mode_pictograms": {
+        "header": "Mode pictograms",
+        "summary": "Customize the visual identity of transport modes",
+        "restore": "Restore",
+        "restore_all": "Restore all",
+        "close": "Close",
+        "info": "Replace pictograms with your own images. Changes are applied directly to the map.",
+        "custom_status": "Custom pictogram",
+        "default_status": "Default pictogram",
+        "change": "Change",
+        "edit": "Edit",
+        "default_footer": "Default pictograms"
+      },
       "end_of_year_celebrations": {
         "close": "Close",
         "disable_and_close": "Disable and close",
-        "header": "Merry Christmas",
-        "summary": "For the holidays, snow is coming to BULB. You can disable it at any time from the top bar."
+        "header": "Happy holidays",
+        "summary": "Snow has arrived on CLU for the holiday season. You can disable it at any time from the top bar."
       },
       "fork_properties": {
         "directional_arrows": {
@@ -202,12 +260,13 @@
           "title": "Shape",
           "upward": "Upward"
         },
-        "size_multiplier": "Size multiplier"
+        "size_multiplier": "Size multiplier",
+        "summary": "Configure the fork shape and behavior."
       },
       "loading_custom_indices_prompt": {
         "accept": "Yes",
-        "header": "Project loading",
-        "message": "Do you want to load the custom indices bundled in this project? The indices you already have will not be lost.",
+        "header": "Load project",
+        "message": "Do you want to load the custom indices contained in this project? Your existing indices will not be lost.",
         "reject": "No"
       },
       "loop_properties": {
@@ -216,26 +275,29 @@
           "left": "Left",
           "right": "Right",
           "title": "Orientation"
-        }
+        },
+        "summary": "Configure the loop orientation and levels."
       },
       "new_project": {
         "accept": "New project",
-        "header": "Hold on!",
-        "message": "Did you remember to save your current project? If you continue, you will lose all unsaved changes.",
-        "reject": "Cancel"
+        "header": "Not so fast!",
+        "message": "Did you remember to save your current project? If you continue, all unsaved changes will be lost.",
+        "reject": "Cancel",
+        "label": "New project",
+        "warning": "Unsaved changes in the current project will be lost."
       },
       "new_update_available": {
         "header": "New update available",
         "later": "Later",
-        "message": "Version {version} of BULB is now available. Do you want to reload the page to update? No data will be lost.",
+        "message": "CLU version {version} is now available. Reload the page to update? No data will be lost.",
         "update": "Update"
       },
       "ornament_editor": {
         "airport": "Airport",
-        "display_ornament": "Display an ornament",
-        "header": "Ornament editor",
+        "display_ornament": "Display a decoration",
+        "header": "Decoration editor",
         "name": "Name",
-        "no_ornament_available": "No ornament available",
+        "no_ornament_available": "No decoration available",
         "ornament": {
           "airport": "Airport",
           "airport_name": "Airport name",
@@ -251,40 +313,43 @@
       "outdated_project": {
         "accept": "New project",
         "header": "Outdated project",
-        "message": "This project is outdated and no longer supported. If you continue despite that, you might experience issues. It is recommended to create a new project or open a supported project.",
-        "reject": "Continue on this project"
+        "message": "This project is outdated and no longer supported. Continuing may cause issues. Creating a new project or opening a supported project is recommended.",
+        "reject": "Continue with this project"
       },
       "parallel_branches_properties": {
         "alignment": {
           "fluid": "Fluid",
-          "left": "Left",
-          "right": "Right",
+          "left": "Left aligned",
+          "right": "Right aligned",
           "title": "Alignment"
         },
-        "header": "Parallel branches properties",
+        "header": "Parallel branch properties",
         "section_1_level": "Section 1 level",
-        "section_2_level": "Section 2 level"
+        "section_2_level": "Section 2 level",
+        "summary": "Configure the layout of parallel branches."
       },
       "pdf_export_notice": {
-        "header": "Exporting as PDF",
-        "message_1": "In order to generate the map in PDF format, a new page will open. Once the map is visible, a print dialog will appear. You can then choose to print the map or save it as a PDF.",
-        "message_2": "If you do not see the print dialog, check that pop-ups are allowed for this site. Alternatively, you can press {printShortcut}.",
-        "unexpected_behaviors_notice": "Exporting with this method may lead to unexpected behaviors, such as missing or misaligned elements. If you encounter issues, try exporting in PNG format.",
-        "dont_show_again": "Do not show again",
+        "header": "PDF export",
+        "message_1": "To generate the map as a PDF, a new page will open. Once the map is visible, a print dialog will appear. You can then print the map or save it as a PDF.",
+        "message_2": "If the print dialog does not appear, make sure pop-ups are allowed for this site. Alternatively, press {printShortcut}.",
+        "unexpected_behaviors_notice": "This export method may cause unexpected behavior such as missing or misplaced elements. If you encounter problems, try exporting as PNG.",
+        "dont_show_again": "Do not show this again",
         "cancel": "Cancel",
         "proceed": "Continue"
       },
       "save_project": {
         "cancel": "Cancel",
-        "custom_indices_notice": "Custom indices will be bundled in the file",
+        "custom_indices_notice": "Custom indices will be included in the file",
         "header": "Save project",
         "project_name": "Project name",
-        "save": "Save"
+        "save": "Save",
+        "summary": "Save your CLU project to a JSON file.",
+        "filename_hint": "Choose the name of the file that will be saved."
       },
       "spacer_properties": {
         "header": "Spacer properties",
         "size": "Spacer length",
-        "spacer_export_notice": "Notice: The spacer will become invisible at render time."
+        "spacer_export_notice": "Note: the spacer becomes invisible in the rendered output."
       },
       "stop_properties": {
         "accessible": {
@@ -296,15 +361,15 @@
         "city_name": "City",
         "closed": "Closed",
         "header": "Stop properties",
-        "interest_point": "Interest point",
-        "inverted_elements": "Inverted elements",
-        "preventOverlapping": "Prevent name and subtitle from coliding",
+        "interest_point": "Point of interest",
+        "inverted_elements": "Reversed elements",
+        "preventOverlapping": "Prevent the name and subtitle from overlapping",
         "reverse": "Reversed",
         "stop_name": "Name",
         "stop_state": {
           "close": "Closed",
           "open": "Open",
-          "title": "Stop state"
+          "title": "Stop status"
         },
         "stop_type": {
           "regular": "Regular",
@@ -312,85 +377,260 @@
           "title": "Stop type"
         },
         "subtitle": "Subtitle",
-        "terminus": "Terminus"
+        "terminus": "Terminus",
+        "suggestions_aria": "CLU stop suggestions",
+        "save": "Save",
+        "delete": "Delete",
+        "reset": "Reset",
+        "bold": "Bold",
+        "italic": "Italic",
+        "underline": "Underline",
+        "custom_color": "Custom color",
+        "default_color": "Default color",
+        "add": "Add",
+        "change": "Change",
+        "remove": "Remove",
+        "direction_placeholder": "Towards Paris Saint-Lazare",
+        "information": "Information",
+        "information_summary": "Name and information displayed on the map",
+        "shortcut_navigation": "↑ ↓ navigate",
+        "shortcut_apply": "Enter apply",
+        "shortcut_close": "Esc close",
+        "catalog_hint": "Saves the name and connections to your personal catalog.",
+        "terminus_hint": "Available when the stop is a compatible terminus.",
+        "name_appearance": "Name appearance",
+        "name_appearance_summary": "Typography, color and stop logo",
+        "text_style": "Text style",
+        "name_color": "Name color",
+        "custom_name_color": "Custom color",
+        "name_images": "Name logos / images",
+        "name_images_summary": "Add as many images as needed directly after the stop name.",
+        "stored_in_project": "Stored in the project",
+        "size": "Size",
+        "add_image": "Add an image",
+        "image_formats": "PNG, JPG, WEBP or SVG — multiple images supported",
+        "configuration": "Stop configuration",
+        "configuration_summary": "Type, status and map behavior",
+        "arrow_terminus": "End the line with an arrow",
+        "arrow_terminus_summary": "Adds a direction indication after the terminus.",
+        "direction_text": "Direction text",
+        "direction_example": "Example: Towards Paris Saint-Lazare",
+        "future_stop": "Future / planned stop",
+        "future_stop_summary": "Displays the stop as a future extension.",
+        "change_line_after": "Change line after this stop",
+        "change_line_after_summary": "Continue the same route with a different line identity.",
+        "new_line_after": "New line after the stop",
+        "transport_mode": "Transport mode",
+        "index": "Index",
+        "new_line_detail": "This line may differ from the lines already on the branch. Its color and pictogram are determined automatically by the selected mode and index, including custom indices.",
+        "out_of_fare_zone": "Outside fare zone",
+        "out_of_fare_zone_summary": "Includes the stop in an out-of-fare-zone area.",
+        "faded_stop": "Off-map / faded stop",
+        "faded_stop_summary": "Visually fades this part of the route.",
+        "served_lines": "Lines serving the stop",
+        "served_lines_summary": "Choose the line or lines on which this stop appears",
+        "main_line": "Main line",
+        "shared_stop_summary": "Shared stop: one marker can cross the selected lines.",
+        "connections": "Connections",
+        "connections_summary": "Lines, transport modes and connection times",
+        "image_preview_alt": "Logo preview {index}"
       },
       "troubleshooting": {
-        "github": "open a GitHub issue",
         "header": "Troubleshooting",
-        "notice": "The information below will be useful to help you in case of BULB malfunction. In case of a bug, you can {github} or {twitter}, specifying the information below.",
         "project": "Project",
         "technical_details": "Technical details",
-        "twitter": "contact me on Twitter (X)"
+        "issue_link": "open an issue on GitHub",
+        "intro_before": "The information below can help identify a problem with CLU. If you encounter a bug, you can",
+        "intro_after": "and include the information below.",
+        "browser": "Browser",
+        "engine": "Engine",
+        "device": "Device",
+        "operating_system": "Operating System",
+        "user_agent": "User Agent",
+        "project_version": "Project Version",
+        "minimum_project_version": "Minimum Project Version",
+        "clu_version": "CLU Version"
       },
       "use_full_preset": {
-        "accept": "Load the preset",
+        "accept": "Load preset",
         "header": "Load a full preset",
-        "message": "This preset contains the complete original map. Did you remember to save your current project? If you continue, you will lose all unsaved changes.",
+        "message": "This preset contains the complete original map. Did you remember to save your current project? If you continue, all unsaved changes will be lost.",
         "reject": "Cancel"
       },
       "use_preset": {
-        "full_presets_notice": "Full presets are marked with a dot and include the existing line map with the complete structure, all stops, and all connections.",
-        "header": "Use a preset"
+        "full_presets_notice": "Presets marked with a badge include the existing line map with the complete structure, all stops and all connections.",
+        "header": "Use a preset",
+        "summary": "Choose a line to configure your map quickly.",
+        "full_available": "Full preset available",
+        "close": "Close",
+        "metro_description": "Select a metro line.",
+        "rer_description": "Select an RER line.",
+        "train_description": "Select a suburban rail line.",
+        "tram_description": "Select a tram line.",
+        "footer_hint": "Lines with a badge have a full preset."
+      },
+      "vertical_segment_properties": {
+        "header": "Vertical segment",
+        "summary": "Configure the direction and side of the segment."
       },
       "warp_add": {
         "add_all_stops": "Add stops",
         "city_name": "City",
         "direction": {
-          "left": "Leftward",
-          "right": "Rightward",
-          "title": "Insert direction"
+          "left": "Right to left",
+          "right": "Left to right",
+          "title": "Insertion direction"
         },
-        "header": "WarpAdd Assistant",
+        "header": "WarpAdd assistant",
         "linebreak": "Press {shortcut} to insert a line break",
-        "notice": "The WarpAdd Assistant allows you to quickly add stops to a branch. Simply type in the stop details, then press {nextShortcut} to move to the next stop. Once all stops are entered, you can press {submitShortcut} to finish.",
+        "notice": "The WarpAdd assistant lets you quickly add stops to a branch. Fill in a stop, then press {nextShortcut} to move to the next one. When all stops have been entered, press {submitShortcut} to finish.",
         "positioning": {
-          "left": "Start",
-          "right": "End",
-          "title": "Positioning"
+          "left": "At the beginning",
+          "right": "At the end",
+          "title": "Position"
         },
         "reset": "Reset",
         "stop_name": "Stop name",
-        "stops_list": "Stops list",
-        "stops_list_empty": "No stop",
-        "subtitle": "Subtitle"
+        "stops_list": "Stop list",
+        "stops_list_empty": "No stops",
+        "subtitle": "Subtitle",
+        "summary": "Prepare a series of stops, then add them to the branch in one go.",
+        "add_to_list": "Add to list",
+        "reorder": "Reorder",
+        "count_none": "No stops",
+        "count_one": "1 stop",
+        "count_many": "{count} stops",
+        "add_all_default": "Add stops",
+        "add_all_one": "Add 1 stop",
+        "add_all_many": "Add {count} stops",
+        "shortcut_add_stop": "adds the stop",
+        "shortcut_newline": "creates a new line in the name",
+        "shortcut_add_all": "adds the whole list",
+        "new_stop": "New stop",
+        "new_stop_hint": "Enter the information, then press Enter.",
+        "multiline_hint": "Shift + Enter to write the name on multiple lines.",
+        "insertion": "Insertion",
+        "insertion_hint": "Choose the order and the end of the branch.",
+        "stops_to_add": "Stops to add",
+        "drag_hint": "Drag the cards to change their order.",
+        "empty_title": "No stops prepared",
+        "empty_hint": "Add a first stop using the form on the left."
+      },
+      "annotation_properties": {
+        "header": "Annotation properties",
+        "summary": "Customize the text displayed directly on the map."
+      },
+      "area_separator_properties": {
+        "header": "City / zone separator properties",
+        "summary": "Configure how the city, zone and separator are displayed.",
+        "city_placeholder": "e.g. Esbly",
+        "zone_placeholder": "e.g. Zone 5"
+      },
+      "out_of_fare_zone_label_properties": {
+        "header": "Outside fare zone label",
+        "reset_text": "Reset text",
+        "reset_position": "Reset position"
       }
+    },
+    "general_settings": {
+      "identity": "Line identity",
+      "identity_summary": "Mode or service, index and map color",
+      "mode_managed_before": "The technical mode is currently managed by",
+      "mode_managed_after": "Select a mode to remove the service.",
+      "color_code": "Map color code",
+      "or": "or",
+      "transport_service": "Transport service",
+      "service_none": "None",
+      "service_custom": "Custom",
+      "service_default_mode": "Uses the transport mode only.",
+      "service_train_render": "Classic map · Train engine.",
+      "service_bus_render": "Bus-style rendering.",
+      "service_tram_render": "Tram-style rendering.",
+      "service_metro_render": "Classic map · Metro engine.",
+      "service_custom_description": "Create your own service from scratch.",
+      "custom_service_title": "Custom service",
+      "custom_service_name": "Service name",
+      "custom_service_default": "My service",
+      "custom_service_placeholder": "My service",
+      "custom_service_pictogram": "Pictogram",
+      "remove_pictogram": "Remove pictogram",
+      "change_pictogram": "Change pictogram",
+      "add_pictogram": "Add pictogram",
+      "custom_service_image_hint": "SVG, PNG, JPG or WebP. The image is stored directly in the project.",
+      "render_type": "Rendering type",
+      "render_classic": "Classic map",
+      "render_bus": "Bus map",
+      "render_tram": "Tram map",
+      "render_type_hint": "Only defines the graphical structure used by CLU. The displayed pictogram remains your service pictogram.",
+      "style_title": "Map style",
+      "style_summary": "General line appearance",
+      "signage": "Signage",
+      "signage_idfm": "Horizontal line diagram · current CLU rendering",
+      "signage_sncf": "SNCF passenger signage · vertical service pattern",
+      "format": "Format",
+      "format_ratp": "Blue bold names",
+      "format_sncf": "Black names · termini in bold",
+      "tram_style": "Tram style",
+      "tram_angled": "Angled",
+      "tram_horizontal": "Horizontal",
+      "tram_angled_hint": "Angled names · thin line · small stops",
+      "tram_horizontal_hint": "Horizontal names · thick line · large rings",
+      "options_title": "Options",
+      "options_summary": "Display and accessibility",
+      "out_of_fare_zone_background": "Show grey background outside the fare zone",
+      "stop_suggestions": "Stop suggestions",
+      "stop_suggestions_hint": "Suggests known stations while typing. Uncheck to disable.",
+      "dimensions_title": "Dimensions",
+      "dimensions_summary": "Overall map size"
     },
     "map_editor": {
       "error": {
-        "detail": "Please reload the page. If the problem persists, your project might be obselete or corrupted.",
+        "detail": "Please reload the page. If the problem persists, your project may be outdated or corrupted.",
         "new_project": "New project",
         "reload": "Reload page",
         "title": "An error occurred"
       },
       "title": "Map editor",
       "toolbox": {
+        "area_separator": "City / zone separator",
         "branch": "Branch",
         "delete": "Delete",
         "fork": "Fork",
-        "loop": "U-turn",
+        "loop": "Loop",
         "parallel_branches": "Parallel branches",
         "spacer": "Spacer",
         "stop": "Stop",
         "untitled_stop": "Untitled stop"
       },
-      "watermark": "Created with BULB"
+      "watermark": "Created with CLU",
+      "annotation": "Annotation",
+      "delete_stop": "Delete stop",
+      "free_move": "Move freely",
+      "visual_separator": "Visual separator |"
     },
     "menu": {
       "custom_indices": "Custom indices",
+      "custom_mode_pictograms": "Change transport mode pictograms",
       "export": "Export as PNG",
       "export_pdf": "Export as PDF",
       "new_project": "New project",
       "open": "Open",
       "save": "Save",
       "title": "Main menu",
-      "troubleshooting": "Troubleshooting"
+      "troubleshooting": "Troubleshooting",
+      "import_profile": "Import profile",
+      "export_profile": "Export profile",
+      "profile_import_error": "Unable to import this CLU profile. Your current data has been kept.",
+      "profile_import_success": "CLU profile imported successfully.\\n\\nCLU will now reload to apply all data.",
+      "profile_import_confirm_header": "Import CLU profile",
+      "profile_import_confirm_message": "CLU data currently stored in this browser will be replaced by the imported profile. The current project, indices, pictograms, personal stops and preferences will be replaced."
     },
-    "nag": "<b>DISCLAIMER</b>: This application is under development. Some features are not yet available or are incomplete.",
+    "nag": "<b>REMINDER</b>: This application is under development. Some features are not yet available or are incomplete.",
     "properties": {
       "color": "Map color",
-      "dots_color": "Dots color",
-      "frame_terminus_names": "Frame terminus names",
-      "fully_accessible": "Line fully wheelchair accessible",
+      "dots_color": "Dot color",
+      "frame_terminus_names": "Terminus names inside a frame",
+      "fully_accessible": "Fully wheelchair-accessible line",
       "index": "Line index",
       "line_style": "Line style",
       "line_thickness": "Line thickness",
@@ -401,11 +641,11 @@
     },
     "toasts": {
       "adjacent_branches": {
-        "detail": "Branches cannot be positionned side by side",
-        "title": "Forbidden positionning"
+        "detail": "Branches cannot be positioned side by side",
+        "title": "Placement not allowed"
       },
       "branch_merge": {
-        "detail": "Adjacent branches have been merged together",
+        "detail": "Adjacent branches were merged",
         "title": "Branches merged"
       },
       "export": {
@@ -414,7 +654,7 @@
           "title": "Export failed"
         },
         "success": {
-          "detail": "The project has been successfully exported",
+          "detail": "The project was exported successfully",
           "title": "Export successful"
         }
       },
@@ -424,16 +664,16 @@
             "corrupted": "The project file is invalid or corrupted",
             "unreadable": "The file could not be read"
           },
-          "title": "Loading failed"
+          "title": "Load failed"
         },
         "success": {
-          "detail": "The project has been successfully loaded",
-          "title": "Loading successful"
+          "detail": "The project was loaded successfully",
+          "title": "Load successful"
         }
       },
       "save": {
         "success": {
-          "detail": "The project has been successfully saved",
+          "detail": "The project was saved successfully",
           "title": "Save successful"
         }
       }
@@ -442,7 +682,134 @@
       "editor": "Map editor",
       "faq": "FAQ",
       "changelog": "Changelog",
-      "catch_phrase": "Not bad, is it? That’s French 🇫🇷"
+      "catch_phrase": "Not bad, right? Made in France 🇫🇷",
+      "brand": "Urban Line Creator",
+      "file": "File",
+      "tools": "Tools",
+      "undo": "Undo",
+      "redo": "Redo",
+      "file_subtitle": "Project and export",
+      "tools_subtitle": "General map settings",
+      "menu": "Menu",
+      "bulb_official": "BULB Official",
+      "bulb_open": "Open the official BULB website",
+      "discord_join": "Join the CLU Discord"
+    },
+    "common": {
+      "cancel": "Cancel",
+      "close": "Close",
+      "remove": "Remove",
+      "save": "Save",
+      "delete": "Delete",
+      "reset": "Reset",
+      "add": "Add",
+      "replace": "Replace",
+      "change": "Change",
+      "restore": "Restore",
+      "restore_all": "Restore all",
+      "import": "Import"
+    },
+    "pages": {
+      "faq": {
+        "available": "CLU is available!",
+        "open_editor": "Open the editor",
+        "title": "Frequently asked questions",
+        "github_repo": "GitHub repository",
+        "items": {
+          "purpose_q": "What is CLU for?",
+          "purpose_a": "CLU — Urban Line Creator — lets you design and customize public transport line maps directly in your browser.",
+          "modes_q": "Which transport modes are available?",
+          "modes_a": "CLU can represent several transport modes, including metro, RER, suburban rail, tram, bus, cable car, river shuttle and bike services.",
+          "multi_q": "Can I create several lines on the same map?",
+          "multi_a": "Yes. CLU can build maps with several lines and represent shared stops and connections.",
+          "branches_q": "Can I create branches and forks?",
+          "branches_a": "Yes. Lines can include branches, forks, parallel branches, loops and multiple levels to build complex diagrams.",
+          "custom_index_q": "Can I create a custom line index?",
+          "custom_index_a": "Yes. CLU lets you create custom indices and use them on lines and in connections.",
+          "pictograms_q": "Can I use my own pictograms?",
+          "pictograms_a": "Yes. Custom pictograms can be used to adapt transport modes and the visual identity of the map.",
+          "presets_q": "Are presets available?",
+          "presets_a": "Yes. CLU offers presets to quickly start from an existing line, including Paris-region metro, RER, Transilien and tram lines.",
+          "save_q": "Can I save my projects?",
+          "save_a": "Yes. CLU lets you save a project so you can load it and continue editing it later.",
+          "undo_q": "Can I undo a change?",
+          "undo_a": "Yes. CLU includes undo and redo so you can revert recent changes in the editor.",
+          "opensource_q": "Is the project open source?",
+          "opensource_a_before": "Yes. CLU source code is available on the",
+          "opensource_a_after": ".",
+          "contribute_q": "Can I contribute to the project?",
+          "contribute_a": "Yes. You can contribute, suggest improvements or report issues from the CLU GitHub repository.",
+          "free_q": "Is CLU free?",
+          "free_a": "Yes. CLU is a free and open-source project distributed under the MIT license.",
+          "bug_q": "I found a bug or typo. How do I report it?",
+          "bug_a_before": "You can open an issue on the",
+          "bug_a_after": "and describe the problem you encountered.",
+          "tech_q": "Which technologies does CLU use?",
+          "tech_a": "CLU is built with Nuxt, Vue, TypeScript and PrimeVue, among other technologies.",
+          "browser_q": "Which browser should I use?",
+          "browser_a": "For the best experience, use a recent Chromium-based browser such as Google Chrome, Microsoft Edge, Brave, Vivaldi or Opera.",
+          "render_q": "The final rendering looks wrong. What should I do?",
+          "render_a": "If an exported render has a problem, first try a recent Chromium browser. If the issue persists, report it on the CLU GitHub repository and include steps to reproduce it.",
+          "mobile_q": "Does the site work on mobile?",
+          "mobile_a": "CLU is mainly designed for desktop use. A sufficiently large screen is recommended for comfortable editing.",
+          "origin_q": "Where does CLU come from?",
+          "origin_a": "CLU is based on SlamaFR's open-source BULB project, itself derived from notKamui's Nightrunner. CLU continues that foundation with many changes and additional features."
+        }
+      },
+      "privacy": {
+        "title": "Privacy policy",
+        "updated": "Last updated: September 8, 2026",
+        "intro": "CLU (Urban Line Creator) is a tool for creating public transport line maps.",
+        "local_title": "Data stored by CLU",
+        "local_text": "CLU mainly runs directly in your browser. Some data required for the application to work, including preferences and locally saved projects, may be stored in your browser storage.",
+        "analytics_title": "Google Analytics",
+        "analytics_text_1": "CLU uses Google Analytics to measure site usage and better understand its audience. This service may collect information about site usage, such as pages viewed, interactions, device type and approximate geographic information.",
+        "analytics_text_2": "This information helps us analyze CLU traffic and improve the service.",
+        "adsense_title": "Google AdSense",
+        "adsense_text_1": "CLU uses or may use Google AdSense to display advertisements.",
+        "adsense_text_2": "Google and its partners may use cookies or similar technologies to display, measure and personalize ads, depending on the user's consent choices and applicable regulations.",
+        "consent_title": "Cookies and consent",
+        "consent_text_1": "For affected users, particularly in the European Economic Area, the United Kingdom and Switzerland, CLU uses Google's consent management platform (CMP).",
+        "consent_text_2": "This platform lets users accept, refuse or manage choices related to data use and advertising technologies.",
+        "google_title": "Google services",
+        "google_text": "To learn more about how Google uses information from sites or apps that use its services, see the privacy information provided by Google.",
+        "google_link": "How Google uses information from sites that use its services",
+        "manage_title": "Managing local data",
+        "manage_text": "Data stored locally by CLU can be deleted by clearing the site's data from your browser settings.",
+        "changes_title": "Changes",
+        "changes_text": "This privacy policy may be updated to reflect changes to CLU, the services used or applicable requirements.",
+        "back": "Back to CLU"
+      }
+    },
+    "connections": {
+      "custom_logo_add": "Add a custom logo (index)",
+      "custom_logo_change": "Change custom logo (index)",
+      "custom_logo_remove": "Remove custom logo",
+      "transfer": "Connection with transfer",
+      "transfer_mode": "Transfer mode",
+      "duration": "Duration",
+      "duration_optional": "Duration is optional.",
+      "size": "Size",
+      "pictogram": "Pictogram",
+      "displayed_lines": "Lines displayed for this connection",
+      "movement": "Transfer",
+      "movement_summary": "Transfer mode and connection duration",
+      "movement_enable": "Enable a transfer",
+      "movement_enable_summary": "Indicates that a trip is required to make this connection.",
+      "movement_existing": "A transfer is already defined directly on a line.",
+      "custom_pictogram": "Custom image for this connection",
+      "default_pictogram": "Default transport-mode pictogram",
+      "unknown_type": "Unknown connection type",
+      "unknown_description": "This connection cannot be edited with the current editor.",
+      "immediate_changes": "Changes are applied immediately.",
+      "available_at_stop": "Lines and services available at this stop",
+      "none": "No connections",
+      "empty_hint": "Add a transport mode or service to this stop.",
+      "walk": "Walking",
+      "bike": "Bicycle",
+      "car": "Car",
+      "bus": "Bus",
+      "other": "Other"
     }
   }
 }

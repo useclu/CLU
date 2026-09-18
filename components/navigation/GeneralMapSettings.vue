@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import cdgExpressIcon from '~/assets/svg/services/cdg_express.svg'
 import cdgvalIcon from '~/assets/svg/services/cdgval.svg'
@@ -19,6 +20,9 @@ import {
   modeToLineThickness,
   modeToTerminusFramePolicy,
 } from '~/utils/properties'
+
+
+const { t } = useI18n()
 
 type TramStyle =
   | 'ANGLED'
@@ -65,124 +69,100 @@ interface TransportServiceOption {
   description: string
 }
 
-const transportServiceOptions:
-  TransportServiceOption[] = [
-    {
-      label: 'Aucun',
-      value: 'NONE',
-      renderMode: null,
-      icon: null,
-      description:
-        'Utilise uniquement le mode de transport.',
-    },
-
-    {
-      label: 'TGV',
-      value: 'TGV',
-      renderMode: 'TRAIN',
-      icon: tgvIcon,
-      description:
-        'Plan classique · moteur Train.',
-    },
-
-    {
-      label: 'TER',
-      value: 'TER',
-      renderMode: 'TRAIN',
-      icon: terIcon,
-      description:
-        'Plan classique · moteur Train.',
-    },
-
-    {
-      label: 'Car',
-      value: 'CAR',
-      renderMode: 'BUS',
-      icon: longDistanceBusIcon,
-      description:
-        'Rendu de type Bus.',
-    },
-
-    {
-      label: 'Funiculaire',
-      value: 'FUNICULAIRE',
-      renderMode: 'TRAM',
-      icon: funicularIcon,
-      description:
-        'Rendu de type Tramway.',
-    },
-
-    {
-      label: 'RoissyBus',
-      value: 'ROISSYBUS',
-      renderMode: 'BUS',
-      icon: roissybusIcon,
-      description:
-        'Rendu de type Bus.',
-    },
-
-    {
-      label: 'OrlyBus',
-      value: 'ORLYBUS',
-      renderMode: 'BUS',
-      icon: orlybusIcon,
-      description:
-        'Rendu de type Bus.',
-    },
-
-    {
-      label: 'CDGVAL',
-      value: 'CDGVAL',
-      renderMode: 'METRO',
-      icon: cdgvalIcon,
-      description:
-        'Plan classique · moteur Métro.',
-    },
-
-    {
-      label: 'Orlyval',
-      value: 'ORLYVAL',
-      renderMode: 'METRO',
-      icon: orlyvalIcon,
-      description:
-        'Plan classique · moteur Métro.',
-    },
-
-    {
-      label: 'CDG Express',
-      value: 'CDG_EXPRESS',
-      renderMode: 'TRAIN',
-      icon: cdgExpressIcon,
-      description:
-        'Plan classique · moteur Train.',
-    },
-
-    {
-      label: 'Personnalisé',
-      value: 'CUSTOM',
-      renderMode: null,
-      icon: null,
-      description:
-        'Crée entièrement ton propre service.',
-    },
-  ]
-
-const customServiceRenderOptions = [
+const transportServiceOptions = computed<TransportServiceOption[]>(() => [
   {
-    label: 'Plan classique',
+    label: t('ui.general_settings.service_none'),
+    value: 'NONE',
+    renderMode: null,
+    icon: null,
+    description: t('ui.general_settings.service_default_mode'),
+  },
+  {
+    label: 'TGV',
+    value: 'TGV',
+    renderMode: 'TRAIN',
+    icon: tgvIcon,
+    description: t('ui.general_settings.service_train_render'),
+  },
+  {
+    label: 'TER',
+    value: 'TER',
+    renderMode: 'TRAIN',
+    icon: terIcon,
+    description: t('ui.general_settings.service_train_render'),
+  },
+  {
+    label: t('data.services.long_distance_bus'),
+    value: 'CAR',
+    renderMode: 'BUS',
+    icon: longDistanceBusIcon,
+    description: t('ui.general_settings.service_bus_render'),
+  },
+  {
+    label: t('data.services.funicular'),
+    value: 'FUNICULAIRE',
+    renderMode: 'TRAM',
+    icon: funicularIcon,
+    description: t('ui.general_settings.service_tram_render'),
+  },
+  {
+    label: 'RoissyBus',
+    value: 'ROISSYBUS',
+    renderMode: 'BUS',
+    icon: roissybusIcon,
+    description: t('ui.general_settings.service_bus_render'),
+  },
+  {
+    label: 'OrlyBus',
+    value: 'ORLYBUS',
+    renderMode: 'BUS',
+    icon: orlybusIcon,
+    description: t('ui.general_settings.service_bus_render'),
+  },
+  {
+    label: 'CDGVAL',
+    value: 'CDGVAL',
+    renderMode: 'METRO',
+    icon: cdgvalIcon,
+    description: t('ui.general_settings.service_metro_render'),
+  },
+  {
+    label: 'Orlyval',
+    value: 'ORLYVAL',
+    renderMode: 'METRO',
+    icon: orlyvalIcon,
+    description: t('ui.general_settings.service_metro_render'),
+  },
+  {
+    label: 'CDG Express',
+    value: 'CDG_EXPRESS',
+    renderMode: 'TRAIN',
+    icon: cdgExpressIcon,
+    description: t('ui.general_settings.service_train_render'),
+  },
+  {
+    label: t('ui.general_settings.service_custom'),
+    value: 'CUSTOM',
+    renderMode: null,
+    icon: null,
+    description: t('ui.general_settings.service_custom_description'),
+  },
+])
+
+const customServiceRenderOptions = computed(() => [
+  {
+    label: t('ui.general_settings.render_classic'),
     value: 'TRAIN' as Mode,
   },
-
   {
-    label: 'Plan Bus',
+    label: t('ui.general_settings.render_bus'),
     value: 'BUS' as Mode,
   },
-
   {
-    label: 'Plan Tramway',
+    label: t('ui.general_settings.render_tram'),
     value: 'TRAM' as Mode,
   },
-]
+])
 
 type LineWithStopSuggestions = Line & {
   stopSuggestionsEnabled?: boolean
@@ -219,7 +199,7 @@ CustomTransportService {
 
   if (!target.customTransportService) {
     target.customTransportService = {
-      name: 'Mon service',
+      name: t('ui.general_settings.custom_service_default'),
       icon: null,
       renderMode: 'TRAIN',
     }
@@ -229,7 +209,7 @@ CustomTransportService {
     !target.customTransportService.name
   ) {
     target.customTransportService.name =
-      'Mon service'
+      t('ui.general_settings.custom_service_default')
   }
 
   if (
@@ -261,7 +241,7 @@ const customServiceName =
       )
         .customTransportService
         ?.name
-      ?? 'Mon service',
+      ?? t('ui.general_settings.custom_service_default'),
 
     set: (value) => {
       ensureCustomTransportService()
@@ -324,11 +304,11 @@ function getTransportServiceOption(
     | undefined,
 ): TransportServiceOption {
   return (
-    transportServiceOptions.find(
+    transportServiceOptions.value.find(
       option =>
         option.value === value,
     )
-    ?? transportServiceOptions[0]
+    ?? transportServiceOptions.value[0]
   )
 }
 
@@ -345,7 +325,7 @@ function getTransportServiceLabel(
     return (
       name !== ''
         ? name
-        : 'Personnalisé'
+        : t('ui.general_settings.service_custom')
     )
   }
 
@@ -603,11 +583,11 @@ function setTramStyle(
 
         <div>
           <div class="section-title">
-            Identité de la ligne
+            {{ $t('ui.general_settings.identity') }}
           </div>
 
           <div class="section-description">
-            Mode ou service, indice et couleur du plan
+            {{ $t('ui.general_settings.identity_summary') }}
           </div>
         </div>
       </div>
@@ -631,15 +611,14 @@ function setTramStyle(
             v-if="transportService"
             class="setting-description"
           >
-            Le mode technique est actuellement géré
-            par
+            {{ $t('ui.general_settings.mode_managed_before') }}
             {{
               getTransportServiceLabel(
                 serviceSelection,
               )
             }}.
 
-            Sélectionne un mode pour retirer le service.
+            {{ $t('ui.general_settings.mode_managed_after') }}
           </span>
         </div>
 
@@ -660,7 +639,7 @@ function setTramStyle(
           class="setting-field"
         >
           <label class="setting-label">
-            Code couleur du plan
+            {{ $t('ui.general_settings.color_code') }}
           </label>
 
           <ColorSelect
@@ -669,12 +648,12 @@ function setTramStyle(
         </div>
 
         <div class="identity-separator">
-          <span>ou</span>
+          <span>{{ $t('ui.general_settings.or') }}</span>
         </div>
 
         <div class="setting-field">
           <label class="setting-label">
-            Service de transport
+            {{ $t('ui.general_settings.transport_service') }}
           </label>
 
           <Select
@@ -821,7 +800,7 @@ function setTramStyle(
                   {{
                     slotProps.option.value
                     === 'CUSTOM'
-                      ? 'Personnalisé'
+                      ? $t('ui.general_settings.service_custom')
                       : slotProps.option.label
                   }}
                 </span>
@@ -848,24 +827,24 @@ function setTramStyle(
             />
 
             <span>
-              Service personnalisé
+              {{ $t('ui.general_settings.custom_service_title') }}
             </span>
           </div>
 
           <div class="setting-field">
             <label class="setting-label">
-              Nom du service
+              {{ $t('ui.general_settings.custom_service_name') }}
             </label>
 
             <InputText
               v-model="customServiceName"
-              placeholder="Mon service"
+              :placeholder="$t('ui.general_settings.custom_service_placeholder')"
             />
           </div>
 
           <div class="setting-field">
             <label class="setting-label">
-              Pictogramme
+              {{ $t('ui.general_settings.custom_service_pictogram') }}
             </label>
 
             <div
@@ -885,7 +864,7 @@ function setTramStyle(
                 severity="danger"
                 text
                 rounded
-                title="Retirer le pictogramme"
+                :title="$t('ui.general_settings.remove_pictogram')"
                 @click="
                   removeCustomServiceIcon()
                 "
@@ -902,8 +881,8 @@ function setTramStyle(
               <span>
                 {{
                   customServiceIcon
-                    ? 'Changer le pictogramme'
-                    : 'Ajouter un pictogramme'
+                    ? $t('ui.general_settings.change_pictogram')
+                    : $t('ui.general_settings.add_pictogram')
                 }}
               </span>
 
@@ -917,15 +896,13 @@ function setTramStyle(
             </label>
 
             <span class="setting-description">
-              SVG, PNG, JPG ou WebP.
-              L’image est enregistrée directement
-              dans le projet.
+              {{ $t('ui.general_settings.custom_service_image_hint') }}
             </span>
           </div>
 
           <div class="setting-field">
             <label class="setting-label">
-              Type de rendu
+              {{ $t('ui.general_settings.render_type') }}
             </label>
 
             <Select
@@ -941,11 +918,7 @@ function setTramStyle(
             />
 
             <span class="setting-description">
-              Définit seulement la structure graphique
-              utilisée par CLU.
-
-              Le pictogramme affiché reste celui
-              de ton service.
+              {{ $t('ui.general_settings.render_type_hint') }}
             </span>
           </div>
         </div>
@@ -955,7 +928,7 @@ function setTramStyle(
           class="setting-field"
         >
           <label class="setting-label">
-            Code couleur du plan
+            {{ $t('ui.general_settings.color_code') }}
           </label>
 
           <ColorSelect
@@ -973,11 +946,11 @@ function setTramStyle(
 
         <div>
           <div class="section-title">
-            Style du plan
+            {{ $t('ui.general_settings.style_title') }}
           </div>
 
           <div class="section-description">
-            Apparence générale de la ligne
+            {{ $t('ui.general_settings.style_summary') }}
           </div>
         </div>
       </div>
@@ -985,7 +958,7 @@ function setTramStyle(
       <div class="section-content">
         <div class="setting-field">
           <span class="setting-label">
-            Signalétique
+            {{ $t('ui.general_settings.signage') }}
           </span>
 
           <div class="segmented-control">
@@ -1024,18 +997,18 @@ function setTramStyle(
                 signageStyle === 'IDFM'
               "
             >
-              Schéma de ligne horizontal · rendu actuel CLU
+              {{ $t('ui.general_settings.signage_idfm') }}
             </template>
 
             <template v-else>
-              Signalétique voyageurs SNCF · desserte verticale
+              {{ $t('ui.general_settings.signage_sncf') }}
             </template>
           </span>
         </div>
 
         <div class="setting-field">
           <span class="setting-label">
-            Format
+            {{ $t('ui.general_settings.format') }}
           </span>
 
           <div class="segmented-control">
@@ -1081,11 +1054,11 @@ function setTramStyle(
                 ) === 'RATP'
               "
             >
-              Noms bleus et gras
+              {{ $t('ui.general_settings.format_ratp') }}
             </template>
 
             <template v-else>
-              Noms noirs · terminus en gras
+              {{ $t('ui.general_settings.format_sncf') }}
             </template>
           </span>
         </div>
@@ -1097,7 +1070,7 @@ function setTramStyle(
           class="setting-field"
         >
           <span class="setting-label">
-            Style tramway
+            {{ $t('ui.general_settings.tram_style') }}
           </span>
 
           <div class="segmented-control">
@@ -1113,7 +1086,7 @@ function setTramStyle(
                 setTramStyle('ANGLED')
               "
             >
-              Incliné
+              {{ $t('ui.general_settings.tram_angled') }}
             </button>
 
             <button
@@ -1130,7 +1103,7 @@ function setTramStyle(
                 )
               "
             >
-              Horizontal
+              {{ $t('ui.general_settings.tram_horizontal') }}
             </button>
           </div>
 
@@ -1141,11 +1114,11 @@ function setTramStyle(
                 === 'ANGLED'
               "
             >
-              Noms inclinés · ligne fine · petits arrêts
+              {{ $t('ui.general_settings.tram_angled_hint') }}
             </template>
 
             <template v-else>
-              Noms horizontaux · ligne épaisse · grands anneaux
+              {{ $t('ui.general_settings.tram_horizontal_hint') }}
             </template>
           </span>
         </div>
@@ -1213,11 +1186,11 @@ function setTramStyle(
 
         <div>
           <div class="section-title">
-            Options
+            {{ $t('ui.general_settings.options_title') }}
           </div>
 
           <div class="section-description">
-            Affichage et accessibilité
+            {{ $t('ui.general_settings.options_summary') }}
           </div>
         </div>
       </div>
@@ -1305,7 +1278,7 @@ function setTramStyle(
             </div>
 
             <span>
-              Afficher le fond gris hors zone tarifaire
+              {{ $t('ui.general_settings.out_of_fare_zone_background') }}
             </span>
           </div>
 
@@ -1341,7 +1314,7 @@ function setTramStyle(
 
             <div class="option-text">
               <span>
-                Suggestions d’arrêts
+                {{ $t('ui.general_settings.stop_suggestions') }}
               </span>
 
               <span
@@ -1349,8 +1322,7 @@ function setTramStyle(
                   option-description
                 "
               >
-                Propose des stations connues pendant la saisie.
-                Décoche pour désactiver.
+                {{ $t('ui.general_settings.stop_suggestions_hint') }}
               </span>
             </div>
           </div>
@@ -1380,11 +1352,11 @@ function setTramStyle(
 
         <div>
           <div class="section-title">
-            Dimensions
+            {{ $t('ui.general_settings.dimensions_title') }}
           </div>
 
           <div class="section-description">
-            Taille générale du plan
+            {{ $t('ui.general_settings.dimensions_summary') }}
           </div>
         </div>
       </div>

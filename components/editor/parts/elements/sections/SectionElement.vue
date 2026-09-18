@@ -429,7 +429,7 @@ onUnmounted(() => {
             v-if="!dummy"
             type="button"
             class="annotation-move-handle"
-            title="Déplacer librement"
+            :title="$t('ui.map_editor.free_move')"
             @pointerdown="startAnnotationDrag"
             @click.stop
           >

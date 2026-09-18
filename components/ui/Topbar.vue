@@ -122,7 +122,7 @@ function toggleSnow() {
         <div class="brand">
           <h1 class="brand-title">
             <strong class="text-nowrap hidden 2xl:block">
-              Créateur de Lignes Urbaines
+              {{ $t('ui.topbar.brand') }}
             </strong>
 
             <strong class="text-nowrap 2xl:hidden visible">
@@ -138,7 +138,7 @@ function toggleSnow() {
         -->
         <div class="hidden lg:flex topbar-actions">
           <Button
-            label="Fichier"
+            :label="$t('ui.topbar.file')"
             icon="i-tabler-file"
             severity="secondary"
             text
@@ -146,7 +146,7 @@ function toggleSnow() {
           />
 
           <Button
-            label="Outils"
+            :label="$t('ui.topbar.tools')"
             icon="i-tabler-adjustments-horizontal"
             severity="secondary"
             text
@@ -162,7 +162,7 @@ function toggleSnow() {
       -->
       <div class="hidden lg:flex history-actions">
         <Button
-          label="Avant"
+          :label="$t('ui.topbar.undo')"
           icon="i-tabler-arrow-left"
           severity="secondary"
           text
@@ -171,7 +171,7 @@ function toggleSnow() {
         />
 
         <Button
-          label="Après"
+          :label="$t('ui.topbar.redo')"
           icon="i-tabler-arrow-right"
           icon-pos="right"
           severity="secondary"
@@ -200,13 +200,13 @@ function toggleSnow() {
           href="https://bulb.slama.io"
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="BULB Officiel"
-          title="Ouvrir le site officiel de BULB"
+          :aria-label="$t('ui.topbar.bulb_official')"
+          :title="$t('ui.topbar.bulb_open')"
         >
           <i class="i-tabler-bulb" />
 
           <span>
-            BULB Officiel
+            {{ $t('ui.topbar.bulb_official') }}
           </span>
         </a>
 
@@ -227,7 +227,7 @@ function toggleSnow() {
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Discord CLU"
-          title="Rejoindre le Discord CLU"
+          :title="$t('ui.topbar.discord_join')"
         >
           <i class="i-tabler-brand-discord" />
         </a>
@@ -238,6 +238,7 @@ function toggleSnow() {
         />
 
         <ThemeSwitcher />
+        <LocaleSwitcher />
 
         <template v-if="isWinter">
           <Divider
@@ -291,11 +292,11 @@ function toggleSnow() {
 
         <div>
           <div class="popover-title">
-            Fichier
+            {{ $t('ui.topbar.file') }}
           </div>
 
           <div class="popover-subtitle">
-            Projet et exportation
+            {{ $t('ui.topbar.file_subtitle') }}
           </div>
         </div>
       </div>
@@ -329,11 +330,11 @@ function toggleSnow() {
 
         <div>
           <div class="popover-title">
-            Outils
+            {{ $t('ui.topbar.tools') }}
           </div>
 
           <div class="popover-subtitle">
-            Réglages généraux du plan
+            {{ $t('ui.topbar.tools_subtitle') }}
           </div>
         </div>
       </div>
@@ -356,14 +357,14 @@ function toggleSnow() {
   -->
   <Dialog
     v-model:visible="showMenu"
-    header="Menu"
+    :header="$t('ui.topbar.menu')"
     pt:root:class="w-full"
     modal
   >
     <div class="mobile-menu">
       <div class="mobile-section">
         <div class="mobile-section-title">
-          Fichier
+          {{ $t('ui.topbar.file') }}
         </div>
 
         <MainMenu
@@ -377,7 +378,7 @@ function toggleSnow() {
 
       <div class="mobile-section">
         <div class="mobile-section-title">
-          Outils
+          {{ $t('ui.topbar.tools') }}
         </div>
 
         <GeneralMapSettings
@@ -401,13 +402,13 @@ function toggleSnow() {
         href="https://bulb.slama.io"
         target="_blank"
         rel="noopener noreferrer"
-        aria-label="BULB Officiel"
+        :aria-label="$t('ui.topbar.bulb_official')"
         @click="showMenu = false"
       >
         <i class="i-tabler-bulb" />
 
         <span>
-          BULB Officiel
+          {{ $t('ui.topbar.bulb_official') }}
         </span>
       </a>
 
@@ -447,6 +448,7 @@ function toggleSnow() {
 
       <div class="mobile-footer">
         <ThemeSwitcher />
+        <LocaleSwitcher />
 
         <Button
           v-if="isWinter"
@@ -514,7 +516,7 @@ function toggleSnow() {
 
     <template #footer>
       <Button
-        label="Annuler"
+        :label="$t('ui.common.cancel')"
         severity="secondary"
         @click="cancelCustomMapSize"
       />
@@ -555,7 +557,7 @@ function toggleSnow() {
 
     <template #footer>
       <Button
-        label="Annuler"
+        :label="$t('ui.common.cancel')"
         severity="secondary"
         @click="cancelCustomLineThickness"
       />

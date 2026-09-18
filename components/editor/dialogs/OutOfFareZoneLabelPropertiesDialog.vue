@@ -282,14 +282,14 @@ function resetPosition() {
       <div class="field">
         <div class="flex flex-wrap gap-2">
           <Button
-            label="Réinitialiser le texte"
+            :label="$t('ui.dialogs.out_of_fare_zone_label_properties.reset_text')"
             severity="secondary"
             icon="i-tabler-refresh"
             @click="resetText"
           />
 
           <Button
-            label="Réinitialiser la position"
+            :label="$t('ui.dialogs.out_of_fare_zone_label_properties.reset_position')"
             severity="secondary"
             icon="i-tabler-location"
             @click="resetPosition"

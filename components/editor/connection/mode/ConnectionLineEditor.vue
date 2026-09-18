@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import {
   computed,
   ref,
 } from 'vue'
+
+const { t } = useI18n()
 
 const {
   index,
@@ -235,32 +238,13 @@ const transferDisabled =
     )
   })
 
-const transferModes: {
-  label: string
-  value: TransferMode
-}[] = [
-  {
-    label: 'À pied',
-    value: 'WALK',
-  },
-  {
-    label: 'Vélo',
-    value: 'BIKE',
-  },
-  {
-    label: 'Voiture',
-    value: 'CAR',
-  },
-  {
-    label: 'Bus',
-    value: 'BUS',
-  },
-  {
-    label: 'Autre',
-    value: 'OTHER',
-  },
-]
-
+const transferModes = computed(() => [
+  { label: t('ui.connections.walk'), value: 'WALK' as TransferMode },
+  { label: t('ui.connections.bike'), value: 'BIKE' as TransferMode },
+  { label: t('ui.connections.car'), value: 'CAR' as TransferMode },
+  { label: t('ui.connections.bus'), value: 'BUS' as TransferMode },
+  { label: t('ui.connections.other'), value: 'OTHER' as TransferMode },
+])
 function permittedTypes(
   mode: Mode | null,
 ):
@@ -419,7 +403,7 @@ function removeCustomPictogram() {
             "
             class="text-nowrap"
           >
-            Correspondance avec déplacement
+            {{ $t('ui.connections.transfer') }}
           </label>
         </div>
 
@@ -445,7 +429,7 @@ function removeCustomPictogram() {
                 `${line.id}_transferMode`
               "
             >
-              Moyen de déplacement
+              {{ $t('ui.connections.transfer_mode') }}
             </label>
 
             <Select
@@ -476,7 +460,7 @@ function removeCustomPictogram() {
                 `${line.id}_durationMinutes`
               "
             >
-              Durée
+              {{ $t('ui.connections.duration') }}
             </label>
 
             <BInputNumber
@@ -492,7 +476,7 @@ function removeCustomPictogram() {
             />
 
             <small class="opacity-50">
-              La durée est facultative.
+              {{ $t('ui.connections.duration_optional') }}
             </small>
           </div>
         </div>
@@ -566,8 +550,8 @@ function removeCustomPictogram() {
           size="small"
           :label="
             hasCustomPictogram
-              ? 'Changer le logo (indice) personnalisé'
-              : 'Ajouter un logo (indice) personnalisé'
+              ? $t('ui.connections.custom_logo_change')
+              : $t('ui.connections.custom_logo_add')
           "
           :icon="
             hasCustomPictogram
@@ -617,7 +601,7 @@ function removeCustomPictogram() {
               "
             >
               <span>
-                Taille
+                {{ $t('ui.connections.size') }}
               </span>
 
               <span>
@@ -641,7 +625,7 @@ function removeCustomPictogram() {
           </div>
 
           <Button
-            label="Retirer le logo personnalisé"
+            :label="$t('ui.connections.custom_logo_remove')"
             icon="i-tabler-x"
             size="small"
             severity="danger"

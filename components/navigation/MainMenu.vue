@@ -319,16 +319,14 @@ function applyProfile(
     )
 
     window.alert(
-      'Impossible d’importer ce profil CLU. '
-      + 'Les données actuelles ont été conservées.',
+      t('ui.menu.profile_import_error'),
     )
 
     return
   }
 
   window.alert(
-    'Profil CLU importé avec succès.\n\n'
-    + 'CLU va maintenant se recharger pour appliquer toutes les données.',
+    t('ui.menu.profile_import_success'),
   )
 
   window.location.reload()
@@ -381,13 +379,10 @@ async function onProfileSelected(
 
   confirm.require({
     header:
-      'Importer le profil CLU',
+      t('ui.menu.profile_import_confirm_header'),
 
     message:
-      'Les données CLU actuellement enregistrées dans ce navigateur '
-      + 'seront remplacées par celles du profil importé. '
-      + 'Le projet courant, les indices, pictogrammes, arrêts personnels '
-      + 'et préférences seront remplacés.',
+      t('ui.menu.profile_import_confirm_message'),
 
     acceptProps: {
       label: 'Importer',
@@ -459,7 +454,7 @@ function newProject() {
 
     <Button
       pt:root:class="important-justify-start"
-      label="Changer les pictogrammes des modes de transport"
+      :label="$t('ui.menu.custom_mode_pictograms')"
       severity="secondary"
       icon="i-tabler-photo-edit"
       text
@@ -478,7 +473,7 @@ function newProject() {
 
     <Button
       pt:root:class="important-justify-start"
-      label="Importer Profil"
+      :label="$t('ui.menu.import_profile')"
       severity="secondary"
       icon="i-tabler-user-down"
       text
@@ -487,7 +482,7 @@ function newProject() {
 
     <Button
       pt:root:class="important-justify-start"
-      label="Exporter Profil"
+      :label="$t('ui.menu.export_profile')"
       severity="secondary"
       icon="i-tabler-user-up"
       text

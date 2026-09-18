@@ -117,7 +117,7 @@ const side = computed<VerticalSegmentSide>({
           </div>
 
           <div class="dialog-subtitle">
-            Configurez la direction et le côté du segment.
+            {{ $t('ui.dialogs.vertical_segment_properties.summary') }}
           </div>
         </div>
       </div>
@@ -218,7 +218,7 @@ const side = computed<VerticalSegmentSide>({
         </div>
 
         <Button
-          label="Fermer"
+          :label="$t('ui.common.close')"
           severity="secondary"
           icon="i-tabler-x"
           @click="visible = false"

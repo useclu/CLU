@@ -173,7 +173,7 @@ const section2Level =
           </div>
 
           <div class="dialog-subtitle">
-            Configurez la disposition des branches parallèles.
+            {{ $t('ui.dialogs.parallel_branches_properties.summary') }}
           </div>
         </div>
       </div>
