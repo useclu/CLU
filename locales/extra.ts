@@ -139,6 +139,13 @@ export const frExtra = {
         position_bottom: 'En bas',
         width: 'Largeur de la boucle',
         width_hint: 'Comme un espacement : augmentez ou réduisez la place réservée sur le tracé.',
+        stops_title: 'Arrêts sur la boucle',
+        stops_hint: 'Ajoutez un ou plusieurs arrêts sur la voie déviée. La boucle réserve automatiquement plus d’espace lorsqu’un arrêt possède des correspondances afin qu’elles ne touchent jamais le tracé principal.',
+        add_stop: 'Ajouter un arrêt',
+        stop_name_placeholder: 'Nom de l’arrêt',
+        edit_stop: 'Modifier l’arrêt',
+        delete_stop: 'Supprimer l’arrêt',
+        empty_stops: 'Aucun arrêt sur cette boucle.',
         close: 'Fermer',
       },
       new_project: {
@@ -428,7 +435,7 @@ export const frExtra = {
       annotation: 'Annotation',
       toolbox: {
         bus_area_boundary: 'Limite zone / commune',
-        loop: 'Boucle sens unique',
+        one_way_loop: 'Boucle à sens unique',
         vertical_segment: 'Segment vertical',
       },
       delete_stop: 'Supprimer l’arrêt',

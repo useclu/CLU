@@ -426,6 +426,7 @@ const { grab, release } = useElementGrabbing((event) => {
     'STOP',
     'SPACER',
     'AREA_SEPARATOR',
+    'LOOP',
     'ONE_WAY_LOOP',
   ].includes(event.type ?? '')
 })
@@ -5465,6 +5466,10 @@ function getElementType(element: BranchElement) {
 
   if ('$spacer' in element) {
     return 'SPACER'
+  }
+
+  if ('$loop' in element) {
+    return 'LOOP'
   }
 
   if ('$oneWayLoop' in element) {

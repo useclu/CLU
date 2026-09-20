@@ -4,7 +4,9 @@ export const isBranch = (element: LineElement): element is Branch =>
 export const isFork = (element: LineElement): element is Fork =>
   '$fork' in element
 
-export const isLoop = (element: LineElement): element is Loop =>
+export const isLoop = (
+  element: LineElement | BranchElement,
+): element is Loop =>
   '$loop' in element
 
 export const isParallelBranches = (

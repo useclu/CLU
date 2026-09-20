@@ -387,6 +387,7 @@
         "delete": "Supprimer",
         "fork": "Fourche",
         "loop": "Demi-tour",
+        "one_way_loop": "Boucle à sens unique",
         "parallel_branches": "Branches parallèles",
         "spacer": "Espacement",
         "stop": "Arrêt",

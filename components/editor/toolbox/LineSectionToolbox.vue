@@ -120,15 +120,20 @@ function clone(element: Element): LineElement {
 }
 
 
-interface OneWayLoopToolElement {
+interface BranchSpecialToolElement {
   label: string
   icon: string
-  type: 'ONE_WAY_LOOP'
+  type: 'LOOP' | 'ONE_WAY_LOOP'
 }
 
-const oneWayLoopElements = ref<OneWayLoopToolElement[]>([
+const branchSpecialElements = ref<BranchSpecialToolElement[]>([
   {
     label: 'ui.map_editor.toolbox.loop',
+    icon: 'i-bulb-u-turn',
+    type: 'LOOP',
+  },
+  {
+    label: 'ui.map_editor.toolbox.one_way_loop',
     icon: 'i-bulb-u-turn',
     type: 'ONE_WAY_LOOP',
   },
@@ -136,7 +141,21 @@ const oneWayLoopElements = ref<OneWayLoopToolElement[]>([
 
 const { grab, release } = useElementGrabbing()
 
-function cloneOneWayLoop(): OneWayLoop {
+function cloneBranchSpecial(
+  element: BranchSpecialToolElement,
+): BranchElement {
+  if (element.type === 'LOOP') {
+    return {
+      id: uuidv4(),
+      $loop: {
+        toward: 'LEFT',
+        // Dans une branche : section 1 = hauteur haute,
+        // section 2 = hauteur basse. Les deux sont des distances positives.
+        linksOffsets: [1, 1],
+      },
+    }
+  }
+
   return {
     id: uuidv4(),
     $oneWayLoop: {
@@ -147,8 +166,8 @@ function cloneOneWayLoop(): OneWayLoop {
   }
 }
 
-function onOneWayLoopStart(
-  event: DraggableEvent<OneWayLoopToolElement>,
+function onBranchSpecialStart(
+  event: DraggableEvent<BranchSpecialToolElement>,
 ) {
   grab(event.data.type)
 }
@@ -186,20 +205,20 @@ function onOneWayLoopStart(
     </VueDraggable>
 
     <VueDraggable
-      v-model="oneWayLoopElements"
+      v-model="branchSpecialElements"
       class="draggable-elements one-way-loop-tools"
       :group="{
         name: 'branchElements',
         pull: 'clone',
         put: false,
       }"
-      :clone="cloneOneWayLoop"
+      :clone="cloneBranchSpecial"
       :sort="false"
-      @start="e => onOneWayLoopStart(e as DraggableEvent<OneWayLoopToolElement>)"
+      @start="e => onBranchSpecialStart(e as DraggableEvent<BranchSpecialToolElement>)"
       @end="release()"
     >
       <div
-        v-for="element in oneWayLoopElements"
+        v-for="element in branchSpecialElements"
         :key="element.label"
         class="toolbox-item"
       >

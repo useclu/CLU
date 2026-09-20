@@ -694,6 +694,13 @@
         "position_bottom": "Below",
         "width": "Loop width",
         "width_hint": "Like a spacer: increase or reduce the room reserved on the line.",
+        "stops_title": "Stops on the loop",
+        "stops_hint": "Add one or more stops on the diverted track. The loop automatically reserves extra clearance when a stop has connections so they never touch the main line.",
+        "add_stop": "Add a stop",
+        "stop_name_placeholder": "Stop name",
+        "edit_stop": "Edit stop",
+        "delete_stop": "Delete stop",
+        "empty_stops": "No stops on this loop.",
         "close": "Close"
       }
     },
@@ -763,7 +770,8 @@
         "branch": "Branch",
         "delete": "Delete",
         "fork": "Fork",
-        "loop": "One-way loop",
+        "loop": "U-turn",
+        "one_way_loop": "One-way loop",
         "parallel_branches": "Parallel branches",
         "spacer": "Spacer",
         "stop": "Stop",

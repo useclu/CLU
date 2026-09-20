@@ -513,7 +513,19 @@ declare global {
       size: number
       direction: 'LEFT' | 'RIGHT'
       position?: 'TOP' | 'BOTTOM'
-      /** @deprecated Les arrêts intégrés aux boucles ne sont plus affichés. */
+
+      /*
+       * Arrêts placés sur la voie déviée de la boucle.
+       *
+       * Optionnel pour conserver la compatibilité avec les projets
+       * créés avant le retour des arrêts sur les boucles.
+       */
+      stops?: Stop[]
+
+      /**
+       * Ancien format mono-arrêt.
+       * Conservé uniquement pour relire les projets qui l'utilisaient.
+       */
       stop?: Stop
     }
   }
@@ -523,6 +535,7 @@ declare global {
     | Spacer
     | AreaSeparator
     | OneWayLoop
+    | Loop
 
   /*
    * Ligne supplémentaire affichée sur une branche.
