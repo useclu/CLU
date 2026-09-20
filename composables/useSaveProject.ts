@@ -1,11 +1,13 @@
 import { storeToRefs } from 'pinia'
 import { useToast } from 'primevue/usetoast'
+import { useI18n } from 'vue-i18n'
 import { useCustomLineIndices } from '~/stores/useCustomLineIndices'
 import { useProject } from '~/stores/useProject'
 import { getCustomIndicesIds } from '~/utils/project'
 
 export default function useSaveProject() {
   const toast = useToast()
+  const { t } = useI18n()
   const { version, line, presetBased } = storeToRefs(useProject())
   const { indices } = storeToRefs(useCustomLineIndices())
 
@@ -31,8 +33,8 @@ export default function useSaveProject() {
     a.click()
 
     toast.add({
-      summary: 'ui.toasts.save.success.title',
-      detail: 'ui.toasts.save.success.detail',
+      summary: t('ui.toasts.save.success.title'),
+      detail: t('ui.toasts.save.success.detail'),
       severity: 'success',
       life: 5000,
     })

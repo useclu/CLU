@@ -1,6 +1,8 @@
 import { navigateTo } from '#app'
+import { useI18n } from 'vue-i18n'
 
 export default function usePdfExportMap() {
+  const { t } = useI18n()
   let exporting = false
 
   function createExportLoader() {
@@ -214,7 +216,7 @@ export default function usePdfExportMap() {
       document.createElement('div')
 
     title.textContent =
-      'Préparation de votre PDF'
+      t('ui.export_overlay.pdf.title')
 
     Object.assign(
       title.style,
@@ -234,7 +236,7 @@ export default function usePdfExportMap() {
       document.createElement('div')
 
     description.textContent =
-      'CLU prépare votre plan pour l’exportation au format PDF.'
+      t('ui.export_overlay.pdf.description')
 
     Object.assign(
       description.style,
@@ -302,7 +304,7 @@ export default function usePdfExportMap() {
       document.createElement('div')
 
     warningText.textContent =
-      'Selon la taille et la complexité de votre plan, la préparation peut prendre un petit moment. Si rien ne semble bouger immédiatement, pas d’inquiétude : CLU travaille toujours en coulisses.'
+      t('ui.export_overlay.pdf.warning')
 
     warning.append(
       warningIcon,
@@ -319,7 +321,7 @@ export default function usePdfExportMap() {
       document.createElement('div')
 
     coffeeMessage.textContent =
-      'Vous avez le temps de prendre une gorgée : le café est toujours offert par les services de CLU. ☕'
+      t('ui.export_overlay.pdf.coffee')
 
     Object.assign(
       coffeeMessage.style,

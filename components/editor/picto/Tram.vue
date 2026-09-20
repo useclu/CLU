@@ -60,7 +60,7 @@ const picto = computed(() => {
 </script>
 
 <template>
-  <img v-if="picto" :src="picto" alt="metro" class="picto">
+  <img v-if="picto" :src="picto" :alt="$t('data.mode.tram')" class="picto">
 </template>
 
 <style scoped lang="scss">

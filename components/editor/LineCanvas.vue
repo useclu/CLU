@@ -2,6 +2,7 @@
 import { useNow } from '@vueuse/core'
 import { useDateFormat } from '@vueuse/shared'
 import { storeToRefs } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import {
   computed,
   nextTick,
@@ -23,6 +24,7 @@ import tgvIcon from '~/assets/svg/services/tgv.svg'
 import useVersion from '~/composables/useVersion'
 import { useCustomLineIndices } from '~/stores/useCustomLineIndices'
 import { useProject } from '~/stores/useProject'
+import { getMapFontCssFamily } from '~/utils/mapFonts'
 import {
   isBranch,
   isBuiltin,
@@ -34,17 +36,23 @@ import {
   isVerticalSegment,
 } from '~/utils/types'
 
+const props = withDefaults(
+  defineProps<{
+    sncfPreview?: boolean
+  }>(),
+  {
+    sncfPreview: false,
+  },
+)
+
 const { applicationVersion } = useVersion()
+const { t } = useI18n()
 
 const {
   line,
   outdated,
   presetBased,
 } = storeToRefs(useProject())
-
-type SignageStyle =
-  | 'IDFM'
-  | 'SNCF'
 
 type TransportService =
   | 'TGV'
@@ -85,20 +93,16 @@ const transportServiceIcons:
     CDG_EXPRESS: cdgExpressIcon,
   }
 
-const signageStyle =
-  computed<SignageStyle>(() =>
-    (
-      line.value as Line & {
-        signageStyle?: SignageStyle
-      }
-    ).signageStyle
-    ?? 'IDFM',
-  )
-
 const isSncfSignage =
-  computed(() =>
-    signageStyle.value === 'SNCF',
-  )
+  computed(() => props.sncfPreview)
+
+
+const mapFontStyle = computed(() => ({
+  '--map-font-family':
+    getMapFontCssFamily(
+      line.value.fontFamily,
+    ),
+}))
 
 const transportService =
   computed<TransportService | null>(() =>
@@ -714,6 +718,7 @@ type DisplayLineModeGroup = {
 type StopWithLineTransition = Stop['$stop'] & {
   lineAfterStopMode?: Mode | null
   lineAfterStopIndex?: LineIndex | null
+  lineAfterStopColor?: string | null
 }
 
 function lineIdentityKey(
@@ -780,6 +785,24 @@ function getAdditionalLinesFromSection(
           index: additionalLine.index,
           transportService: null,
         })
+      }
+
+      continue
+    }
+
+    if (
+      isFork(element)
+      && element.$fork.sections
+    ) {
+      for (
+        const subSection
+        of element.$fork.sections
+      ) {
+        identities.push(
+          ...getAdditionalLinesFromSection(
+            subSection,
+          ),
+        )
       }
 
       continue
@@ -1434,7 +1457,7 @@ function deleteSncfStop(
  * - le rendu IDFM existant reste entièrement inchangé ;
  * - cette vue lit seulement les données existantes ;
  * - elle n'écrit rien dans la topologie ;
- * - le multi-ligne n'est pas rendu ici.
+ * - le changement de ligne local est rendu directement sur l’arrêt.
  */
 
 const sncfStops =
@@ -1443,6 +1466,1162 @@ const sncfStops =
       mapStops.value,
     ),
   )
+
+/*
+ * Identité locale d'un arrêt en signalétique SNCF.
+ *
+ * Les champs lineAfterStop* conservent leur nom historique dans
+ * les sauvegardes pour ne casser aucun ancien projet, mais leur
+ * sémantique est désormais strictement "sur cet arrêt".
+ */
+function sncfStopLocalLineIdentity(
+  stop: Stop,
+) {
+  const data =
+    stop.$stop as StopWithLineTransition
+
+  if (!data.lineAfterStopMode) {
+    return null
+  }
+
+  return {
+    mode:
+      data.lineAfterStopMode,
+    index:
+      data.lineAfterStopIndex
+      ?? null,
+    color:
+      data.lineAfterStopColor
+      || line.value.color
+      || '#ffffff',
+  }
+}
+
+function sncfOutgoingLineIdentity(
+  stop: Stop,
+) {
+  return sncfStopLocalLineIdentity(stop)
+}
+
+function sncfIncomingLineIdentity(
+  index: number,
+) {
+  if (index <= 0) {
+    return null
+  }
+
+  return sncfStopLocalLineIdentity(
+    sncfStops.value[index - 1],
+  )
+}
+
+function sncfSegmentColorBefore(
+  index: number,
+) {
+  return (
+    sncfIncomingLineIdentity(index)
+      ?.color
+    ?? line.value.color
+    ?? '#ffffff'
+  )
+}
+
+function sncfSegmentColorAfter(
+  stop: Stop,
+) {
+  return (
+    sncfOutgoingLineIdentity(stop)
+      ?.color
+    ?? line.value.color
+    ?? '#ffffff'
+  )
+}
+
+function sncfStopMarkerLineColor(
+  stop: Stop,
+  index: number,
+) {
+  return (
+    sncfOutgoingLineIdentity(stop)
+      ?.color
+    ?? sncfIncomingLineIdentity(index)
+      ?.color
+    ?? line.value.color
+    ?? '#ffffff'
+  )
+}
+
+/*
+ * =========================================================
+ * RÉSEAU DE BRANCHES — PRÉVISUALISATION SNCF
+ * =========================================================
+ *
+ * L'éditeur normal reste la source de vérité : Branch, Fork et
+ * ParallelBranches sont toujours construits dans la vue d'édition.
+ * Cette structure ne fait que traduire la topologie persistée vers
+ * un réseau vertical lisible.
+ *
+ * Profondeur volontairement limitée :
+ * - première bifurcation ;
+ * - une bifurcation supplémentaire dans une branche ;
+ * - au-delà, les arrêts restent visibles mais sont aplatis sur la
+ *   dernière voie afin d'éviter une récursivité graphique infinie.
+ */
+type SncfNetworkStop = {
+  key: string
+  stop: Stop
+  lane: number
+}
+
+type SncfNetworkRow = {
+  key: string
+  stops: SncfNetworkStop[]
+  forks: SncfNetworkFork[]
+}
+
+type SncfNetworkFork = {
+  key: string
+  fromLane: number
+  toLane: number
+  color: string
+}
+
+type SncfNetworkLane = {
+  lane: number
+  startRow: number
+  endRow: number
+  color: string
+}
+
+type SncfNetworkLocalRange = {
+  key: string
+  lane: number
+  startRow: number
+  endRow: number
+  color: string
+}
+
+type ForkWithPairId = Fork['$fork'] & {
+  parallelBranchesId?: string
+}
+
+type ParallelBranchesWithPairId =
+  ParallelBranches['$parallelBranches'] & {
+    forkId?: string
+  }
+
+const SNCF_MAX_BRANCH_DEPTH = 2
+
+/*
+ * Une voie SNCF n'est pas seulement un trait : elle possède aussi
+ * toute sa colonne de noms / correspondances. L'ancien espacement
+ * (6.4em) convenait au trait seul mais faisait se superposer les
+ * deux branches. Chaque branche reçoit désormais une vraie colonne.
+ */
+const SNCF_NETWORK_LANE_GAP = 35
+const SNCF_NETWORK_LABEL_OFFSET = 2.15
+const SNCF_NETWORK_LABEL_WIDTH = 30.5
+const SNCF_NETWORK_SIDE_PADDING = 2.5
+/*
+ * On réserve à gauche la même largeur que celle nécessaire aux
+ * libellés à droite. Le réseau (traits + branches) est donc centré
+ * visuellement au lieu d'être collé au bord gauche du panneau.
+ */
+const SNCF_NETWORK_SIDE_RESERVE =
+  SNCF_NETWORK_LABEL_OFFSET
+  + SNCF_NETWORK_LABEL_WIDTH
+  + SNCF_NETWORK_SIDE_PADDING
+const SNCF_NETWORK_LANE_START =
+  SNCF_NETWORK_SIDE_RESERVE
+const SNCF_NETWORK_FORK_HEIGHT = 8.2
+
+function sncfBranchColor(
+  branch: Branch,
+  fallback: string,
+) {
+  const data = branch.$branch
+
+  if (
+    data.primaryLineVisible === false
+    && data.additionalLines
+    && data.additionalLines.length > 0
+  ) {
+    return (
+      data.additionalLines[0].color
+      || fallback
+    )
+  }
+
+  return fallback
+}
+
+function sncfSectionColor(
+  section: LineSection,
+  fallback: string,
+) {
+  for (
+    const element
+    of section.$lineSection.elements
+  ) {
+    if (isBranch(element)) {
+      return sncfBranchColor(
+        element,
+        fallback,
+      )
+    }
+  }
+
+  return fallback
+}
+
+function sncfForkSections(
+  fork: Fork,
+  sectionElements: LineElement[],
+) {
+  const directSections =
+    fork.$fork.sections
+
+  const pairId =
+    (fork.$fork as ForkWithPairId)
+      .parallelBranchesId
+
+  if (
+    directSections
+    && directSections.length === 2
+  ) {
+    return {
+      sections: directSections,
+      pairedParallelBranchesId:
+        pairId ?? null,
+    }
+  }
+
+  if (!pairId) {
+    return {
+      sections: null,
+      pairedParallelBranchesId: null,
+    }
+  }
+
+  const pair =
+    sectionElements.find(
+      element =>
+        element.id === pairId
+        && isParallelBranches(element),
+    )
+
+  if (
+    pair
+    && isParallelBranches(pair)
+  ) {
+    return {
+      sections:
+        pair.$parallelBranches.sections,
+      pairedParallelBranchesId:
+        pair.id,
+    }
+  }
+
+  return {
+    sections: null,
+    pairedParallelBranchesId: null,
+  }
+}
+
+const sncfNetwork = computed(() => {
+  /*
+   * Les lignes sont placées sur une grille logique (row/lane).
+   * Point important : les deux sorties d'une fourche commencent à
+   * la MEME ligne. Elles sont donc réellement parallèles au lieu
+   * d'être ajoutées l'une après l'autre dans la hauteur du plan.
+   */
+  const rowMap =
+    new Map<number, SncfNetworkRow>()
+
+  const lanes =
+    new Map<number, SncfNetworkLane>()
+
+  const laneColorEvents =
+    new Map<
+      number,
+      Map<number, string>
+    >()
+
+  const handledParallelBranches =
+    new Set<string>()
+
+  const seenStops =
+    new Set<string>()
+
+  let minLane = 0
+  let maxLane = 0
+  let maxRow = 0
+  let hasBranches = false
+
+  const mainColor =
+    line.value.color
+    ?? '#ffffff'
+
+  function ensureRow(
+    rowIndex: number,
+  ) {
+    const existing =
+      rowMap.get(rowIndex)
+
+    if (existing) {
+      return existing
+    }
+
+    const row: SncfNetworkRow = {
+      key: `network-row-${rowIndex}`,
+      stops: [],
+      forks: [],
+    }
+
+    rowMap.set(
+      rowIndex,
+      row,
+    )
+
+    maxRow = Math.max(
+      maxRow,
+      rowIndex,
+    )
+
+    return row
+  }
+
+  function touchLane(
+    lane: number,
+    row: number,
+    color: string,
+  ) {
+    const colorEvents =
+      laneColorEvents.get(lane)
+      ?? new Map<number, string>()
+
+    colorEvents.set(
+      row,
+      color,
+    )
+
+    laneColorEvents.set(
+      lane,
+      colorEvents,
+    )
+
+    const existing = lanes.get(lane)
+
+    if (!existing) {
+      lanes.set(
+        lane,
+        {
+          lane,
+          startRow: row,
+          endRow: row,
+          color,
+        },
+      )
+
+      minLane = Math.min(
+        minLane,
+        lane,
+      )
+      maxLane = Math.max(
+        maxLane,
+        lane,
+      )
+
+      return
+    }
+
+    existing.startRow = Math.min(
+      existing.startRow,
+      row,
+    )
+    existing.endRow = Math.max(
+      existing.endRow,
+      row,
+    )
+  }
+
+  function addStop(
+    stop: Stop,
+    lane: number,
+    color: string,
+    rowIndex: number,
+  ) {
+    if (seenStops.has(stop.id)) {
+      return rowIndex
+    }
+
+    ensureRow(rowIndex).stops.push({
+      key: `stop-${stop.id}`,
+      stop,
+      lane,
+    })
+
+    seenStops.add(stop.id)
+    touchLane(
+      lane,
+      rowIndex,
+      color,
+    )
+
+    return rowIndex + 1
+  }
+
+  function allocateLane(
+    fromLane: number,
+    toward: 'LEFT' | 'RIGHT',
+  ) {
+    /*
+     * Une sous-fourche doit sortir vers l'extérieur du réseau.
+     * Sinon une bifurcation de la voie de gauche vers la droite
+     * traverserait visuellement la branche déjà placée à droite.
+     */
+    if (minLane < maxLane) {
+      if (fromLane <= minLane) {
+        minLane -= 1
+        return minLane
+      }
+
+      if (fromLane >= maxLane) {
+        maxLane += 1
+        return maxLane
+      }
+    }
+
+    if (toward === 'LEFT') {
+      minLane -= 1
+      return minLane
+    }
+
+    maxLane += 1
+    return maxLane
+  }
+
+  function addForkRow(
+    fromLane: number,
+    toLane: number,
+    color: string,
+    key: string,
+    rowIndex: number,
+  ) {
+    ensureRow(rowIndex).forks.push({
+      key,
+      fromLane,
+      toLane,
+      color,
+    })
+
+    /*
+     * Le tronc traverse la ligne de bifurcation. La nouvelle voie
+     * commence juste APRES la courbe afin de ne pas dessiner un
+     * deuxième trait vertical sous le raccord arrondi.
+     */
+    touchLane(
+      fromLane,
+      rowIndex,
+      lanes.get(fromLane)?.color
+      ?? mainColor,
+    )
+
+    touchLane(
+      toLane,
+      rowIndex + 1,
+      color,
+    )
+
+    maxRow = Math.max(
+      maxRow,
+      rowIndex,
+    )
+  }
+
+  function addVerticalSegmentStops(
+    element: VerticalSegment,
+    lane: number,
+    color: string,
+    startRow: number,
+  ) {
+    const data =
+      element.$verticalSegment as
+        VerticalSegment['$verticalSegment'] & {
+          stops?: Stop[]
+        }
+
+    const stops =
+      data.stops
+      ?? (
+        data.stop
+          ? [data.stop]
+          : []
+      )
+
+    let row = startRow
+
+    for (const stop of stops) {
+      row = addStop(
+        stop,
+        lane,
+        color,
+        row,
+      )
+    }
+
+    return row
+  }
+
+  function addLoopStops(
+    element: Loop,
+    lane: number,
+    color: string,
+    startRow: number,
+  ) {
+    const data =
+      element.$loop as
+        Loop['$loop'] & {
+          stops?: Stop[]
+        }
+
+    const stops =
+      data.stops
+      ?? (
+        data.stop
+          ? [data.stop]
+          : []
+      )
+
+    let row = startRow
+
+    for (const stop of stops) {
+      row = addStop(
+        stop,
+        lane,
+        color,
+        row,
+      )
+    }
+
+    return row
+  }
+
+  function processParallelSections(
+    sections: [LineSection, LineSection],
+    lane: number,
+    depth: number,
+    color: string,
+    toward: 'LEFT' | 'RIGHT',
+    key: string,
+    startRow: number,
+  ) {
+    /*
+     * Deux niveaux visuels maximum : fourche principale puis une
+     * sous-fourche dans l'une des branches. Au-delà on garde tous
+     * les arrêts mais sur la dernière voie disponible.
+     */
+    if (
+      depth >= SNCF_MAX_BRANCH_DEPTH
+    ) {
+      let row = startRow
+
+      for (const subSection of sections) {
+        row = processSection(
+          subSection,
+          lane,
+          depth + 1,
+          color,
+          row,
+        )
+      }
+
+      return row
+    }
+
+    hasBranches = true
+
+    const secondaryLane =
+      allocateLane(
+        lane,
+        toward,
+      )
+
+    const primaryColor =
+      sncfSectionColor(
+        sections[0],
+        color,
+      )
+
+    const secondaryColor =
+      sncfSectionColor(
+        sections[1],
+        color,
+      )
+
+    addForkRow(
+      lane,
+      secondaryLane,
+      secondaryColor,
+      key,
+      startRow,
+    )
+
+    const branchStartRow =
+      startRow + 1
+
+    /*
+     * IMPORTANT : même branchStartRow pour les deux sorties.
+     * C'est ce qui empêche Chelles puis Tournan d'être concaténées
+     * verticalement comme dans le premier prototype.
+     */
+    const primaryEnd =
+      processSection(
+        sections[0],
+        lane,
+        depth + 1,
+        primaryColor,
+        branchStartRow,
+      )
+
+    const secondaryEnd =
+      processSection(
+        sections[1],
+        secondaryLane,
+        depth + 1,
+        secondaryColor,
+        branchStartRow,
+      )
+
+    return Math.max(
+      primaryEnd,
+      secondaryEnd,
+    )
+  }
+
+  function processSection(
+    section: LineSection,
+    lane: number,
+    depth: number,
+    color: string,
+    startRow: number,
+  ) {
+    const sectionElements =
+      section.$lineSection.elements
+
+    let row = startRow
+
+    for (
+      const element
+      of sectionElements
+    ) {
+      if (isBranch(element)) {
+        const branchColor =
+          sncfBranchColor(
+            element,
+            color,
+          )
+
+        const branchElements =
+          element.$branch.invertedElements
+            ? [...element.$branch.elements].reverse()
+            : element.$branch.elements
+
+        for (
+          const branchElement
+          of branchElements
+        ) {
+          if (isStop(branchElement)) {
+            row = addStop(
+              branchElement,
+              lane,
+              branchColor,
+              row,
+            )
+          }
+        }
+
+        continue
+      }
+
+      if (isFork(element)) {
+        const forkResult =
+          sncfForkSections(
+            element,
+            sectionElements,
+          )
+
+        if (
+          forkResult
+            .pairedParallelBranchesId
+        ) {
+          handledParallelBranches.add(
+            forkResult
+              .pairedParallelBranchesId,
+          )
+        }
+
+        if (!forkResult.sections) {
+          continue
+        }
+
+        row = processParallelSections(
+          forkResult.sections,
+          lane,
+          depth,
+          color,
+          element.$fork.toward,
+          element.id,
+          row,
+        )
+
+        continue
+      }
+
+      if (isParallelBranches(element)) {
+        if (
+          handledParallelBranches.has(
+            element.id,
+          )
+        ) {
+          continue
+        }
+
+        const pairData =
+          element.$parallelBranches as ParallelBranchesWithPairId
+
+        const pairId =
+          pairData.forkId
+
+        if (pairId) {
+          const pair =
+            sectionElements.find(
+              candidate =>
+                candidate.id === pairId
+                && isFork(candidate),
+            )
+
+          if (pair) {
+            continue
+          }
+        }
+
+        row = processParallelSections(
+          element
+            .$parallelBranches
+            .sections,
+          lane,
+          depth,
+          color,
+          'RIGHT',
+          element.id,
+          row,
+        )
+
+        continue
+      }
+
+      if (isVerticalSegment(element)) {
+        row = addVerticalSegmentStops(
+          element,
+          lane,
+          color,
+          row,
+        )
+
+        continue
+      }
+
+      if (isLoop(element)) {
+        row = addLoopStops(
+          element,
+          lane,
+          color,
+          row,
+        )
+      }
+    }
+
+    return row
+  }
+
+  touchLane(
+    0,
+    0,
+    mainColor,
+  )
+
+  let rootRow = 0
+
+  for (
+    const section
+    of line.value.topology
+  ) {
+    rootRow = processSection(
+      section,
+      0,
+      0,
+      mainColor,
+      rootRow,
+    )
+  }
+
+  maxRow = Math.max(
+    maxRow,
+    rootRow - 1,
+    0,
+  )
+
+  const rows =
+    Array.from(
+      { length: maxRow + 1 },
+      (_, rowIndex) =>
+        rowMap.get(rowIndex)
+        ?? {
+          key: `network-row-${rowIndex}`,
+          stops: [],
+          forks: [],
+        },
+    )
+
+  const stopRowsByLane =
+    new Map<
+      number,
+      Array<{
+        row: number
+        stop: Stop
+      }>
+    >()
+
+  rows.forEach((row, rowIndex) => {
+    for (const entry of row.stops) {
+      const laneStops =
+        stopRowsByLane.get(entry.lane)
+        ?? []
+
+      laneStops.push({
+        row: rowIndex,
+        stop: entry.stop,
+      })
+
+      stopRowsByLane.set(
+        entry.lane,
+        laneStops,
+      )
+    }
+  })
+
+  const localRanges:
+    SncfNetworkLocalRange[] = []
+
+  stopRowsByLane.forEach(
+    (laneStops, lane) => {
+      laneStops.forEach(
+        (item, index) => {
+          const identity =
+            sncfStopLocalLineIdentity(
+              item.stop,
+            )
+
+          if (!identity) {
+            return
+          }
+
+          const next =
+            laneStops[index + 1]
+
+          const previous =
+            laneStops[index - 1]
+
+          if (next) {
+            localRanges.push({
+              key:
+                `local-${item.stop.id}`
+                + `-${next.stop.id}`,
+              lane,
+              startRow: item.row,
+              endRow: next.row,
+              color: identity.color,
+            })
+
+            return
+          }
+
+          if (previous) {
+            localRanges.push({
+              key:
+                `local-${previous.stop.id}`
+                + `-${item.stop.id}`,
+              lane,
+              startRow: previous.row,
+              endRow: item.row,
+              color: identity.color,
+            })
+          }
+        },
+      )
+    },
+  )
+
+  return {
+    rows,
+    lanes:
+      Array.from(lanes.values()),
+    localRanges,
+    laneColorEvents,
+    minLane,
+    maxLane,
+    hasBranches,
+  }
+})
+
+const sncfNetworkLaneAreaWidth =
+  computed(() => {
+    const laneCount =
+      sncfNetwork.value.maxLane
+      - sncfNetwork.value.minLane
+      + 1
+
+    return (
+      SNCF_NETWORK_SIDE_RESERVE
+      + Math.max(
+        0,
+        laneCount - 1,
+      ) * SNCF_NETWORK_LANE_GAP
+      + SNCF_NETWORK_SIDE_RESERVE
+    )
+  })
+
+function sncfNetworkLaneX(
+  lane: number,
+) {
+  return (
+    SNCF_NETWORK_LANE_START
+    + (
+      lane
+      - sncfNetwork.value.minLane
+    )
+    * SNCF_NETWORK_LANE_GAP
+  )
+}
+
+function sncfNetworkStopContentX(
+  lane: number,
+) {
+  return (
+    sncfNetworkLaneX(lane)
+    + SNCF_NETWORK_LABEL_OFFSET
+  )
+}
+
+function sncfNetworkLanesAtRow(
+  rowIndex: number,
+) {
+  return sncfNetwork.value.lanes.filter(
+    lane =>
+      rowIndex >= lane.startRow
+      && rowIndex <= lane.endRow,
+  )
+}
+
+function sncfNetworkLaneStartsFromFork(
+  lane: number,
+  rowIndex: number,
+) {
+  if (rowIndex <= 0) {
+    return false
+  }
+
+  return (
+    sncfNetwork.value.rows[
+      rowIndex - 1
+    ]?.forks.some(
+      fork =>
+        fork.toLane === lane,
+    )
+    ?? false
+  )
+}
+
+function sncfNetworkLaneColorAtRow(
+  lane: SncfNetworkLane,
+  rowIndex: number,
+) {
+  const events =
+    sncfNetwork.value
+      .laneColorEvents
+      .get(lane.lane)
+
+  if (!events) {
+    return lane.color
+  }
+
+  let color = lane.color
+  let latestRow = -Infinity
+
+  events.forEach(
+    (eventColor, eventRow) => {
+      if (
+        eventRow <= rowIndex
+        && eventRow >= latestRow
+      ) {
+        latestRow = eventRow
+        color = eventColor
+      }
+    },
+  )
+
+  return color
+}
+
+function sncfNetworkLaneStyle(
+  lane: SncfNetworkLane,
+  rowIndex: number,
+) {
+  return {
+    left:
+      `${sncfNetworkLaneX(lane.lane)}em`,
+    top:
+      rowIndex === lane.startRow
+        ? (
+            sncfNetworkLaneStartsFromFork(
+              lane.lane,
+              rowIndex,
+            )
+              ? '0'
+              : '50%'
+          )
+        : '0',
+    bottom:
+      rowIndex === lane.endRow
+        ? '50%'
+        : '0',
+    backgroundColor:
+      sncfNetworkLaneColorAtRow(
+        lane,
+        rowIndex,
+      ),
+  }
+}
+
+function sncfNetworkLocalRangesAtRow(
+  rowIndex: number,
+) {
+  return sncfNetwork.value.localRanges
+    .filter(
+      range =>
+        rowIndex >= range.startRow
+        && rowIndex <= range.endRow,
+    )
+}
+
+function sncfNetworkLocalRangeStyle(
+  range: SncfNetworkLocalRange,
+  rowIndex: number,
+) {
+  return {
+    left:
+      `${sncfNetworkLaneX(range.lane)}em`,
+    top:
+      rowIndex === range.startRow
+        ? '50%'
+        : '0',
+    bottom:
+      rowIndex === range.endRow
+        ? '50%'
+        : '0',
+    backgroundColor:
+      range.color,
+  }
+}
+
+function sncfNetworkForkPath(
+  fork: SncfNetworkFork,
+) {
+  const fromX =
+    sncfNetworkLaneX(
+      fork.fromLane,
+    )
+
+  const toX =
+    sncfNetworkLaneX(
+      fork.toLane,
+    )
+
+  const height =
+    SNCF_NETWORK_FORK_HEIGHT
+
+  const deltaX =
+    toX - fromX
+
+  /*
+   * Une vraie courbe en S remplace le grand raccord quasi rectangulaire.
+   * La tangente reste verticale au départ et à l'arrivée, ce qui donne
+   * une séparation beaucoup plus proche d'une signalétique ferroviaire.
+   */
+  const control1X = fromX
+  const control1Y = height * .34
+  const control2X =
+    fromX + deltaX * .78
+  const control2Y =
+    height * .58
+
+  return (
+    `M ${fromX} 0 `
+    + `C ${control1X} ${control1Y} `
+    + `${control2X} ${control2Y} `
+    + `${toX} ${height}`
+  )
+}
+
+function sncfNetworkStopMarkerColor(
+  rowIndex: number,
+  lane: number,
+) {
+  const outgoing =
+    sncfNetwork.value.localRanges
+      .find(
+        range =>
+          range.lane === lane
+          && range.startRow === rowIndex,
+      )
+
+  if (outgoing) {
+    return outgoing.color
+  }
+
+  const incoming =
+    sncfNetwork.value.localRanges
+      .find(
+        range =>
+          range.lane === lane
+          && range.endRow === rowIndex,
+      )
+
+  if (incoming) {
+    return incoming.color
+  }
+
+  return (
+    sncfNetwork.value.lanes.find(
+      item => item.lane === lane,
+    )?.color
+    ?? line.value.color
+    ?? '#ffffff'
+  )
+}
+
+function sncfNetworkFirstStopId() {
+  for (const row of sncfNetwork.value.rows) {
+    const firstStop = row.stops[0]
+
+    if (firstStop) {
+      return firstStop.stop.id
+    }
+  }
+
+  return null
+}
 
 const sncfDestinations =
   computed(() => {
@@ -1496,7 +2675,7 @@ const sncfDestinationText =
   computed(() =>
     sncfDestinations.value.length > 0
       ? sncfDestinations.value.join(' • ')
-      : 'Destination',
+      : t('ui.map_editor.destination'),
   )
 
 function isSncfFirstStop(
@@ -1955,43 +3134,62 @@ function deleteAnnotation(
   <div
     v-if="isSncfSignage"
     class="sncf-signage"
-    :style="{
-      '--sncf-line-color':
-        line.color ?? '#ffcd00',
-    }"
+    :style="[
+      {
+        '--sncf-line-color':
+          line.color ?? '#ffcd00',
+      },
+      mapFontStyle,
+    ]"
   >
     <div class="sncf-signage-header">
       <div class="sncf-signage-identity">
-        <img
-          v-if="transportServiceIcon"
-          :src="transportServiceIcon"
-          class="sncf-signage-service-icon"
-          alt=""
-          aria-hidden="true"
+        <div
+          v-for="group in planLineModeGroups"
+          :key="group.key"
+          class="sncf-signage-identity-group"
         >
+          <img
+            v-if="getTransportServiceIcon(group.transportService)"
+            :src="getTransportServiceIcon(group.transportService) ?? undefined"
+            class="sncf-signage-service-icon"
+            alt=""
+            aria-hidden="true"
+          >
 
-        <Mode
-          v-else
-          plain
-          :mode="line.mode"
-          class="sncf-signage-mode"
-        />
+          <Mode
+            v-else
+            plain
+            :mode="group.mode"
+            class="sncf-signage-mode"
+          />
 
-        <LineIndex
-          :mode="line.mode"
-          :index="line.index"
-          class="sncf-signage-index"
-        />
+          <div
+            class="sncf-signage-indices"
+            :class="{
+              'is-stacked':
+                group.identities.length > 1,
+            }"
+          >
+            <LineIndex
+              v-for="identity in group.identities"
+              :key="identity.key"
+              :mode="identity.mode"
+              :index="identity.index"
+              class="sncf-signage-index"
+            />
+          </div>
+        </div>
       </div>
 
       <div class="sncf-signage-direction">
         <div class="sncf-signage-direction-line">
           <span class="sncf-signage-direction-label">
-            vers
+            {{ $t('ui.map_editor.towards') }}
           </span>
 
           <span class="sncf-signage-direction-main">
-            {{ sncfDestinations[0] || 'Destination' }}
+            {{ sncfDestinations[0] || $t('ui.map_editor.destination') }}
           </span>
         </div>
 
@@ -2004,8 +3202,170 @@ function deleteAnnotation(
       </div>
     </div>
 
-    <div class="sncf-signage-body">
-      <div class="sncf-signage-route">
+    <div
+      class="sncf-signage-body"
+      :class="{
+        'has-network':
+          sncfNetwork.hasBranches,
+      }"
+    >
+      <div
+        v-if="sncfNetwork.hasBranches"
+        class="sncf-signage-network"
+        :style="{
+          width:
+            `${sncfNetworkLaneAreaWidth}em`,
+        }"
+      >
+        <div
+          v-for="(row, rowIndex) in sncfNetwork.rows"
+          :key="row.key"
+          class="sncf-network-row"
+          :class="{
+            'is-fork-row':
+              row.forks.length > 0
+              && row.stops.length === 0,
+          }"
+          :style="{
+            '--sncf-network-lane-area-width':
+              `${sncfNetworkLaneAreaWidth}em`,
+          }"
+        >
+          <div
+            class="sncf-network-lanes"
+            :style="{
+              width:
+                `${sncfNetworkLaneAreaWidth}em`,
+            }"
+          >
+            <div
+              v-for="lane in sncfNetworkLanesAtRow(rowIndex)"
+              :key="`lane-${lane.lane}-${rowIndex}`"
+              class="sncf-network-lane-line"
+              :style="sncfNetworkLaneStyle(lane, rowIndex)"
+            />
+
+            <div
+              v-for="range in sncfNetworkLocalRangesAtRow(rowIndex)"
+              :key="`${range.key}-${rowIndex}`"
+              class="sncf-network-local-line"
+              :style="sncfNetworkLocalRangeStyle(range, rowIndex)"
+            />
+
+            <svg
+              v-if="row.forks.length > 0"
+              class="sncf-network-fork"
+              :viewBox="`0 0 ${sncfNetworkLaneAreaWidth} ${SNCF_NETWORK_FORK_HEIGHT}`"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <path
+                v-for="fork in row.forks"
+                :key="fork.key"
+                :d="sncfNetworkForkPath(fork)"
+                :stroke="fork.color"
+              />
+            </svg>
+
+            <div
+              v-for="entry in row.stops"
+              :key="`dot-${entry.key}`"
+              class="sncf-network-stop-dot sncf-signage-dot"
+              :class="{
+                'is-terminus':
+                  entry.stop.$stop.terminus,
+                'is-first':
+                  entry.stop.id
+                  === sncfNetworkFirstStopId(),
+              }"
+              :style="{
+                left:
+                  `${sncfNetworkLaneX(entry.lane)}em`,
+                '--sncf-stop-line-color':
+                  sncfNetworkStopMarkerColor(
+                    rowIndex,
+                    entry.lane,
+                  ),
+              }"
+            />
+          </div>
+
+          <!--
+            Une branche = une vraie colonne de contenu.
+            Les arrêts de deux sorties d'une fourche peuvent donc
+            partager la même hauteur sans se masquer mutuellement.
+          -->
+          <div
+            v-for="entry in row.stops"
+            :key="`content-${entry.key}`"
+            class="sncf-signage-stop-main sncf-network-stop-main"
+            :style="{
+              left:
+                `${sncfNetworkStopContentX(entry.lane)}em`,
+              width:
+                `${SNCF_NETWORK_LABEL_WIDTH}em`,
+            }"
+          >
+            <div
+              class="sncf-signage-stop-content"
+              :class="{
+                'terminus-card':
+                  entry.stop.$stop.terminus
+                  && entry.stop.id
+                  === sncfNetworkFirstStopId(),
+              }"
+            >
+              <div class="sncf-signage-stop-text-line">
+                <div
+                  class="sncf-signage-stop-name"
+                  :class="{
+                    'is-terminus':
+                      entry.stop.$stop.terminus,
+                  }"
+                >
+                  {{
+                    entry.stop.$stop.name
+                    || $t('ui.map_editor.toolbox.untitled_stop')
+                  }}
+                </div>
+
+                <div
+                  v-if="
+                    entry.stop.$stop.subtitle
+                    || entry.stop.$stop.placeName
+                  "
+                  class="sncf-signage-stop-subtitle"
+                >
+                  {{
+                    entry.stop.$stop.subtitle
+                    || entry.stop.$stop.placeName
+                  }}
+                </div>
+              </div>
+            </div>
+
+            <div class="sncf-signage-connections">
+              <Connections
+                :connections="
+                  getSncfConnections(
+                    entry.stop.$stop.connections,
+                  )
+                "
+                :custom-connections="
+                  entry.stop.$stop.customConnections
+                  ?? []
+                "
+                :reverse="false"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-else
+        class="sncf-signage-route"
+      >
         <div
           v-for="(stop, index) in sncfStops"
           :key="stop.id"
@@ -2018,15 +3378,35 @@ function deleteAnnotation(
             'is-terminus':
               stop.$stop.terminus,
           }"
-          @click="openSncfStopProperties(stop)"
         >
           <div class="sncf-signage-rail-column">
+            <div
+              v-if="sncfIncomingLineIdentity(index)"
+              class="sncf-signage-local-segment sncf-signage-local-segment-top"
+              :style="{
+                backgroundColor:
+                  sncfSegmentColorBefore(index),
+              }"
+            />
+
+            <div
+              v-if="
+                index < sncfStops.length - 1
+                && sncfOutgoingLineIdentity(stop)
+              "
+              class="sncf-signage-local-segment sncf-signage-local-segment-bottom"
+              :style="{
+                backgroundColor:
+                  sncfSegmentColorAfter(stop),
+              }"
+            />
+
             <div
               v-if="index > 0"
               class="sncf-signage-rail sncf-signage-rail-top"
               :style="{
                 backgroundColor:
-                  line.color ?? '#ffffff',
+                  sncfSegmentColorBefore(index),
               }"
             />
 
@@ -2041,8 +3421,11 @@ function deleteAnnotation(
                   isSncfLastStop(index),
               }"
               :style="{
-                '--sncf-line-color':
-                  line.color ?? '#ffffff',
+                '--sncf-stop-line-color':
+                  sncfStopMarkerLineColor(
+                    stop,
+                    index,
+                  ),
               }"
             />
 
@@ -2054,7 +3437,7 @@ function deleteAnnotation(
               class="sncf-signage-rail sncf-signage-rail-bottom"
               :style="{
                 backgroundColor:
-                  line.color ?? '#ffffff',
+                  sncfSegmentColorAfter(stop),
               }"
             />
           </div>
@@ -2115,54 +3498,11 @@ function deleteAnnotation(
               />
             </div>
 
-            <button
-              type="button"
-              class="sncf-signage-stop-delete export-hide"
-              :title="$t('ui.map_editor.delete_stop')"
-              @click.stop="deleteSncfStop(stop)"
-            >
-              <i class="i-tabler-trash" />
-            </button>
           </div>
         </div>
       </div>
     </div>
 
-    <StopPropertiesDialog
-      v-if="
-        selectedSncfStop
-        && selectedSncfBranch
-      "
-      v-model:visible="
-        sncfStopPropertiesVisible
-      "
-      v-model="selectedSncfStop"
-      :allow-city="
-        line.frameTerminusNames
-      "
-      :branch="
-        selectedSncfBranch
-      "
-      @open-connections="
-        sncfConnectionsVisible = true
-      "
-    />
-
-    <ConnectionsEditor
-      v-if="
-        selectedSncfStop
-        && selectedSncfBranch
-      "
-      v-model:visible="
-        sncfConnectionsVisible
-      "
-      v-model:stop="
-        selectedSncfStop
-      "
-      :branch="
-        selectedSncfBranch
-      "
-    />
   </div>
 
   <div
@@ -2173,7 +3513,7 @@ function deleteAnnotation(
     :class="{
       'bus-map': isBusMode,
     }"
-    :style="contentAdaptiveStyle"
+    :style="[contentAdaptiveStyle, mapFontStyle]"
   >
     <!--
       ======================================================
@@ -2301,7 +3641,7 @@ function deleteAnnotation(
             export-hide
           "
         >
-          Destinations
+          {{ $t('ui.map_editor.destinations') }}
         </span>
       </div>
     </div>
@@ -2541,7 +3881,7 @@ function deleteAnnotation(
     "
   >
     <span>
-      https://useclu.pro ° Créateur de lignes urbaines ° {{ date }}
+      https://useclu.pro ° {{ $t('ui.topbar.brand') }} ° {{ date }}
     </span>
   </div>
 </div>
@@ -2635,7 +3975,7 @@ function deleteAnnotation(
         <button
           type="button"
           class="annotation-delete"
-          title="Supprimer l'annotation"
+          :title="$t('ui.map_editor.delete_annotation')"
           @pointerdown.stop
           @click.stop="
             deleteAnnotation(
@@ -2675,13 +4015,7 @@ function deleteAnnotation(
         "
       >
         <span>
-          Non affilié à la RATP, à Île-de-France Mobilités ou à toute autre société. Les pictogrammes ainsi que les polices utilisés demeurent la propriété intellectuelle exclusive des entités susmentionnées.
-        </span>
-
-        <span
-          class="italic text-.75em"
-        >
-          Not affiliated with RATP, Île-de-France Mobilités or any other company. The pictograms and fonts used remain the exclusive intellectual property of the aforementioned entities.
+          {{ $t('ui.map_editor.legal_notice') }}
         </span>
       </div>
     </div>
@@ -2743,10 +4077,11 @@ function deleteAnnotation(
   color: white;
 
   font-family:
-    'Parisine Ptf',
-    Arial,
-    Helvetica,
-    sans-serif;
+    var(
+      --map-font-family,
+      'Parisine Ptf',
+      sans-serif
+    );
 
   outline:
     1px
@@ -2774,6 +4109,30 @@ function deleteAnnotation(
   gap: .8em;
 
   flex-shrink: 0;
+}
+
+.sncf-signage-identity-group {
+  display: flex;
+  align-items: flex-start;
+  gap: .35em;
+
+  flex-shrink: 0;
+}
+
+.sncf-signage-indices {
+  display: flex;
+  align-items: center;
+  gap: .12em;
+
+  flex-shrink: 0;
+}
+
+.sncf-signage-indices.is-stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .18em;
+
+  margin-top: 0;
 }
 
 .sncf-signage-mode {
@@ -2887,6 +4246,144 @@ function deleteAnnotation(
     22em;
 }
 
+.sncf-signage-body.has-network {
+  width: 100%;
+  min-width: 100%;
+
+  padding-left: 2.5em;
+  padding-right: 2.5em;
+}
+
+.sncf-signage-network {
+  position: relative;
+
+  width: max-content;
+  min-width: 58em;
+
+  margin-inline: auto;
+
+  display: flex;
+  flex-direction: column;
+}
+
+.sncf-network-row {
+  position: relative;
+
+  height: 4.25em;
+  min-height: 4.25em;
+
+  width:
+    var(--sncf-network-lane-area-width);
+  min-width:
+    var(--sncf-network-lane-area-width);
+
+  flex: 0 0 auto;
+}
+
+.sncf-network-row.is-fork-row {
+  height: 8.2em;
+  min-height: 8.2em;
+}
+
+.sncf-network-lanes {
+  position: absolute;
+  inset: 0;
+
+  min-height: inherit;
+
+  pointer-events: none;
+}
+
+.sncf-network-lane-line,
+.sncf-network-local-line {
+  position: absolute;
+
+  width: 1.25em;
+
+  transform: translateX(-50%);
+
+  /*
+   * Pas d'arrondi sur chaque ligne de grille : sinon chaque arrêt
+   * crée une micro-coupure visible dans le trait vertical.
+   */
+  border-radius: 0;
+
+  pointer-events: none;
+}
+
+.sncf-network-lane-line {
+  z-index: 0;
+}
+
+.sncf-network-local-line {
+  z-index: 2;
+}
+
+.sncf-network-fork {
+  position: absolute;
+  inset: 0;
+
+  width: 100%;
+  height: 100%;
+
+  overflow: visible;
+
+  pointer-events: none;
+
+  z-index: 1;
+}
+
+.sncf-network-fork path {
+  fill: none;
+
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sncf-network-stop-dot {
+  position: absolute;
+  top: 50%;
+
+  transform:
+    translate(-50%, -50%);
+
+  z-index: 4;
+}
+
+/*
+ * Le contenu d'un arrêt est ancré à la voie à laquelle il appartient.
+ * Cela permet d'avoir, sur une même ligne horizontale, un arrêt de la
+ * branche A et un arrêt de la branche B sans que l'un remplace l'autre.
+ */
+.sncf-network-stop-main {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+
+  /*
+   * Le point et tout le contenu utilisent exactement le même centre
+   * de ligne. Cela évite les petits décalages cumulés arrêt après arrêt.
+   */
+  transform: none;
+  align-items: center;
+
+  min-width: 0;
+  max-width: none;
+
+  box-sizing: border-box;
+
+  padding: 0;
+
+  z-index: 5;
+}
+
+.sncf-network-stop-main
+.sncf-signage-stop-content.terminus-card {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
 .sncf-signage-route {
   position: relative;
 
@@ -2936,17 +4433,12 @@ function deleteAnnotation(
   display: flex;
   align-items: center;
 
-  cursor: pointer;
+  cursor: default;
 
   border-radius: .14em;
 
   transition:
     background-color .12s ease;
-}
-
-.sncf-signage-stop:hover {
-  background:
-    rgb(255 255 255 / 4%);
 }
 
 .sncf-signage-rail-column {
@@ -2966,6 +4458,35 @@ function deleteAnnotation(
 
 .sncf-signage-rail {
   display: none;
+}
+
+/*
+ * Changement local de ligne en signalétique SNCF :
+ * - moitié basse de l'arrêt de départ ;
+ * - moitié haute de l'arrêt d'arrivée.
+ *
+ * Les deux moitiés se rejoignent exactement entre les centres
+ * des arrêts, quel que soit leur contenu ou leur hauteur.
+ */
+.sncf-signage-local-segment {
+  position: absolute;
+
+  left: 1.2em;
+  width: 1.25em;
+
+  z-index: 1;
+
+  pointer-events: none;
+}
+
+.sncf-signage-local-segment-top {
+  top: 0;
+  bottom: 50%;
+}
+
+.sncf-signage-local-segment-bottom {
+  top: 50%;
+  bottom: 0;
 }
 
 /*
@@ -3003,7 +4524,7 @@ function deleteAnnotation(
     0
     0
     .1em
-    var(--sncf-line-color);
+    var(--sncf-stop-line-color, var(--sncf-line-color));
 }
 
 .sncf-signage-dot.is-first {
@@ -3011,7 +4532,7 @@ function deleteAnnotation(
   height: 2em;
 
   background:
-    var(--sncf-line-color);
+    var(--sncf-stop-line-color, var(--sncf-line-color));
 
   border:
     .34em
@@ -3039,6 +4560,7 @@ function deleteAnnotation(
 
   box-shadow: none;
 }
+
 
 .sncf-signage-stop-main {
   position: relative;
@@ -3431,8 +4953,11 @@ function deleteAnnotation(
 
   font-size: var(--font-size);
   font-family:
-    'Parisine Ptf',
-    sans-serif;
+    var(
+      --map-font-family,
+      'Parisine Ptf',
+      sans-serif
+    );
 
   outline:
     1px
@@ -3606,10 +5131,7 @@ function deleteAnnotation(
    * Le texte est volontairement plus
    * lourd que les destinations.
    */
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
+  font-family: inherit;
 
   font-size: 1.25em;
   font-weight: 800;
@@ -3728,10 +5250,7 @@ function deleteAnnotation(
 
   white-space: nowrap;
 
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
+  font-family: inherit;
 
   font-size: 1.02em;
 
@@ -4028,10 +5547,7 @@ function deleteAnnotation(
 }
 
 .tram-idfm-main {
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
+  font-family: inherit;
 
   font-size: .83em;
   font-weight: 800;
@@ -4044,10 +5560,7 @@ function deleteAnnotation(
 .tram-idfm-sub {
   margin-top: .14em;
 
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
+  font-family: inherit;
 
   font-size: .43em;
   font-weight: 700;
@@ -4259,6 +5772,57 @@ function deleteAnnotation(
 .classic-line-mode-group :deep(svg),
 .classic-line-mode-group :deep(img) {
   display: block;
+}
+
+/*
+ * =========================================================
+ * FINITIONS PRÉVISUALISATION SNCF
+ * =========================================================
+ *
+ * Les règles génériques de .sncf-signage-stop-main sont
+ * déclarées après celles du réseau à branches. Elles pouvaient
+ * donc remettre le contenu en position relative et créer un
+ * léger décalage vertical par rapport au point de station.
+ *
+ * Dans le réseau SNCF, le point ET tout le bloc de l'arrêt
+ * utilisent maintenant strictement le même centre de ligne.
+ */
+.sncf-signage-network .sncf-network-stop-main {
+  position: absolute;
+
+  top: 50%;
+  bottom: auto;
+
+  transform: translateY(-50%);
+
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  padding: 0;
+  margin: 0;
+}
+
+.sncf-signage-network
+.sncf-network-stop-main
+.sncf-signage-stop-content {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/*
+ * En signalétique SNCF, les éléments de correspondance qui
+ * utilisent normalement le bleu RATP doivent rester lisibles
+ * sur le fond bleu foncé : pictogramme piéton et libellés de
+ * liaison (Auber, Nanterre Préfecture, etc.) passent en blanc.
+ */
+.sncf-signage-connections :deep(.pedestrian) {
+  background-color: #fff !important;
+}
+
+.sncf-signage-connections :deep(.text-ornament),
+.sncf-signage-connections :deep(.transfer-duration) {
+  color: #fff !important;
 }
 
 .legal-notice {

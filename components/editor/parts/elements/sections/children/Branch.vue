@@ -11,6 +11,7 @@ import {
   watch,
 } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
+import { useI18n } from 'vue-i18n'
 import useElementGrabbing from '~/composables/useElementGrabbing'
 import { useProject } from '~/stores/useProject'
 import { LineContextKey } from '~/utils/symbols'
@@ -24,15 +25,22 @@ const {
 const el = ref<HTMLElement>()
 const line = ref()
 
-const sizeFactor = computed(() =>
-  Number.parseInt(useCssVar('--base-size', el).value ?? '1'),
-)
+const baseSizeCss = useCssVar('--base-size', el)
+
+const sizeFactor = computed(() => {
+  const value = Number.parseFloat(baseSizeCss.value ?? '1')
+
+  return Number.isFinite(value) && value > 0
+    ? value
+    : 1
+})
 
 const { width: branchLength } = useElementSize(line)
 
 const branch = defineModel<Branch>({ required: true })
 
 const project = useProject()
+const { t } = useI18n()
 type TramStyle =
   | 'ANGLED'
   | 'HORIZONTAL'
@@ -51,6 +59,12 @@ const isTramHorizontal = computed(() =>
   && tramStyle.value === 'HORIZONTAL',
 )
 
+const isBusAreaMode = computed(() =>
+  project.line.mode === 'BUS'
+  || project.line.mode === 'BRT'
+  || project.line.mode === 'NOCTILIEN',
+)
+
 const showOutOfFareZoneBackground =
   computed(
     () =>
@@ -59,8 +73,9 @@ const showOutOfFareZoneBackground =
       !== false,
   )
 
-const defaultOutOfFareZoneText =
-  'HORS TARIFICATION ÎLE-DE-FRANCE'
+const defaultOutOfFareZoneText = computed(() =>
+  t('ui.map_editor.out_of_fare_zone_default'),
+)
 
 interface OutOfFareZoneLabelDrag {
   pointerId: number
@@ -84,7 +99,7 @@ const activeOutOfFareZoneLabelZoneKey =
 function ensureOutOfFareZoneLabel() {
   if (!project.line.outOfFareZoneLabel) {
     project.line.outOfFareZoneLabel = {
-      text: defaultOutOfFareZoneText,
+      text: defaultOutOfFareZoneText.value,
       bold: true,
       italic: false,
       underline: false,
@@ -103,7 +118,7 @@ function ensureOutOfFareZoneLabel() {
     || label.text.trim().length === 0
   ) {
     label.text =
-      defaultOutOfFareZoneText
+      defaultOutOfFareZoneText.value
   }
 
   if (!label.zones) {
@@ -139,7 +154,7 @@ function ensureOutOfFareZoneLabelSettings(
        * (qui pouvait par exemple contenir "test").
        */
       text:
-        defaultOutOfFareZoneText,
+        defaultOutOfFareZoneText.value,
 
       bold:
         label.bold
@@ -178,7 +193,7 @@ function ensureOutOfFareZoneLabelSettings(
     || zones[zoneKey].text.trim().length === 0
   ) {
     zones[zoneKey].text =
-      defaultOutOfFareZoneText
+      defaultOutOfFareZoneText.value
   }
 
   return zones[zoneKey]
@@ -200,7 +215,7 @@ function getOutOfFareZoneLabelSettings(
       text:
         zoneSettings.text?.trim().length > 0
           ? zoneSettings.text
-          : defaultOutOfFareZoneText,
+          : defaultOutOfFareZoneText.value,
     }
   }
 
@@ -211,7 +226,7 @@ function getOutOfFareZoneLabelSettings(
     text:
       label?.text?.trim().length
         ? label.text
-        : defaultOutOfFareZoneText,
+        : defaultOutOfFareZoneText.value,
 
     bold:
       label?.bold
@@ -411,6 +426,7 @@ const { grab, release } = useElementGrabbing((event) => {
     'STOP',
     'SPACER',
     'AREA_SEPARATOR',
+    'ONE_WAY_LOOP',
   ].includes(event.type ?? '')
 })
 
@@ -1540,7 +1556,7 @@ const lineIdentityChangeVisuals =
   ref<LineIdentityChangeVisual[]>([])
 
 /*
- * Retrouve l'identité demandée après un arrêt.
+ * Retrouve l'identité demandée sur un arrêt.
  *
  * Priorité :
  *
@@ -1549,7 +1565,7 @@ const lineIdentityChangeVisuals =
  * 2. ancien lineAfterStopId, pour compatibilité avec
  *    les projets déjà créés pendant nos essais.
  */
-function transitionIdentityAfterStop(
+function transitionIdentityOnStop(
   stop: Stop,
 ): TransitionLineIdentity | null {
   const data = stop.$stop as MultiLineTransitionStopData
@@ -1626,6 +1642,87 @@ const branchStops = computed(() =>
       '$stop' in element,
   ),
 )
+
+const BUS_AREA_START_KEY = '__start__'
+
+interface BusAreaBoundaryVisual {
+  x: number
+  cityKey: string | null
+  zoneKey: string | null
+}
+
+interface BusAreaNamedRegion {
+  key: string
+  startX: number
+  endX: number
+  label: string
+}
+
+interface BusAreaHitRegion {
+  startX: number
+  endX: number
+  cityRegionKey: string
+  zoneRegionKey: string
+  cityName: string
+  zoneName: string | null
+}
+
+const busAreaBoundaryVisuals =
+  ref<BusAreaBoundaryVisual[]>([])
+
+const busCityVisualRegions =
+  ref<BusAreaNamedRegion[]>([])
+
+const busZoneVisualRegions =
+  ref<BusAreaNamedRegion[]>([])
+
+const busAreaHitRegions =
+  ref<BusAreaHitRegion[]>([])
+
+const busAreaRailY = ref(0)
+const busAreaBaselineY = ref(0)
+const busAreaBottomY = ref(0)
+const busAreaWrapperHeight = ref(0)
+
+const activeBusAreaCityRegionKey =
+  ref<string | null>(null)
+
+const activeBusAreaZoneRegionKey =
+  ref<string | null>(null)
+
+const activeBusAreaRegionIndex = ref(0)
+
+const showBusAreaRegionProperties = ref(false)
+
+const busAreaExtraBottom = computed(() => {
+  if (
+    !isBusAreaMode.value
+    || busAreaHitRegions.value.length === 0
+  ) {
+    return '0px'
+  }
+
+  return `${Math.max(
+    0,
+    busAreaBottomY.value
+    - busAreaWrapperHeight.value
+    + 8,
+  )}px`
+})
+
+function openBusAreaRegion(
+  region: BusAreaHitRegion,
+  index: number,
+) {
+  activeBusAreaCityRegionKey.value =
+    region.cityRegionKey
+
+  activeBusAreaZoneRegionKey.value =
+    region.zoneRegionKey
+
+  activeBusAreaRegionIndex.value = index
+  showBusAreaRegionProperties.value = true
+}
 
 
 interface ParentForkContext {
@@ -2365,7 +2462,7 @@ function sourceLineIdForIdentityChange(
 
 /*
  * Construit les portions colorées correspondant aux
- * changements d'identité enregistrés sur les arrêts.
+ * changements d'identité locaux enregistrés sur les arrêts.
  *
  * Le chemin part exactement du centre de l'arrêt.
  * Il s'arrête au prochain changement d'identité, ou à
@@ -2402,8 +2499,9 @@ function updateLineIdentityChangeVisuals() {
     )
 
   /*
-   * On repart toujours d'un état propre avant de recolorer
-   * les marqueurs d'arrêt appartenant à une portion changée.
+   * Le changement de ligne est strictement LOCAL à l'arrêt.
+   * On nettoie donc d'abord toutes les décorations calculées
+   * lors de la passe précédente.
    */
   stopElements.forEach((stopElement) => {
     if (!stopElement) {
@@ -2412,88 +2510,33 @@ function updateLineIdentityChangeVisuals() {
 
     stopElement.classList.remove(
       'line-identity-changed-stop',
+      'line-identity-boundary-stop',
     )
 
     stopElement.style.removeProperty(
       '--line-identity-change-color',
     )
+    stopElement.style.removeProperty(
+      '--line-identity-boundary-color',
+    )
   })
 
-  /*
-   * Une case cochée indique que cet arrêt appartient à la
-   * portion dont l'identité a changé.
-   *
-   * Des arrêts consécutifs ayant exactement la même nouvelle
-   * identité sont donc fusionnés en UNE seule portion.
-   *
-   * Exemple :
-   *
-   * Versailles [V]
-   * Petit Jouy [V]
-   * Jouy [V]
-   * ...
-   * Massy-Palaiseau [V]
-   *
-   * => un seul segment V de Versailles à Massy-Palaiseau.
-   *
-   * Dès que l'arrêt suivant n'est plus coché, la nouvelle
-   * couleur s'arrête au dernier arrêt coché.
-   */
-  type TransitionRange = {
-    startIndex: number
-    endIndex: number
-    sourceLineId: string
-    identity: TransitionLineIdentity
-  }
-
-  const ranges: TransitionRange[] = []
-
-  let currentRange:
-    TransitionRange | null = null
-
-  function sameIdentity(
-    first: TransitionLineIdentity,
-    second: TransitionLineIdentity,
-  ) {
-    /*
-     * LineIndex peut être un objet.
-     *
-     * Deux arrêts configurés séparément avec le même indice
-     * peuvent donc posséder deux objets différents en mémoire.
-     * Une comparaison avec === les considérait à tort comme
-     * deux lignes différentes et cassait la plage en segments
-     * d'un seul arrêt, qui étaient ensuite ignorés.
-     *
-     * On compare maintenant leur contenu réel.
-     */
-    const firstIndex =
-      JSON.stringify(
-        first.index ?? null,
-      )
-
-    const secondIndex =
-      JSON.stringify(
-        second.index ?? null,
-      )
-
-    return (
-      first.mode === second.mode
-      && firstIndex === secondIndex
-      && first.color === second.color
-    )
-  }
+  const visuals:
+    LineIdentityChangeVisual[] = []
 
   branchStops.value.forEach(
     (stop, stopIndex) => {
       const identity =
-        transitionIdentityAfterStop(stop)
+        transitionIdentityOnStop(stop)
 
       if (!identity) {
-        if (currentRange) {
-          ranges.push(currentRange)
-          currentRange = null
-        }
+        return
+      }
 
+      const stopElement =
+        stopElements[stopIndex]
+
+      if (!stopElement) {
         return
       }
 
@@ -2502,137 +2545,75 @@ function updateLineIdentityChangeVisuals() {
           stop,
         )
 
-      if (
-        currentRange
-        && currentRange.endIndex
-          === stopIndex - 1
-        && currentRange.sourceLineId
-          === sourceLineId
-        && sameIdentity(
-          currentRange.identity,
-          identity,
+      const currentMarker =
+        stopMarkerHorizontalEdges(
+          stopElement,
+          wrapperRect,
         )
-      ) {
-        currentRange.endIndex =
-          stopIndex
 
+      const previousElement =
+        stopIndex > 0
+          ? stopElements[stopIndex - 1]
+          : null
+
+      const nextElement =
+        stopIndex
+          < stopElements.length - 1
+          ? stopElements[stopIndex + 1]
+          : null
+
+      const previousMarker =
+        previousElement
+          ? stopMarkerHorizontalEdges(
+              previousElement,
+              wrapperRect,
+            )
+          : null
+
+      const nextMarker =
+        nextElement
+          ? stopMarkerHorizontalEdges(
+              nextElement,
+              wrapperRect,
+            )
+          : null
+
+      /*
+       * Règle visuelle exacte :
+       * - le rouge démarre sous le CENTRE du point coché afin
+       *   d'arriver jusqu'à son bord droit sans laisser de violet ;
+       * - il s'arrête au BORD GAUCHE du point suivant afin de ne
+       *   jamais passer sous ce point non coché ni réapparaître
+       *   sur sa droite.
+       *
+       * Si le dernier arrêt de la branche est coché, on applique
+       * la même logique dans le sens inverse : bord droit de
+       * l'arrêt précédent -> centre du dernier arrêt.
+       */
+      let startX = currentMarker.center
+      let endX =
+        nextMarker?.left
+        ?? currentMarker.center
+
+      if (
+        nextMarker == null
+        && previousMarker != null
+      ) {
+        startX = previousMarker.right
+        endX = currentMarker.center
+      }
+
+      if (endX <= startX) {
         return
       }
 
-      if (currentRange) {
-        ranges.push(currentRange)
-      }
-
-      currentRange = {
-        startIndex: stopIndex,
-        endIndex: stopIndex,
-        sourceLineId,
-        identity,
-      }
-    },
-  )
-
-  if (currentRange) {
-    ranges.push(currentRange)
-  }
-
-  const visuals:
-    LineIdentityChangeVisual[] = []
-
-  ranges.forEach((range) => {
-    const startElement =
-      stopElements[range.startIndex]
-
-    const endElement =
-      stopElements[range.endIndex]
-
-    if (
-      !startElement
-      || !endElement
-    ) {
-      return
-    }
-
-    const startX =
-      stopAnchorX(
-        startElement,
-        wrapperRect,
-      )
-
-    const endX =
-      stopAnchorX(
-        endElement,
-        wrapperRect,
-      )
-
-    /*
-     * Une seule station cochée ne crée volontairement pas
-     * une portion jusqu'au bout du plan.
-     *
-     * Il faut au moins deux arrêts pour définir une longueur
-     * visible. Cela évite précisément qu'une ligne V parte
-     * jusqu'aux Saules lorsqu'on voulait une zone locale.
-     */
-    if (endX <= startX) {
-      return
-    }
-
-    const points:
-      Array<{
-        x: number
-        y: number
-      }> = []
-
-    for (
-      let stopIndex = range.startIndex;
-      stopIndex <= range.endIndex;
-      stopIndex++
-    ) {
-      const stopElement =
-        stopElements[stopIndex]
-
-      if (!stopElement) {
-        continue
-      }
-
-      points.push({
-        x:
-          stopAnchorX(
-            stopElement,
-            wrapperRect,
-          ),
-        y:
-          corridorCenterY
-          + displayedLineCenterOffsetAtStop(
-            range.sourceLineId,
-            stopIndex,
-            stopElements,
-          ),
-      })
-    }
-
-    if (points.length < 2) {
-      return
-    }
-
-    /*
-     * Les marqueurs des arrêts de la portion prennent eux aussi
-     * l'identité de la nouvelle ligne.
-     *
-     * Les arrêts de correspondance / terminus conservent leurs
-     * règles noires historiques grâce au CSS ciblé plus bas.
-     */
-    for (
-      let stopIndex = range.startIndex;
-      stopIndex <= range.endIndex;
-      stopIndex++
-    ) {
-      const stopElement =
-        stopElements[stopIndex]
-
-      if (!stopElement) {
-        continue
-      }
+      const y =
+        corridorCenterY
+        + displayedLineCenterOffsetAtStop(
+          sourceLineId,
+          stopIndex,
+          stopElements,
+        )
 
       stopElement.classList.add(
         'line-identity-changed-stop',
@@ -2640,36 +2621,43 @@ function updateLineIdentityChangeVisuals() {
 
       stopElement.style.setProperty(
         '--line-identity-change-color',
-        range.identity.color,
+        identity.color,
       )
-    }
 
-    const path =
-      points
-        .map(
-          (point, pointIndex) =>
-            `${pointIndex === 0 ? 'M' : 'L'} ${point.x} ${point.y}`,
-        )
-        .join(' ')
+      /*
+       * Seul l'arrêt sur lequel l'utilisateur a activé
+       * « Changer de ligne sur cet arrêt » reprend la couleur
+       * locale sur son contour.
+       *
+       * L'arrêt suivant reste totalement dans son style normal
+       * tant qu'il n'est pas lui-même configuré.
+       */
+      stopElement.classList.add(
+        'line-identity-boundary-stop',
+      )
+      stopElement.style.setProperty(
+        '--line-identity-boundary-color',
+        identity.color,
+      )
 
-    visuals.push({
-      key:
-        `line-identity-range`
-        + `-${range.startIndex}`
-        + `-${range.endIndex}`
-        + `-${range.identity.mode}`
-        + `-${String(
-          range.identity.index ?? '',
-        )}`,
-      path,
-      color:
-        range.identity.color,
-      sourceLineId:
-        range.sourceLineId,
-      startX,
-      endX,
-    })
-  })
+      visuals.push({
+        key:
+          `line-identity-stop`
+          + `-${stop.id}`
+          + `-${identity.mode}`
+          + `-${String(
+            identity.index ?? '',
+          )}`,
+        path:
+          `M ${startX} ${y} L ${endX} ${y}`,
+        color:
+          identity.color,
+        sourceLineId,
+        startX,
+        endX,
+      })
+    },
+  )
 
   lineIdentityChangeVisuals.value =
     visuals
@@ -3287,6 +3275,46 @@ function stopAnchorX(
     - wrapperRect.left
   )
 }
+
+function stopMarkerHorizontalEdges(
+  stopElement: HTMLElement,
+  wrapperRect: DOMRect,
+) {
+  const marker =
+    stopElement.querySelector<HTMLElement>(
+      '.dot-wrapper > .dot.dynamic-part',
+    )
+
+  if (!marker) {
+    const center =
+      stopAnchorX(
+        stopElement,
+        wrapperRect,
+      )
+
+    return {
+      left: center,
+      right: center,
+      center,
+    }
+  }
+
+  const rect =
+    marker.getBoundingClientRect()
+
+  const left =
+    rect.left - wrapperRect.left
+  const right =
+    rect.right - wrapperRect.left
+
+  return {
+    left,
+    right,
+    center: (left + right) / 2,
+  }
+}
+
+
 
 /*
  * Limites horizontales réelles du NOM d'un arrêt.
@@ -4808,6 +4836,420 @@ function updateConnectionBridges() {
     bridges
 }
 
+function updateBusAreaVisuals() {
+  const reset = () => {
+    busAreaBoundaryVisuals.value = []
+    busCityVisualRegions.value = []
+    busZoneVisualRegions.value = []
+    busAreaHitRegions.value = []
+    busAreaRailY.value = 0
+    busAreaBaselineY.value = 0
+    busAreaBottomY.value = 0
+    busAreaWrapperHeight.value = 0
+  }
+
+  if (
+    !isBusAreaMode.value
+    || !el.value
+  ) {
+    reset()
+    return
+  }
+
+  const root = el.value
+  const branchElements =
+    root.querySelector<HTMLElement>(
+      '.branch-elements',
+    )
+
+  if (!branchElements) {
+    reset()
+    return
+  }
+
+  const areaSeparators =
+    elements.value.filter(
+      (element): element is AreaSeparator =>
+        '$areaSeparator' in element,
+    )
+
+  /*
+   * Le plan Bus historique reste strictement inchangé tant
+   * qu'aucune limite Zone / commune n'a été ajoutée.
+   */
+  if (areaSeparators.length === 0) {
+    reset()
+    busAreaWrapperHeight.value =
+      root.getBoundingClientRect().height
+    return
+  }
+
+  const wrapperRect =
+    root.getBoundingClientRect()
+
+  busAreaWrapperHeight.value =
+    wrapperRect.height
+
+  const renderedById = new Map<
+    string,
+    HTMLElement
+  >()
+
+  for (
+    const child
+    of Array.from(branchElements.children)
+  ) {
+    if (!(child instanceof HTMLElement)) {
+      continue
+    }
+
+    const id = child.dataset.id
+
+    if (id) {
+      renderedById.set(id, child)
+    }
+  }
+
+  const stopPosition = (stop: Stop) => {
+    const stopElement =
+      renderedById.get(stop.id)
+
+    if (!stopElement) {
+      return null
+    }
+
+    return stopAnchorX(
+      stopElement,
+      wrapperRect,
+    )
+  }
+
+  const stopsWithPositions =
+    branchStops.value
+      .map(stop => ({
+        stop,
+        x: stopPosition(stop),
+      }))
+      .filter(
+        (item): item is {
+          stop: Stop
+          x: number
+        } => item.x !== null,
+      )
+
+  if (stopsWithPositions.length === 0) {
+    reset()
+    return
+  }
+
+  const stopXs =
+    stopsWithPositions.map(item => item.x)
+
+  const routeStartX = Math.min(...stopXs)
+  const routeEndX = Math.max(...stopXs)
+
+  if (routeEndX - routeStartX < 1) {
+    reset()
+    return
+  }
+
+  const fontSize =
+    Number.parseFloat(
+      getComputedStyle(root).fontSize,
+    )
+    || 16
+
+  const railY = wrapperRect.height / 2
+  let contentBottom = railY
+
+  /*
+   * Le bandeau descend sous le contenu réellement affiché
+   * (noms, sous-titres, correspondances), pas sous une hauteur
+   * fixe. Il reste ainsi compatible avec les arrêts très chargés.
+   */
+  for (const { stop } of stopsWithPositions) {
+    const stopElement =
+      renderedById.get(stop.id)
+
+    if (!stopElement) {
+      continue
+    }
+
+    const candidates = [
+      stopElement,
+      ...Array.from(
+        stopElement.querySelectorAll<HTMLElement>('*'),
+      ),
+    ]
+
+    for (const candidate of candidates) {
+      if (candidate.closest('.export-hide')) {
+        continue
+      }
+
+      const rect =
+        candidate.getBoundingClientRect()
+
+      if (
+        rect.width <= 0
+        && rect.height <= 0
+      ) {
+        continue
+      }
+
+      contentBottom = Math.max(
+        contentBottom,
+        rect.bottom - wrapperRect.top,
+      )
+    }
+  }
+
+  const baselineY = Math.max(
+    railY + fontSize * 4.6,
+    contentBottom + fontSize * 1.45,
+  )
+
+  const bottomY =
+    baselineY + fontSize * 2.05
+
+  const boundaryVisuals: BusAreaBoundaryVisual[] = []
+
+  for (
+    let index = 0;
+    index < elements.value.length;
+    index++
+  ) {
+    const element = elements.value[index]
+
+    if (!('$areaSeparator' in element)) {
+      continue
+    }
+
+    const cityBoundary =
+      element.$areaSeparator.busCityBoundary
+      !== false
+
+    const zoneBoundary =
+      element.$areaSeparator.busZoneBoundary
+      !== false
+
+    if (!cityBoundary && !zoneBoundary) {
+      continue
+    }
+
+    let previousStop: Stop | null = null
+    let nextStop: Stop | null = null
+
+    for (let i = index - 1; i >= 0; i--) {
+      const candidate = elements.value[i]
+
+      if ('$stop' in candidate) {
+        previousStop = candidate
+        break
+      }
+    }
+
+    for (
+      let i = index + 1;
+      i < elements.value.length;
+      i++
+    ) {
+      const candidate = elements.value[i]
+
+      if ('$stop' in candidate) {
+        nextStop = candidate
+        break
+      }
+    }
+
+    const previousX =
+      previousStop
+        ? stopPosition(previousStop)
+        : null
+
+    const nextX =
+      nextStop
+        ? stopPosition(nextStop)
+        : null
+
+    let x: number
+
+    if (
+      previousX !== null
+      && nextX !== null
+    ) {
+      x = (previousX + nextX) / 2
+    }
+    else if (previousX !== null) {
+      x = routeEndX
+    }
+    else if (nextX !== null) {
+      x = routeStartX
+    }
+    else {
+      continue
+    }
+
+    boundaryVisuals.push({
+      x: Math.min(
+        routeEndX,
+        Math.max(routeStartX, x),
+      ),
+      cityKey:
+        cityBoundary
+          ? element.id
+          : null,
+      zoneKey:
+        zoneBoundary
+          ? element.id
+          : null,
+    })
+  }
+
+  boundaryVisuals.sort(
+    (a, b) => a.x - b.x,
+  )
+
+  /*
+   * Plusieurs limites peuvent tomber exactement au même endroit
+   * (par exemple une limite Commune et une limite Zone distinctes).
+   * On les fusionne graphiquement tout en conservant les deux clés.
+   */
+  const uniqueBoundaries: BusAreaBoundaryVisual[] = []
+
+  for (const boundary of boundaryVisuals) {
+    const previous =
+      uniqueBoundaries[
+        uniqueBoundaries.length - 1
+      ]
+
+    if (
+      previous
+      && Math.abs(previous.x - boundary.x) < 1
+    ) {
+      previous.cityKey =
+        boundary.cityKey
+        ?? previous.cityKey
+
+      previous.zoneKey =
+        boundary.zoneKey
+        ?? previous.zoneKey
+
+      continue
+    }
+
+    uniqueBoundaries.push({ ...boundary })
+  }
+
+  const settings =
+    branch.value.$branch.busAreaRegions
+    ?? {}
+
+  const buildNamedRegions = (
+    kind: 'CITY' | 'ZONE',
+  ) => {
+    const regions: BusAreaNamedRegion[] = []
+
+    let startX = routeStartX
+    let key = BUS_AREA_START_KEY
+
+    const addRegion = (endX: number) => {
+      if (endX - startX < 1) {
+        startX = endX
+        return
+      }
+
+      const regionSettings = settings[key]
+
+      regions.push({
+        key,
+        startX,
+        endX,
+        label:
+          kind === 'CITY'
+            ? regionSettings?.cityName ?? ''
+            : regionSettings?.zoneName ?? '',
+      })
+
+      startX = endX
+    }
+
+    for (const boundary of uniqueBoundaries) {
+      const nextKey =
+        kind === 'CITY'
+          ? boundary.cityKey
+          : boundary.zoneKey
+
+      if (!nextKey) {
+        continue
+      }
+
+      addRegion(boundary.x)
+      key = nextKey
+    }
+
+    addRegion(routeEndX)
+
+    return regions
+  }
+
+  const hitRegions: BusAreaHitRegion[] = []
+  let hitStartX = routeStartX
+  let cityRegionKey = BUS_AREA_START_KEY
+  let zoneRegionKey = BUS_AREA_START_KEY
+
+  const addHitRegion = (endX: number) => {
+    if (endX - hitStartX < 1) {
+      hitStartX = endX
+      return
+    }
+
+    hitRegions.push({
+      startX: hitStartX,
+      endX,
+      cityRegionKey,
+      zoneRegionKey,
+      cityName:
+        settings[cityRegionKey]?.cityName
+        ?? '',
+      zoneName:
+        settings[zoneRegionKey]?.zoneName
+        ?? null,
+    })
+
+    hitStartX = endX
+  }
+
+  for (const boundary of uniqueBoundaries) {
+    addHitRegion(boundary.x)
+
+    if (boundary.cityKey) {
+      cityRegionKey = boundary.cityKey
+    }
+
+    if (boundary.zoneKey) {
+      zoneRegionKey = boundary.zoneKey
+    }
+  }
+
+  addHitRegion(routeEndX)
+
+  busAreaRailY.value = railY
+  busAreaBaselineY.value = baselineY
+  busAreaBottomY.value = bottomY
+  busAreaBoundaryVisuals.value =
+    uniqueBoundaries.filter(
+      boundary =>
+        boundary.x > routeStartX + .5
+        && boundary.x < routeEndX - .5,
+    )
+  busCityVisualRegions.value =
+    buildNamedRegions('CITY')
+  busZoneVisualRegions.value =
+    buildNamedRegions('ZONE')
+  busAreaHitRegions.value = hitRegions
+}
+
 function scheduleConnectionBridgeUpdate() {
   if (
     typeof window === 'undefined'
@@ -4853,6 +5295,7 @@ function scheduleConnectionBridgeUpdate() {
         updateConnectionBridges()
         updateOutOfFareZoneSegments()
         updateOffLineSegments()
+        updateBusAreaVisuals()
       },
     )
 }
@@ -5024,6 +5467,10 @@ function getElementType(element: BranchElement) {
     return 'SPACER'
   }
 
+  if ('$oneWayLoop' in element) {
+    return 'ONE_WAY_LOOP'
+  }
+
   return 'STOP'
 }
 
@@ -5044,6 +5491,9 @@ function onStart(event: DraggableEvent<BranchElement>) {
       negativeRightMargin: (branch.$branch.marginRight ?? 0) < 0,
       positiveLeftMargin: (branch.$branch.marginLeft ?? 0) > 0,
       positiveRightMargin: (branch.$branch.marginRight ?? 0) > 0,
+      'bus-area-map':
+        isBusAreaMode
+        && busAreaHitRegions.length > 0,
     }"
   >
     <VueDraggable
@@ -5071,6 +5521,148 @@ function onStart(event: DraggableEvent<BranchElement>) {
         :branch="branch"
       />
     </VueDraggable>
+
+    <!--
+      Bande Commune / Zone des plans Bus.
+
+      Les limites de commune et de zone sont indépendantes :
+      une même AreaSeparator peut agir sur l'une, l'autre ou les deux.
+      Les noms de commune se placent au-dessus de la ligne basse ;
+      les zones occupent leurs propres plages en dessous.
+    -->
+    <template
+      v-if="
+        isBusAreaMode
+        && busAreaHitRegions.length > 0
+      "
+    >
+      <svg
+        class="bus-area-band-lines"
+        width="100%"
+        :height="busAreaBottomY"
+        overflow="visible"
+        aria-hidden="true"
+      >
+        <template
+          v-for="(boundary, boundaryIndex) in busAreaBoundaryVisuals"
+          :key="`bus-area-boundary-${boundaryIndex}-${boundary.x}`"
+        >
+          <line
+            v-if="boundary.cityKey"
+            class="bus-area-guide"
+            :x1="boundary.x"
+            :y1="busAreaRailY"
+            :x2="boundary.x"
+            :y2="busAreaBaselineY"
+          />
+
+          <line
+            v-if="boundary.zoneKey && !boundary.cityKey"
+            class="bus-area-zone-tick"
+            :x1="boundary.x"
+            :y1="busAreaBaselineY - 6"
+            :x2="boundary.x"
+            :y2="busAreaBaselineY + 6"
+          />
+        </template>
+
+        <g
+          v-for="region in busZoneVisualRegions"
+          :key="`bus-zone-line-${region.key}`"
+        >
+          <line
+            class="bus-area-baseline"
+            :x1="region.startX"
+            :y1="busAreaBaselineY"
+            :x2="region.endX"
+            :y2="busAreaBaselineY"
+          />
+
+          <polygon
+            class="bus-area-arrow"
+            :points="`
+              ${region.startX + 7},${busAreaBaselineY}
+              ${region.startX},${busAreaBaselineY - 4}
+              ${region.startX},${busAreaBaselineY + 4}
+            `"
+          />
+
+          <polygon
+            class="bus-area-arrow"
+            :points="`
+              ${region.endX - 7},${busAreaBaselineY}
+              ${region.endX},${busAreaBaselineY - 4}
+              ${region.endX},${busAreaBaselineY + 4}
+            `"
+          />
+        </g>
+      </svg>
+
+      <div
+        v-for="region in busCityVisualRegions"
+        :key="`bus-city-label-${region.key}`"
+        class="bus-area-city-label"
+        :style="{
+          left: `${region.startX}px`,
+          top: `${busAreaBaselineY - 29}px`,
+          width: `${Math.max(1, region.endX - region.startX)}px`,
+        }"
+      >
+        <span v-if="region.label">
+          {{ region.label }}
+        </span>
+      </div>
+
+      <div
+        v-for="region in busZoneVisualRegions"
+        :key="`bus-zone-label-${region.key}`"
+        class="bus-area-zone-label"
+        :style="{
+          left: `${region.startX}px`,
+          top: `${busAreaBaselineY + 8}px`,
+          width: `${Math.max(1, region.endX - region.startX)}px`,
+        }"
+      >
+        <span v-if="region.label">
+          {{ region.label }}
+        </span>
+      </div>
+
+      <div
+        v-for="(region, regionIndex) in busAreaHitRegions"
+        :key="`bus-area-hit-${regionIndex}-${region.startX}`"
+        class="bus-area-region"
+        :style="{
+          left: `${region.startX}px`,
+          top: `${busAreaBaselineY - 32}px`,
+          width: `${Math.max(1, region.endX - region.startX)}px`,
+        }"
+        role="button"
+        tabindex="0"
+        :title="$t('ui.dialogs.bus_area_region_properties.edit_hint')"
+        @click.stop="openBusAreaRegion(region, regionIndex)"
+        @keydown.enter.stop.prevent="openBusAreaRegion(region, regionIndex)"
+        @keydown.space.stop.prevent="openBusAreaRegion(region, regionIndex)"
+      >
+        <span
+          v-if="
+            !region.cityName
+            && !region.zoneName
+          "
+          class="bus-area-empty-hint export-hide"
+        >
+          {{ $t('ui.dialogs.bus_area_region_properties.empty') }}
+        </span>
+      </div>
+
+      <BusAreaRegionPropertiesDialog
+        v-model:visible="showBusAreaRegionProperties"
+        :branch="branch"
+        :city-region-key="activeBusAreaCityRegionKey"
+        :zone-region-key="activeBusAreaZoneRegionKey"
+        :region-index="activeBusAreaRegionIndex"
+      />
+    </template>
 
     <svg
       v-if="connectionBridges.length > 0"
@@ -5508,6 +6100,150 @@ function onStart(event: DraggableEvent<BranchElement>) {
   }
 }
 
+.branch-wrapper.bus-area-map {
+  /*
+   * Le bandeau géographique déborde sous les noms et les
+   * correspondances. La marge réserve réellement cette place
+   * dans le plan sans déplacer le rail principal (qui reste à 50 %).
+   */
+  margin-bottom: v-bind(busAreaExtraBottom);
+}
+
+.bus-area-band-lines {
+  position: absolute;
+  inset: 0 auto auto 0;
+
+  overflow: visible;
+
+  pointer-events: none;
+
+  z-index: 2;
+}
+
+.bus-area-guide {
+  stroke: #c9c9c9;
+  stroke-width: 1px;
+}
+
+.bus-area-zone-tick {
+  stroke: #252525;
+  stroke-width: 1.1px;
+}
+
+.bus-area-baseline {
+  stroke: #252525;
+  stroke-width: 1.25px;
+  stroke-linecap: butt;
+}
+
+.bus-area-arrow {
+  fill: #252525;
+}
+
+.bus-area-region {
+  position: absolute;
+
+  display: block;
+
+  height: 62px;
+
+  padding: 0;
+  margin: 0;
+
+  border: 0;
+  outline: 0;
+  background: transparent;
+
+  color: #222222;
+
+  cursor: pointer;
+
+  z-index: 8;
+}
+
+.bus-area-region:focus-visible {
+  outline: 1px dashed #777777;
+  outline-offset: 2px;
+}
+
+.bus-area-city-label,
+.bus-area-zone-label {
+  position: absolute;
+
+  overflow: hidden;
+
+  pointer-events: none;
+
+  text-align: center;
+  line-height: 1.1;
+
+  z-index: 7;
+}
+
+.bus-area-city-label span,
+.bus-area-zone-label span {
+  display: block;
+
+  max-width: calc(100% - 10px);
+  margin: 0 auto;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bus-area-city-label {
+  color: #777777;
+  font-size: .62em;
+  font-weight: 500;
+}
+
+.bus-area-zone-label {
+  color: #222222;
+  font-size: .64em;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.bus-area-empty-hint {
+  position: absolute;
+  left: 50%;
+  top: 34px;
+
+  width: max-content;
+  max-width: calc(100% - 12px);
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  transform: translateX(-50%);
+
+  padding: .18em .45em;
+
+  border: 1px dashed #a6a6a6;
+  border-radius: 999px;
+
+  background: rgb(255 255 255 / 80%);
+
+  color: #777777;
+  font-size: .52em;
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+
+  opacity: 0;
+
+  transition: opacity .15s ease;
+}
+
+.bus-area-region:hover
+.bus-area-empty-hint,
+.bus-area-region:focus-visible
+.bus-area-empty-hint {
+  opacity: 1;
+}
+
 .branch-elements {
   position: relative;
 
@@ -5678,48 +6414,34 @@ function onStart(event: DraggableEvent<BranchElement>) {
 }
 
 
+
 /*
- * Les arrêts standards situés sur une portion qui change
- * d'identité prennent la couleur de cette portion.
- *
- * Les arrêts "connection" et "terminus" gardent leurs contours
- * noirs historiques ; seuls les marqueurs colorés classiques
- * et futurs suivent la nouvelle couleur.
+ * Les arrêts qui bordent une portion locale reprennent seulement
+ * la couleur de cette portion sur le contour du point.
+ * Le remplissage et la géométrie restent inchangés.
  */
 :deep(
-  .stop-wrapper.line-identity-changed-stop
-  .dot:not(.connection):not(.terminus)
+  .stop-wrapper.line-identity-boundary-stop
+  .dot-wrapper > .dot.dynamic-part:not(.terminus)
 ) {
   border-color:
-    var(--line-identity-change-color) !important;
-}
-
-:deep(
-  .stop-wrapper.line-identity-changed-stop
-  .dot.terminus:not(.connection)
-) {
-  background-color:
-    var(--line-identity-change-color) !important;
+    var(--line-identity-boundary-color) !important;
 }
 
 /*
- * Un arrêt de correspondance garde son contour noir, mais son remplissage
- * doit suivre l'identité de la portion courante.
- *
- * Avant ce correctif, .connection était volontairement exclu des règles
- * ci-dessus : un arrêt comme Aéroport Charles-de-Gaulle restait donc vert
- * alors que la ligne après changement d'identité était grise.
+ * Si l'arrêt portant le changement local est un terminus,
+ * son point doit prendre la couleur locale.
  */
 :deep(
   .stop-wrapper.line-identity-changed-stop
-  .dot.connection
+  .dot.dynamic-part.terminus
 ) {
   background-color:
     var(--line-identity-change-color) !important;
 }
 
-.connection-bridges {
-  position: absolute;
+
+.connection-bridges {  position: absolute;
   inset: 0;
 
   width: 100%;

@@ -2,7 +2,7 @@ import { useEventBus } from '@vueuse/core'
 import { onMounted, onUnmounted } from 'vue'
 import { ElementGrabbingSignal } from '~/utils/symbols'
 
-type ElementType = 'STOP' | 'SPACER' | 'AREA_SEPARATOR' | null
+type ElementType = 'STOP' | 'SPACER' | 'AREA_SEPARATOR' | 'ONE_WAY_LOOP' | null
 
 interface ElementGrabbingEvent {
   type: ElementType

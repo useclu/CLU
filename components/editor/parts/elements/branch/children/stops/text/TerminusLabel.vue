@@ -160,9 +160,9 @@ const frameStyle = computed(() => {
    */
   if (isSncfFormat.value) {
     return {
-      backgroundColor: 'white',
-      color: '#000000',
-      border: '1px solid #000000',
+      backgroundColor: '#1f1f1f',
+      color: '#ffffff',
+      border: '1px solid #1f1f1f',
     }
   }
 
@@ -189,7 +189,7 @@ const terminusNameStyle = computed(() => ({
       ? 'white'
       : (
           effectiveNameStyle.value.color
-          ?? (isSncfFormat.value ? '#000000' : 'white')
+          ?? (isSncfFormat.value ? '#ffffff' : 'white')
         ),
 
   fontWeight: 'bold',
@@ -211,7 +211,7 @@ const placeNameStyle = computed(() => ({
       ? 'white'
       : (
           isSncfFormat.value
-            ? '#000000'
+            ? '#ffffff'
             : 'white'
         ),
 }))
@@ -310,8 +310,10 @@ const placeNameStyle = computed(() => ({
    * =======================================================
    */
   &.sncf-format {
-    background-color: white;
-    color: #000000;
+    background-color: #1f1f1f;
+    color: #ffffff;
+
+    border-radius: .04em;
   }
 
   /*
@@ -372,7 +374,7 @@ const placeNameStyle = computed(() => ({
   }
 
   .sncf-format & {
-    border-bottom: 1px solid #000000;
+    border-bottom: 1px solid rgb(255 255 255 / 55%);
   }
 
   /*
@@ -407,6 +409,12 @@ const placeNameStyle = computed(() => ({
     padding:
       .38em
       .55em;
+  }
+
+  .sncf-format & {
+    padding:
+      .32em
+      .5em;
   }
 }
 

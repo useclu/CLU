@@ -97,7 +97,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
           </div>
 
           <div class="dialog-subtitle">
-            Choisissez une ligne pour configurer rapidement votre plan.
+            {{ $t('ui.dialogs.use_preset.summary') }}
           </div>
         </div>
       </div>
@@ -127,7 +127,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               </div>
 
               <div class="mode-description">
-                Sélectionnez une ligne de métro.
+                {{ $t('ui.dialogs.use_preset.metro_description') }}
               </div>
             </div>
           </div>
@@ -175,7 +175,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               </div>
 
               <div class="mode-description">
-                Sélectionnez une ligne de RER.
+                {{ $t('ui.dialogs.use_preset.rer_description') }}
               </div>
             </div>
           </div>
@@ -223,7 +223,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               </div>
 
               <div class="mode-description">
-                Sélectionnez une ligne Transilien.
+                {{ $t('ui.dialogs.use_preset.train_description') }}
               </div>
             </div>
           </div>
@@ -271,7 +271,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
               </div>
 
               <div class="mode-description">
-                Sélectionnez une ligne de tramway.
+                {{ $t('ui.dialogs.use_preset.tram_description') }}
               </div>
             </div>
           </div>
@@ -311,7 +311,7 @@ function loadPreset(_mode: Mode, _index: LineIndex, _color?: string) {
       <div class="dialog-footer">
         <div class="footer-hint">
           <i class="i-tabler-circle-filled footer-dot" />
-          Les lignes avec une pastille disposent d’un préréglage complet.
+          {{ $t('ui.dialogs.use_preset.footer_hint') }}
         </div>
 
         <Button

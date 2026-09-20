@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { v4 as uuidv4 } from 'uuid'
 import { ref } from 'vue'
+import type { DraggableEvent } from 'vue-draggable-plus'
+import useElementGrabbing from '~/composables/useElementGrabbing'
 import { VueDraggable } from 'vue-draggable-plus'
 
 interface Element {
@@ -11,7 +13,6 @@ interface Element {
     | 'FORK'
     | 'VERTICAL_SEGMENT'
     | 'PARALLEL_BRANCHES'
-    | 'LOOP'
 }
 
 const elements = ref<Element[]>([
@@ -26,7 +27,7 @@ const elements = ref<Element[]>([
     type: 'FORK',
   },
   {
-    label: 'Segment vertical',
+    label: 'ui.map_editor.toolbox.vertical_segment',
     icon: 'i-tabler-arrows-vertical',
     type: 'VERTICAL_SEGMENT',
   },
@@ -34,11 +35,6 @@ const elements = ref<Element[]>([
     label: 'ui.map_editor.toolbox.parallel_branches',
     icon: 'i-bulb-parallel-branches',
     type: 'PARALLEL_BRANCHES',
-  },
-  {
-    label: 'ui.map_editor.toolbox.loop',
-    icon: 'i-bulb-u-turn',
-    type: 'LOOP',
   },
 ])
 
@@ -120,16 +116,41 @@ function clone(element: Element): LineElement {
           ],
         },
       }
-
-    case 'LOOP':
-      return {
-        id: uuidv4(),
-        $loop: {
-          toward: 'LEFT',
-          linksOffsets: [1, -1],
-        },
-      }
   }
+}
+
+
+interface OneWayLoopToolElement {
+  label: string
+  icon: string
+  type: 'ONE_WAY_LOOP'
+}
+
+const oneWayLoopElements = ref<OneWayLoopToolElement[]>([
+  {
+    label: 'ui.map_editor.toolbox.loop',
+    icon: 'i-bulb-u-turn',
+    type: 'ONE_WAY_LOOP',
+  },
+])
+
+const { grab, release } = useElementGrabbing()
+
+function cloneOneWayLoop(): OneWayLoop {
+  return {
+    id: uuidv4(),
+    $oneWayLoop: {
+      size: 6,
+      direction: 'RIGHT',
+      position: 'TOP',
+    },
+  }
+}
+
+function onOneWayLoopStart(
+  event: DraggableEvent<OneWayLoopToolElement>,
+) {
+  grab(event.data.type)
 }
 </script>
 
@@ -151,13 +172,7 @@ function clone(element: Element): LineElement {
           <div class="flex flex-col items-center">
             <i :class="element.icon" />
 
-            <span>
-              {{
-                element.type === 'VERTICAL_SEGMENT'
-                  ? element.label
-                  : $t(element.label)
-              }}
-            </span>
+            <span>{{ $t(element.label) }}</span>
           </div>
         </div>
 
@@ -166,6 +181,33 @@ function clone(element: Element): LineElement {
             dummy
             :model-value="clone(element)"
           />
+        </div>
+      </div>
+    </VueDraggable>
+
+    <VueDraggable
+      v-model="oneWayLoopElements"
+      class="draggable-elements one-way-loop-tools"
+      :group="{
+        name: 'branchElements',
+        pull: 'clone',
+        put: false,
+      }"
+      :clone="cloneOneWayLoop"
+      :sort="false"
+      @start="e => onOneWayLoopStart(e as DraggableEvent<OneWayLoopToolElement>)"
+      @end="release()"
+    >
+      <div
+        v-for="element in oneWayLoopElements"
+        :key="element.label"
+        class="toolbox-item"
+      >
+        <div class="item hidden">
+          <div class="flex flex-col items-center">
+            <i :class="element.icon" />
+            <span>{{ $t(element.label) }}</span>
+          </div>
         </div>
       </div>
     </VueDraggable>

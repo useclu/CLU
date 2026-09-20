@@ -82,7 +82,7 @@ const picto = computed(() => {
   <img
     v-if="picto"
     :src="picto"
-    alt="metro"
+    :alt="$t('data.mode.metro')"
     class="picto"
   >
 </template>

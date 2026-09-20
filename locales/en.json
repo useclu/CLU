@@ -14,7 +14,9 @@
       "line_name": "Line {index}",
       "official_indices": "Official indices",
       "placeholder": "Select an index",
-      "unknown_index": "Unknown"
+      "unknown_index": "Unknown",
+      "tram_name": "Tram T{index}",
+      "cable_name": "Cable C{index}"
     },
     "line_style_select": {
       "placeholder": "Select a style"
@@ -43,7 +45,26 @@
       "ory": "Orly"
     },
     "colors": {
-      "custom": "Custom"
+      "custom": "Custom",
+      "poppy_red": "Poppy red",
+      "orange": "Orange",
+      "bright_yellow": "Bright yellow",
+      "ochre_yellow": "Ochre yellow",
+      "brown": "Brown",
+      "light_olive": "Light olive",
+      "dark_olive": "Dark olive",
+      "dark_green": "Dark green",
+      "light_green": "Light green",
+      "turquoise": "Turquoise",
+      "light_blue": "Light blue",
+      "ultramarine_blue": "Ultramarine blue",
+      "dark_blue": "Dark blue",
+      "violet": "Violet",
+      "magenta": "Magenta",
+      "lilac": "Lilac",
+      "pink": "Pink",
+      "raspberry_red": "Raspberry red",
+      "metro_19_gray": "Metro 19 gray"
     },
     "dots_color": {
       "inherit": "Inherited",
@@ -124,7 +145,30 @@
         "summary": "Configure the branch lines, spacing and order.",
         "delete_line": "Delete line",
         "add_line": "Add a line",
-        "open_warp_add": "Open WarpAdd"
+        "open_warp_add": "Open WarpAdd",
+        "lines_title": "Lines on this branch",
+        "lines_hint": "Add multiple lines to the same branch route.",
+        "line_count_one": "{count} line",
+        "line_count_many": "{count} lines",
+        "main_line": "Main line",
+        "main_line_identity": "General map identity",
+        "primary_visible": "Primary",
+        "primary_hidden": "Hidden here",
+        "main_line_notice": "This line is defined in the general map settings.",
+        "main_line_on_branch": "Main line on this branch",
+        "main_line_on_branch_hint": "Disable it to let an additional line continue alone on this branch.",
+        "additional_line": "Additional line {number}",
+        "additional_line_hint": "Merged with this branch",
+        "transport_mode": "Transport mode",
+        "index": "Index",
+        "color_hint": "The color of each line is determined automatically by its index.",
+        "element_spacing_hint": "Adjust the space between the different elements of the branch.",
+        "elements_order": "Element order",
+        "elements_order_hint": "Reverse the display order of the elements on this branch.",
+        "inverted_elements_hint": "Displays the branch elements in reverse order.",
+        "notice_title": "Branch",
+        "immediate_changes": "Changes are applied immediately to the map.",
+        "footer_hint": "Branch configuration"
       },
       "browser_check": {
         "dismiss": "Got it",
@@ -261,7 +305,28 @@
           "upward": "Upward"
         },
         "size_multiplier": "Size multiplier",
-        "summary": "Configure the fork shape and behavior."
+        "summary": "Configure the fork shape and behavior.",
+        "line_title": "Affected line",
+        "line_hint": "Choose the line that should actually branch.",
+        "line_fallback": "Line",
+        "primary": "main",
+        "parallel_branches": "Parallel branches",
+        "parallel_branches_hint": "Explicitly add the two exits to this multi-line fork.",
+        "add_parallel_branches": "Add parallel branches",
+        "parallel_branches_linked": "The parallel branches are already linked to this fork.",
+        "after_stop": "After which stop?",
+        "after_stop_hint": "The fork will be structurally placed immediately after this stop.",
+        "after_stop_continuity": "Stops after the selected point automatically follow the continuity exit.",
+        "orientation_hint": "Choose the side toward which the fork develops.",
+        "shape_hint": "Set the vertical arrangement of the two branches.",
+        "style_title": "Fork style",
+        "style_hint": "Choose the appearance of the junction between the branches.",
+        "style_original": "Original",
+        "style_rounded": "Rounded",
+        "directional_arrows_hint": "Add a direction-of-travel indication to the fork.",
+        "size_hint": "Adjust the overall spacing of the fork.",
+        "size_detail": "A higher value increases the spacing between branches.",
+        "immediate_changes": "Changes are applied immediately to the map."
       },
       "loading_custom_indices_prompt": {
         "accept": "Yes",
@@ -276,7 +341,13 @@
           "right": "Right",
           "title": "Orientation"
         },
-        "summary": "Configure the loop orientation and levels."
+        "summary": "Configure the loop orientation and levels.",
+        "orientation_hint": "Choose the side toward which the loop turns.",
+        "levels_title": "Loop levels",
+        "levels_hint": "Adjust the level of each connection independently.",
+        "notice_title": "Loop",
+        "immediate_changes": "Changes are applied immediately to the map.",
+        "footer_hint": "Loop configuration"
       },
       "new_project": {
         "accept": "New project",
@@ -326,7 +397,13 @@
         "header": "Parallel branch properties",
         "section_1_level": "Section 1 level",
         "section_2_level": "Section 2 level",
-        "summary": "Configure the layout of parallel branches."
+        "summary": "Configure the layout of parallel branches.",
+        "alignment_hint": "Choose how the two branches align with each other.",
+        "levels_title": "Branch levels",
+        "levels_hint": "Adjust the vertical level of each section independently.",
+        "notice_title": "Parallel branches",
+        "immediate_changes": "Changes are applied immediately to the map.",
+        "footer_hint": "Parallel branches configuration"
       },
       "pdf_export_notice": {
         "header": "PDF export",
@@ -417,12 +494,12 @@
         "direction_example": "Example: Towards Paris Saint-Lazare",
         "future_stop": "Future / planned stop",
         "future_stop_summary": "Displays the stop as a future extension.",
-        "change_line_after": "Change line after this stop",
-        "change_line_after_summary": "Continue the same route with a different line identity.",
-        "new_line_after": "New line after the stop",
+        "change_line_after": "Change line on this stop",
+        "change_line_after_summary": "Change only the route color and line identity at this stop.",
+        "new_line_after": "Line on this stop",
         "transport_mode": "Transport mode",
         "index": "Index",
-        "new_line_detail": "This line may differ from the lines already on the branch. Its color and pictogram are determined automatically by the selected mode and index, including custom indices.",
+        "new_line_detail": "The route color at this stop is determined automatically by the selected mode and index. The next stop is not changed.",
         "out_of_fare_zone": "Outside fare zone",
         "out_of_fare_zone_summary": "Includes the stop in an out-of-fare-zone area.",
         "faded_stop": "Off-map / faded stop",
@@ -433,7 +510,12 @@
         "shared_stop_summary": "Shared stop: one marker can cross the selected lines.",
         "connections": "Connections",
         "connections_summary": "Lines, transport modes and connection times",
-        "image_preview_alt": "Logo preview {index}"
+        "image_preview_alt": "Logo preview {index}",
+        "image_label": "Image {number}",
+        "personal_source": "Personal",
+        "delete_catalog_confirmation": "Remove “{name}” from your personal catalog?",
+        "catalog_load_error": "Unable to load the personal CLU catalog.",
+        "catalog_save_error": "Unable to save the personal CLU catalog."
       },
       "troubleshooting": {
         "header": "Troubleshooting",
@@ -471,7 +553,17 @@
       },
       "vertical_segment_properties": {
         "header": "Vertical segment",
-        "summary": "Configure the direction and side of the segment."
+        "summary": "Configure the direction and side of the segment.",
+        "vertical_direction": "Vertical direction",
+        "vertical_direction_hint": "Choose whether the segment goes up or down.",
+        "up": "Up",
+        "down": "Down",
+        "side": "Segment side",
+        "side_hint": "Choose the side of the secondary branch.",
+        "left": "Left",
+        "right": "Right",
+        "immediate_changes": "Changes are applied immediately to the map.",
+        "footer_hint": "Vertical segment configuration"
       },
       "warp_add": {
         "add_all_stops": "Add stops",
@@ -514,22 +606,95 @@
         "stops_to_add": "Stops to add",
         "drag_hint": "Drag the cards to change their order.",
         "empty_title": "No stops prepared",
-        "empty_hint": "Add a first stop using the form on the left."
+        "empty_hint": "Add a first stop using the form on the left.",
+        "ready_one": "ready",
+        "ready_many": "ready"
       },
       "annotation_properties": {
         "header": "Annotation properties",
-        "summary": "Customize the text displayed directly on the map."
+        "summary": "Customize the text displayed directly on the map.",
+        "text": "Text",
+        "text_hint": "Edit the annotation content.",
+        "text_style": "Text style",
+        "text_style_hint": "Enable the desired text styles.",
+        "bold": "Bold",
+        "italic": "Italic",
+        "underline": "Underline",
+        "color": "Color",
+        "color_hint": "Choose the text color.",
+        "text_size": "Text size",
+        "text_size_hint": "Adjust the annotation text size.",
+        "immediate_changes": "Changes are applied immediately to the map."
       },
       "area_separator_properties": {
         "header": "City / zone separator properties",
         "summary": "Configure how the city, zone and separator are displayed.",
         "city_placeholder": "e.g. Esbly",
-        "zone_placeholder": "e.g. Zone 5"
+        "zone_placeholder": "e.g. Zone 5",
+        "identity_title": "City and zone",
+        "identity_summary": "Information displayed above the separator.",
+        "city_name": "City name",
+        "zone": "Zone",
+        "zone_empty_hint": "Leave this field empty to hide the zone.",
+        "spacing_title": "Spacing",
+        "spacing_summary": "Manage the space reserved around the separator.",
+        "automatic_spacing": "Automatic spacing",
+        "automatic_spacing_hint": "Automatically reserves space around the separator.",
+        "neighbor_distance": "Distance from neighboring elements",
+        "neighbor_distance_hint": "The higher the value, the farther neighboring stops are moved away.",
+        "height_title": "Height",
+        "height_summary": "Adjust the length of the vertical dotted line.",
+        "separator_height": "Separator height",
+        "separator_height_hint": "Changes the separator length on the map.",
+        "notice_title": "City / zone separator",
+        "immediate_changes": "Changes are applied immediately to the map.",
+        "footer_hint": "Separator configuration"
       },
       "out_of_fare_zone_label_properties": {
         "header": "Outside fare zone label",
         "reset_text": "Reset text",
-        "reset_position": "Reset position"
+        "reset_position": "Reset position",
+        "text": "Text",
+        "text_style": "Text style",
+        "bold": "Bold",
+        "italic": "Italic",
+        "underline": "Underline",
+        "color": "Color",
+        "text_size": "Text size"
+      },
+      "bus_area_region_properties": {
+        "header": "Municipality and zone",
+        "summary": "Geographic area {number} of the bus map.",
+        "city": "Municipality",
+        "city_placeholder": "e.g. Ivry-sur-Seine",
+        "zone": "Zone",
+        "zone_placeholder": "e.g. Zone 2",
+        "help": "Municipalities and zones can use different boundaries. This setting edits the two areas that cover this point.",
+        "clear": "Clear area",
+        "empty": "Municipality / zone",
+        "edit_hint": "Configure the municipality and zone at this point"
+      },
+      "bus_area_boundary_properties": {
+        "header": "Zone / municipality boundary",
+        "summary": "Choose what changes at this boundary.",
+        "city": "Municipality boundary",
+        "city_hint": "The next municipality starts after this boundary.",
+        "zone": "Zone boundary",
+        "zone_hint": "The next zone starts after this boundary.",
+        "help": "A boundary can affect only the municipality, only the zone, or both. At least one type always remains enabled."
+      },
+      "one_way_loop_properties": {
+        "header": "One-way loop",
+        "summary": "Configure the direction, width and position of the loop.",
+        "direction": "Travel direction",
+        "direction_hint": "The selected direction applies to the diverted track; the main track shows the opposite return direction.",
+        "position": "Loop position",
+        "position_hint": "Place the detour above or below the main track.",
+        "position_top": "Above",
+        "position_bottom": "Below",
+        "width": "Loop width",
+        "width_hint": "Like a spacer: increase or reduce the room reserved on the line.",
+        "close": "Close"
       }
     },
     "general_settings": {
@@ -581,7 +746,9 @@
       "stop_suggestions": "Stop suggestions",
       "stop_suggestions_hint": "Suggests known stations while typing. Uncheck to disable.",
       "dimensions_title": "Dimensions",
-      "dimensions_summary": "Overall map size"
+      "dimensions_summary": "Overall map size",
+      "map_font": "Map font",
+      "map_font_hint": "Choose the font used by the map. This choice is independent from the map style."
     },
     "map_editor": {
       "error": {
@@ -596,17 +763,31 @@
         "branch": "Branch",
         "delete": "Delete",
         "fork": "Fork",
-        "loop": "Loop",
+        "loop": "One-way loop",
         "parallel_branches": "Parallel branches",
         "spacer": "Spacer",
         "stop": "Stop",
-        "untitled_stop": "Untitled stop"
+        "untitled_stop": "Untitled stop",
+        "bus_area_boundary": "Zone / municipality boundary",
+        "vertical_segment": "Vertical segment"
       },
       "watermark": "Created with CLU",
       "annotation": "Annotation",
       "delete_stop": "Delete stop",
       "free_move": "Move freely",
-      "visual_separator": "Visual separator |"
+      "visual_separator": "Visual separator |",
+      "preview_sncf": "Preview in SNCF mode",
+      "back_to_editing": "Return to map editing",
+      "towards": "towards",
+      "destination": "Destination",
+      "destinations": "Destinations",
+      "delete_annotation": "Delete annotation",
+      "legal_notice": "Not affiliated with RATP, Île-de-France Mobilités or any other company. The pictograms and fonts used remain the exclusive intellectual property of the aforementioned entities.",
+      "out_of_fare_zone_default": "OUTSIDE ÎLE-DE-FRANCE FARE ZONE",
+      "defaults": {
+        "city": "City",
+        "zone": "Zone {number}"
+      }
     },
     "menu": {
       "custom_indices": "Custom indices",
@@ -623,7 +804,9 @@
       "profile_import_error": "Unable to import this CLU profile. Your current data has been kept.",
       "profile_import_success": "CLU profile imported successfully.\\n\\nCLU will now reload to apply all data.",
       "profile_import_confirm_header": "Import CLU profile",
-      "profile_import_confirm_message": "CLU data currently stored in this browser will be replaced by the imported profile. The current project, indices, pictograms, personal stops and preferences will be replaced."
+      "profile_import_confirm_message": "CLU data currently stored in this browser will be replaced by the imported profile. The current project, indices, pictograms, personal stops and preferences will be replaced.",
+      "profile_import_read_error": "Unable to read this file.",
+      "profile_import_invalid": "This file is not a valid CLU profile or its version is not supported."
     },
     "nag": "<b>REMINDER</b>: This application is under development. Some features are not yet available or are incomplete.",
     "properties": {
@@ -707,7 +890,8 @@
       "change": "Change",
       "restore": "Restore",
       "restore_all": "Restore all",
-      "import": "Import"
+      "import": "Import",
+      "enter": "Enter"
     },
     "pages": {
       "faq": {
@@ -810,6 +994,23 @@
       "car": "Car",
       "bus": "Bus",
       "other": "Other"
+    },
+    "accessibility": {
+      "wheelchair_user": "Wheelchair user"
+    },
+    "export_overlay": {
+      "png": {
+        "title": "Exporting your map",
+        "description": "Your map is currently being exported as a PNG file.",
+        "warning": "Depending on the size of your map, the operation may take up to a few minutes. The page has not crashed: CLU is simply hard at work. Thanks for your patience.",
+        "coffee": "While you wait, a small coffee is offered to you by CLU services."
+      },
+      "pdf": {
+        "title": "Preparing your PDF",
+        "description": "CLU is preparing your map for PDF export.",
+        "warning": "Depending on the size and complexity of your map, preparation may take a little while. If nothing seems to happen immediately, don’t worry: CLU is still working in the background.",
+        "coffee": "You have time for a sip: coffee is still on the house, courtesy of CLU. ☕"
+      }
     }
   }
 }

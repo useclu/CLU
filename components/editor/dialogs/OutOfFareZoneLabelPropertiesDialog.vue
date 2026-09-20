@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useProject } from '~/stores/useProject'
 
 const visible = defineModel<boolean>('visible', {
@@ -13,14 +14,16 @@ const {
 }>()
 
 const project = useProject()
+const { t } = useI18n()
 
-const defaultText =
-  'HORS TARIFICATION ÎLE-DE-FRANCE'
+const defaultText = computed(() =>
+  t('ui.map_editor.out_of_fare_zone_default'),
+)
 
 function ensureRootLabel() {
   if (!project.line.outOfFareZoneLabel) {
     project.line.outOfFareZoneLabel = {
-      text: defaultText,
+      text: defaultText.value,
       bold: true,
       italic: false,
       underline: false,
@@ -49,7 +52,7 @@ function ensureRootLabel() {
     || rootLabel.text.trim().length === 0
   ) {
     rootLabel.text =
-      defaultText
+      defaultText.value
   }
 
   if (!rootLabel.zones) {
@@ -69,7 +72,7 @@ function ensureZoneLabel() {
 
   if (!zoneKey) {
     return {
-      text: defaultText,
+      text: defaultText.value,
       bold: true,
       italic: false,
       underline: false,
@@ -92,7 +95,7 @@ function ensureZoneLabel() {
      * qu'un ancien texte global comme "test" soit copié.
      */
     rootLabel.zones![zoneKey] = {
-      text: defaultText,
+      text: defaultText.value,
 
       bold:
         rootLabel.bold
@@ -134,7 +137,7 @@ function ensureZoneLabel() {
     || zoneLabel.text.trim().length === 0
   ) {
     zoneLabel.text =
-      defaultText
+      defaultText.value
   }
 
   return zoneLabel
@@ -165,7 +168,7 @@ const color = computed({
 
 function resetText() {
   label.value.text =
-    defaultText
+    defaultText.value
 }
 
 function resetPosition() {
@@ -187,14 +190,14 @@ function resetPosition() {
         class="dialog-title"
         data-pc-section="title"
       >
-        Mention hors zone tarifaire
+        {{ $t('ui.dialogs.out_of_fare_zone_label_properties.header') }}
       </span>
     </template>
 
     <div class="label-properties">
       <div class="field">
         <label class="field-label">
-          Texte
+          {{ $t('ui.dialogs.out_of_fare_zone_label_properties.text') }}
         </label>
 
         <Textarea
@@ -206,7 +209,7 @@ function resetPosition() {
 
       <div class="field">
         <label class="field-label">
-          Style du texte
+          {{ $t('ui.dialogs.out_of_fare_zone_label_properties.text_style') }}
         </label>
 
         <div class="style-options">
@@ -218,7 +221,7 @@ function resetPosition() {
             />
 
             <label for="out-of-fare-zone-label-bold">
-              Gras
+              {{ $t('ui.dialogs.out_of_fare_zone_label_properties.bold') }}
             </label>
           </div>
 
@@ -230,7 +233,7 @@ function resetPosition() {
             />
 
             <label for="out-of-fare-zone-label-italic">
-              Italique
+              {{ $t('ui.dialogs.out_of_fare_zone_label_properties.italic') }}
             </label>
           </div>
 
@@ -242,7 +245,7 @@ function resetPosition() {
             />
 
             <label for="out-of-fare-zone-label-underline">
-              Souligné
+              {{ $t('ui.dialogs.out_of_fare_zone_label_properties.underline') }}
             </label>
           </div>
         </div>
@@ -250,7 +253,7 @@ function resetPosition() {
 
       <div class="field">
         <label class="field-label">
-          Couleur
+          {{ $t('ui.dialogs.out_of_fare_zone_label_properties.color') }}
         </label>
 
         <div class="color-field">
@@ -268,7 +271,7 @@ function resetPosition() {
 
       <div class="field">
         <label class="field-label">
-          Taille du texte
+          {{ $t('ui.dialogs.out_of_fare_zone_label_properties.text_size') }}
         </label>
 
         <BInputNumber

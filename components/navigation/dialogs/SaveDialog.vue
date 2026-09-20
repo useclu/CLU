@@ -66,7 +66,7 @@ function doExport() {
           </div>
 
           <div class="dialog-subtitle">
-            Enregistrez votre projet CLU dans un fichier JSON.
+            {{ $t('ui.dialogs.save_project.summary') }}
           </div>
         </div>
       </div>
@@ -86,7 +86,7 @@ function doExport() {
               </div>
 
               <div class="save-card-description">
-                Choisissez le nom du fichier qui sera enregistré.
+                {{ $t('ui.dialogs.save_project.filename_hint') }}
               </div>
             </div>
           </div>

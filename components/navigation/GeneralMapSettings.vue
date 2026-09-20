@@ -14,6 +14,7 @@ import terIcon from '~/assets/svg/services/ter.svg'
 import tgvIcon from '~/assets/svg/services/tgv.svg'
 
 import { useProject } from '~/stores/useProject'
+import { MAP_FONT_OPTIONS, normalizeMapFontFamily } from '~/utils/mapFonts'
 import {
   modeToDotsColorPolicy,
   modeToLineStyle,
@@ -27,10 +28,6 @@ const { t } = useI18n()
 type TramStyle =
   | 'ANGLED'
   | 'HORIZONTAL'
-
-type SignageStyle =
-  | 'IDFM'
-  | 'SNCF'
 
 type TransportService =
   | 'TGV'
@@ -506,22 +503,15 @@ const tramStyle =
     },
   })
 
-const signageStyle =
-  computed<SignageStyle>({
+const mapFontFamily =
+  computed<MapFontFamily>({
     get: () =>
-      (
-        line.value as Line & {
-          signageStyle?: SignageStyle
-        }
-      ).signageStyle
-      ?? 'IDFM',
+      normalizeMapFontFamily(
+        line.value.fontFamily,
+      ),
 
     set: (value) => {
-      (
-        line.value as Line & {
-          signageStyle?: SignageStyle
-        }
-      ).signageStyle = value
+      line.value.fontFamily = value
     },
   })
 
@@ -552,12 +542,6 @@ function updateColor(
   if (newColor !== null) {
     line.value.color = newColor
   }
-}
-
-function setSignageStyle(
-  style: SignageStyle,
-) {
-  signageStyle.value = style
 }
 
 function setFormatStyle(
@@ -958,56 +942,6 @@ function setTramStyle(
       <div class="section-content">
         <div class="setting-field">
           <span class="setting-label">
-            {{ $t('ui.general_settings.signage') }}
-          </span>
-
-          <div class="segmented-control">
-            <button
-              type="button"
-              class="segment-button"
-              :class="{
-                selected:
-                  signageStyle === 'IDFM',
-              }"
-              @click="
-                setSignageStyle('IDFM')
-              "
-            >
-              IDFM
-            </button>
-
-            <button
-              type="button"
-              class="segment-button"
-              :class="{
-                selected:
-                  signageStyle === 'SNCF',
-              }"
-              @click="
-                setSignageStyle('SNCF')
-              "
-            >
-              SNCF
-            </button>
-          </div>
-
-          <span class="setting-description">
-            <template
-              v-if="
-                signageStyle === 'IDFM'
-              "
-            >
-              {{ $t('ui.general_settings.signage_idfm') }}
-            </template>
-
-            <template v-else>
-              {{ $t('ui.general_settings.signage_sncf') }}
-            </template>
-          </span>
-        </div>
-
-        <div class="setting-field">
-          <span class="setting-label">
             {{ $t('ui.general_settings.format') }}
           </span>
 
@@ -1060,6 +994,24 @@ function setTramStyle(
             <template v-else>
               {{ $t('ui.general_settings.format_sncf') }}
             </template>
+          </span>
+        </div>
+
+        <div class="setting-field">
+          <span class="setting-label">
+            {{ $t('ui.general_settings.map_font') }}
+          </span>
+
+          <Select
+            v-model="mapFontFamily"
+            :options="MAP_FONT_OPTIONS"
+            option-label="label"
+            option-value="value"
+            class="w-full"
+          />
+
+          <span class="setting-description">
+            {{ $t('ui.general_settings.map_font_hint') }}
           </span>
         </div>
 

@@ -45,7 +45,7 @@ const picto = computed(() => {
 </script>
 
 <template>
-  <img v-if="picto" :src="picto" alt="train" class="picto">
+  <img v-if="picto" :src="picto" :alt="$t('data.mode.transilien')" class="picto">
 </template>
 
 <style scoped lang="scss">

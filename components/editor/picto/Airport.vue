@@ -26,7 +26,7 @@ const icon = computed(() => {
 
 <template>
   <div class="w-1em h-1em flex justify-center items-center">
-    <img :src="icon" alt="Airport" class="picto">
+    <img :src="icon" :alt="$t('data.services.airport')" class="picto">
   </div>
 </template>
 

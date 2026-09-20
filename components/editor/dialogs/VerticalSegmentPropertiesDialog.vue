@@ -49,22 +49,22 @@ if (
 
 const levelChanges = [
   {
-    label: 'Monte',
+    label: 'ui.dialogs.vertical_segment_properties.up',
     value: -1,
   },
   {
-    label: 'Descend',
+    label: 'ui.dialogs.vertical_segment_properties.down',
     value: 1,
   },
 ]
 
 const sides = [
   {
-    label: 'Gauche',
+    label: 'ui.dialogs.vertical_segment_properties.left',
     value: 'LEFT',
   },
   {
-    label: 'Droite',
+    label: 'ui.dialogs.vertical_segment_properties.right',
     value: 'RIGHT',
   },
 ]
@@ -113,7 +113,7 @@ const side = computed<VerticalSegmentSide>({
             class="dialog-title"
             data-pc-section="title"
           >
-            Segment vertical
+            {{ $t('ui.dialogs.vertical_segment_properties.header') }}
           </div>
 
           <div class="dialog-subtitle">
@@ -134,11 +134,11 @@ const side = computed<VerticalSegmentSide>({
 
               <div>
                 <div class="property-card-title">
-                  Direction verticale
+                  {{ $t('ui.dialogs.vertical_segment_properties.vertical_direction') }}
                 </div>
 
                 <div class="property-card-description">
-                  Choisissez si le segment monte ou descend.
+                  {{ $t('ui.dialogs.vertical_segment_properties.vertical_direction_hint') }}
                 </div>
               </div>
             </div>
@@ -150,7 +150,7 @@ const side = computed<VerticalSegmentSide>({
               class="property-select"
               pt:pc-toggle-button:root:class="flex-grow"
               :options="levelChanges"
-              option-label="label"
+              :option-label="option => $t(option.label)"
               option-value="value"
               :allow-empty="false"
             />
@@ -166,11 +166,11 @@ const side = computed<VerticalSegmentSide>({
 
               <div>
                 <div class="property-card-title">
-                  Côté du segment
+                  {{ $t('ui.dialogs.vertical_segment_properties.side') }}
                 </div>
 
                 <div class="property-card-description">
-                  Définissez le côté de la branche secondaire.
+                  {{ $t('ui.dialogs.vertical_segment_properties.side_hint') }}
                 </div>
               </div>
             </div>
@@ -182,7 +182,7 @@ const side = computed<VerticalSegmentSide>({
               class="property-select"
               pt:pc-toggle-button:root:class="flex-grow"
               :options="sides"
-              option-label="label"
+              :option-label="option => $t(option.label)"
               option-value="value"
               :allow-empty="false"
             />
@@ -197,11 +197,11 @@ const side = computed<VerticalSegmentSide>({
 
         <div>
           <div class="information-notice-title">
-            Segment vertical
+            {{ $t('ui.dialogs.vertical_segment_properties.header') }}
           </div>
 
           <div class="information-notice-text">
-            Les modifications sont appliquées immédiatement sur le plan.
+            {{ $t('ui.dialogs.vertical_segment_properties.immediate_changes') }}
           </div>
         </div>
       </div>
@@ -213,7 +213,7 @@ const side = computed<VerticalSegmentSide>({
           <i class="i-tabler-arrows-vertical" />
 
           <span>
-            Configuration du segment vertical
+            {{ $t('ui.dialogs.vertical_segment_properties.footer_hint') }}
           </span>
         </div>
 

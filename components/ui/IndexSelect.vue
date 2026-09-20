@@ -14,7 +14,54 @@ const index = defineModel<LineIndex | null>({ required: true })
 const { getModeIndices, findIndexById } = useCustomLineIndices()
 const { t } = useI18n()
 
-const availableDefaultLines = computed(() => getLinesByMode(mode))
+function localizeBuiltinLine(
+  choice: IndexChoice<BuiltinLineIndex>,
+): IndexChoice<BuiltinLineIndex> {
+  const lineMode = choice.value.mode
+  const lineIndex = choice.value.$builtinLineIndex.index
+
+  if (
+    lineMode === 'METRO'
+    || (
+      lineMode === 'BUS'
+      && ['393', '183'].includes(lineIndex)
+    )
+  ) {
+    return {
+      ...choice,
+      label: t(
+        'components.line_index_select.line_name',
+        { index: lineIndex },
+      ),
+    }
+  }
+
+  if (lineMode === 'TRAM') {
+    return {
+      ...choice,
+      label: t(
+        'components.line_index_select.tram_name',
+        { index: lineIndex },
+      ),
+    }
+  }
+
+  if (lineMode === 'CABLE') {
+    return {
+      ...choice,
+      label: t(
+        'components.line_index_select.cable_name',
+        { index: lineIndex },
+      ),
+    }
+  }
+
+  return choice
+}
+
+const availableDefaultLines = computed(() =>
+  getLinesByMode(mode).map(localizeBuiltinLine),
+)
 const availableCustomLines = computed(() => getModeIndices(mode).map((it: CustomLineIndexDescription) => ({
   value: {
     mode: it.mode,
@@ -53,7 +100,8 @@ function isCustom(index: LineIndex | null): index is CustomLineIndex {
 function indexToChoice(index: LineIndex | null): IndexChoice<LineIndex> | null {
   if (index === null) return null
   if (isBuiltin(index)) {
-    return findLineByValue(index)
+    const choice = findLineByValue(index)
+    return choice ? localizeBuiltinLine(choice) : null
   }
   if (isCustom(index)) {
     const customIndex = findIndexById(index.$customLineIndex.id)

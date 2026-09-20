@@ -6,7 +6,7 @@
 
 <style scoped lang="scss">
 .typography {
-  font-family: 'Parisine Ptf', sans-serif;
+  font-family: inherit;
   line-height: .8em;
   text-wrap: nowrap;
   height: fit-content;

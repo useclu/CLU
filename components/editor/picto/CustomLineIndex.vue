@@ -264,9 +264,7 @@ const hasImage = computed(() =>
   flex-direction: row;
   align-items: start;
 
-  font-family:
-    "Parisine Ptf",
-    sans-serif;
+  font-family: inherit;
 
   font-weight: 600;
   font-size: .75em;

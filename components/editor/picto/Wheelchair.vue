@@ -10,7 +10,7 @@ const {
 </script>
 
 <template>
-  <img :src="off ? wheelchairOff : wheelchair" alt="wheelchair user" class="picto">
+  <img :src="off ? wheelchairOff : wheelchair" :alt="$t('ui.accessibility.wheelchair_user')" class="picto">
 </template>
 
 <style scoped lang="scss">

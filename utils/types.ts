@@ -37,6 +37,11 @@ export const isAreaSeparator = (
 ): branchElement is AreaSeparator =>
   '$areaSeparator' in branchElement
 
+export const isOneWayLoop = (
+  branchElement: BranchElement,
+): branchElement is OneWayLoop =>
+  '$oneWayLoop' in branchElement
+
 export const isMode = (
   connection: Connection,
 ): connection is ModeConnection =>

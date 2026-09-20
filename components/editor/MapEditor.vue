@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
+import { useState } from '#app'
 import { useEventBus } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
-import { v4 as uuidv4 } from 'uuid'
 import { computed, onBeforeUnmount, onMounted, provide, ref } from 'vue'
 import useExportMap from '~/composables/useExportMap'
 import { useProjectVersionCheck } from '~/composables/useProjectVersionCheck'
@@ -15,10 +14,13 @@ const exportMap = useExportMap()
 const exportSignal = useEventBus(ExportSignal)
 const { projectMinimumVersion } = useVersion()
 const checkVersion = useProjectVersionCheck()
-const { t } = useI18n()
 
 const el = ref()
 const error = ref(false)
+const sncfPreview = useState<boolean>(
+  'clu-sncf-preview',
+  () => false,
+)
 
 /*
  * =========================================================
@@ -88,30 +90,16 @@ function onError(e: unknown) {
   error.value = true
 }
 
-function addAnnotation() {
-  if (line.value.annotations === undefined) {
-    line.value.annotations = []
-  }
-
-  line.value.annotations.push({
-    id: uuidv4(),
-    $annotation: {
-      text: t('ui.map_editor.annotation'),
-      bold: false,
-      italic: false,
-      underline: false,
-      color: null,
-      fontSize: 1,
-      alignment: 'LEFT',
-      offsetX: 12,
-      offsetY: 2,
-    },
-  })
-}
-
 onMounted(() => {
   exportSignal.on(doExport)
   checkVersion(version.value, projectMinimumVersion)
+
+  sncfPreview.value = false
+
+  window.localStorage.setItem(
+    'clu-sncf-preview',
+    '0',
+  )
 })
 
 onBeforeUnmount(() => exportSignal.off(doExport))
@@ -129,7 +117,7 @@ onBeforeUnmount(() => exportSignal.off(doExport))
       <div class="dead-zone">
         <NuxtErrorBoundary v-if="!error" @error="onError">
           <div ref="el">
-            <LineCanvas />
+            <LineCanvas :sncf-preview="sncfPreview" />
           </div>
         </NuxtErrorBoundary>
 
@@ -142,7 +130,10 @@ onBeforeUnmount(() => exportSignal.off(doExport))
       DOCK D'OUTILS FLOTTANT
       =========================================================
     -->
-    <div class="toolbox-area">
+    <div
+      v-if="!sncfPreview"
+      class="toolbox-area"
+    >
       <div class="editor-toolbox">
         <!--
           GROUPE 1
@@ -173,23 +164,6 @@ onBeforeUnmount(() => exportSignal.off(doExport))
         <BranchToolbox />
 
         <!--
-          Annotation
-        -->
-        <button
-          type="button"
-          class="toolbox-item annotation-tool"
-          @click="addAnnotation"
-        >
-          <div class="flex flex-col items-center">
-            <i class="i-tabler-text-caption" />
-
-            <span>
-              {{ $t('ui.map_editor.annotation') }}
-            </span>
-          </div>
-        </button>
-
-        <!--
           Espace entre les outils et Supprimer
         -->
         <div class="flex-grow min-w-1em" />
@@ -197,6 +171,7 @@ onBeforeUnmount(() => exportSignal.off(doExport))
         <Trash />
       </div>
     </div>
+
   </div>
 </template>
 
@@ -375,9 +350,7 @@ onBeforeUnmount(() => exportSignal.off(doExport))
   }
 }
 
-/*
- * Reflet supérieur très léger.
- */
+
 .editor-toolbox::before {
   content: '';
 
@@ -493,31 +466,6 @@ onBeforeUnmount(() => exportSignal.off(doExport))
 .editor-toolbox :deep(.toolbox-item i),
 .editor-toolbox > .toolbox-item i {
   color: inherit;
-}
-
-/*
- * =========================================================
- * ANNOTATION
- * =========================================================
- */
-
-.annotation-tool {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-
-  font-family: inherit;
-
-  cursor: pointer;
-
-  i {
-    font-size: 1.5rem;
-  }
-
-  &:active {
-    cursor: pointer;
-  }
 }
 
 /*

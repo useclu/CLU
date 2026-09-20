@@ -1,8 +1,10 @@
 import * as htmlToImage from 'html-to-image'
 import { useToast } from 'primevue/usetoast'
+import { useI18n } from 'vue-i18n'
 
 export default function useExportMap() {
   const toast = useToast()
+  const { t } = useI18n()
 
   let exporting = false
 
@@ -235,7 +237,7 @@ export default function useExportMap() {
       document.createElement('div')
 
     title.textContent =
-      'Exportation de votre plan'
+      t('ui.export_overlay.png.title')
 
     Object.assign(
       title.style,
@@ -255,7 +257,7 @@ export default function useExportMap() {
       document.createElement('div')
 
     description.textContent =
-      'Votre plan est actuellement en cours d’exportation au format PNG.'
+      t('ui.export_overlay.png.description')
 
     Object.assign(
       description.style,
@@ -323,7 +325,7 @@ export default function useExportMap() {
       document.createElement('div')
 
     warningText.textContent =
-      'Selon la taille de votre plan, l’opération peut prendre jusqu’à quelques minutes. La page n’a pas planté : CLU est simplement en plein travail. Merci de patienter.'
+      t('ui.export_overlay.png.warning')
 
     warning.append(
       warningIcon,
@@ -340,7 +342,7 @@ export default function useExportMap() {
       document.createElement('div')
 
     coffeeMessage.textContent =
-      'En attendant, un petit café vous est offert par les services de CLU.'
+      t('ui.export_overlay.png.coffee')
 
     Object.assign(
       coffeeMessage.style,
@@ -412,6 +414,12 @@ export default function useExportMap() {
       await waitForLoaderPaint()
 
       /*
+       * Attend également que la police sélectionnée soit
+       * réellement chargée avant de rasteriser le plan.
+       */
+      await document.fonts.ready
+
+      /*
        * Puis seulement commence l'export.
        */
       const blob =
@@ -470,10 +478,10 @@ export default function useExportMap() {
 
       toast.add({
         summary:
-          'ui.toasts.export.success.title',
+          t('ui.toasts.export.success.title'),
 
         detail:
-          'ui.toasts.export.success.detail',
+          t('ui.toasts.export.success.detail'),
 
         severity: 'success',
 
@@ -485,10 +493,10 @@ export default function useExportMap() {
 
       toast.add({
         summary:
-          'ui.toasts.export.failure.title',
+          t('ui.toasts.export.failure.title'),
 
         detail:
-          'ui.toasts.export.failure.detail',
+          t('ui.toasts.export.failure.detail'),
 
         severity: 'error',
 

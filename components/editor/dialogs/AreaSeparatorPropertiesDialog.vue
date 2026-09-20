@@ -57,11 +57,11 @@ const zoneName = computed({
 
           <div>
             <div class="property-card-title">
-              Ville et zone
+              {{ $t('ui.dialogs.area_separator_properties.identity_title') }}
             </div>
 
             <div class="property-card-description">
-              Informations affichées au-dessus de la séparation.
+              {{ $t('ui.dialogs.area_separator_properties.identity_summary') }}
             </div>
           </div>
         </div>
@@ -74,7 +74,7 @@ const zoneName = computed({
                 :for="`${areaSeparator.id}_cityName`"
               >
                 <i class="i-tabler-building" />
-                Nom de la ville
+                {{ $t('ui.dialogs.area_separator_properties.city_name') }}
               </label>
 
               <InputText
@@ -91,7 +91,7 @@ const zoneName = computed({
                 :for="`${areaSeparator.id}_zoneName`"
               >
                 <i class="i-tabler-map-pin" />
-                Zone
+                {{ $t('ui.dialogs.area_separator_properties.zone') }}
               </label>
 
               <InputText
@@ -102,7 +102,7 @@ const zoneName = computed({
               />
 
               <small class="field-help">
-                Laissez ce champ vide pour ne pas afficher de zone.
+                {{ $t('ui.dialogs.area_separator_properties.zone_empty_hint') }}
               </small>
             </div>
           </div>
@@ -117,11 +117,11 @@ const zoneName = computed({
 
           <div>
             <div class="property-card-title">
-              Espacement
+              {{ $t('ui.dialogs.area_separator_properties.spacing_title') }}
             </div>
 
             <div class="property-card-description">
-              Gérez la place réservée autour de la séparation.
+              {{ $t('ui.dialogs.area_separator_properties.spacing_summary') }}
             </div>
           </div>
         </div>
@@ -138,11 +138,11 @@ const zoneName = computed({
                   class="setting-title"
                   :for="`${areaSeparator.id}_autoSpacing`"
                 >
-                  Espacement automatique
+                  {{ $t('ui.dialogs.area_separator_properties.automatic_spacing') }}
                 </label>
 
                 <div class="setting-description">
-                  Réserve automatiquement de la place autour de la séparation.
+                  {{ $t('ui.dialogs.area_separator_properties.automatic_spacing_hint') }}
                 </div>
               </div>
             </div>
@@ -170,11 +170,11 @@ const zoneName = computed({
                   class="setting-title"
                   :for="`${areaSeparator.id}_spacing`"
                 >
-                  Distance avec les éléments voisins
+                  {{ $t('ui.dialogs.area_separator_properties.neighbor_distance') }}
                 </label>
 
                 <div class="setting-description">
-                  Plus la valeur est grande, plus les arrêts voisins sont éloignés.
+                  {{ $t('ui.dialogs.area_separator_properties.neighbor_distance_hint') }}
                 </div>
               </div>
             </div>
@@ -199,11 +199,11 @@ const zoneName = computed({
 
           <div>
             <div class="property-card-title">
-              Hauteur
+              {{ $t('ui.dialogs.area_separator_properties.height_title') }}
             </div>
 
             <div class="property-card-description">
-              Ajustez la longueur de la ligne verticale pointillée.
+              {{ $t('ui.dialogs.area_separator_properties.height_summary') }}
             </div>
           </div>
         </div>
@@ -220,11 +220,11 @@ const zoneName = computed({
                   class="setting-title"
                   :for="`${areaSeparator.id}_height`"
                 >
-                  Hauteur de la séparation
+                  {{ $t('ui.dialogs.area_separator_properties.separator_height') }}
                 </label>
 
                 <div class="setting-description">
-                  Modifie la longueur de la séparation sur le plan.
+                  {{ $t('ui.dialogs.area_separator_properties.separator_height_hint') }}
                 </div>
               </div>
             </div>
@@ -247,11 +247,11 @@ const zoneName = computed({
 
         <div>
           <div class="information-notice-title">
-            Séparation ville / zone
+            {{ $t('ui.dialogs.area_separator_properties.notice_title') }}
           </div>
 
           <div class="information-notice-text">
-            Les modifications sont appliquées immédiatement sur le plan.
+            {{ $t('ui.dialogs.area_separator_properties.immediate_changes') }}
           </div>
         </div>
       </div>
@@ -263,7 +263,7 @@ const zoneName = computed({
           <i class="i-tabler-map-2" />
 
           <span>
-            Configuration de la séparation
+            {{ $t('ui.dialogs.area_separator_properties.footer_hint') }}
           </span>
         </div>
 

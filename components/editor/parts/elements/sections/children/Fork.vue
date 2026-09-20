@@ -26,11 +26,16 @@ const emit = defineEmits<{
 
 const el = ref()
 
-const sizeFactor = computed(() =>
-  Number.parseInt(
-    useCssVar('--base-size', el).value ?? '1',
-  ),
-)
+const baseSizeCss = useCssVar('--base-size', el)
+const fontSizeCss = useCssVar('--font-size', el)
+
+const sizeFactor = computed(() => {
+  const value = Number.parseFloat(baseSizeCss.value ?? '1')
+
+  return Number.isFinite(value) && value > 0
+    ? value
+    : 1
+})
 
 const CLEARANCE = 48
 
@@ -47,7 +52,7 @@ const slopeWidth = computed(() => size.value * 4.75)
  */
 const emSize = computed(() => {
   const value = Number.parseFloat(
-    useCssVar('--font-size', el).value ?? '',
+    fontSizeCss.value ?? '',
   )
 
   return Number.isFinite(value) && value > 0
@@ -57,6 +62,19 @@ const emSize = computed(() => {
 
 const lineContext = inject<LineContext>(LineContextKey)!
 const project = useProject()
+
+/*
+ * Le multiplicateur peut provenir d'anciens JSON sous forme de chaîne.
+ * On le normalise une seule fois afin que la valeur 1 produise toujours
+ * la même géométrie et qu'une valeur invalide ne contamine pas le SVG.
+ */
+const normalizedOffsetMultiplier = computed(() => {
+  const value = Number(meta.$fork.offsetMultiplier ?? 1)
+
+  return Number.isFinite(value) && value > 0
+    ? value
+    : 1
+})
 
 const getParallelBranchesForFork =
   inject<
@@ -443,7 +461,7 @@ const forkIntrinsicClearance = computed(() => {
     )
 
   const multiplier =
-    meta.$fork.offsetMultiplier ?? 1
+    normalizedOffsetMultiplier.value
 
   return {
     up:
@@ -480,7 +498,7 @@ watch(
 
 const maxHeight = computed(() => {
   return (
-    (meta.$fork.offsetMultiplier ?? 1)
+    normalizedOffsetMultiplier.value
     * Math.max(
       Math.abs(effectiveLinksOffsets.value[0]),
       Math.abs(effectiveLinksOffsets.value[1]),
@@ -494,7 +512,7 @@ const maxHeight = computed(() => {
 
 const normalWidth = computed(() =>
   slopeWidth.value
-  * (meta.$fork.offsetMultiplier ?? 1)
+  * normalizedOffsetMultiplier.value
   + effectiveClearance.value * 2,
 )
 
@@ -786,8 +804,7 @@ const adaptiveInnerScale =
       * 2.75
       * Math.max(
         0,
-        meta.$fork.offsetMultiplier
-        ?? 1,
+        normalizedOffsetMultiplier.value,
       )
       * forkToBranchVerticalRatio.value
 
@@ -1049,8 +1066,7 @@ function outputPrimaryLineGapForIndex(
   const multiplier =
     Math.max(
       0,
-      meta.$fork.offsetMultiplier
-      ?? 1,
+      normalizedOffsetMultiplier.value,
     )
 
   /*
@@ -1953,7 +1969,7 @@ function updateTargetRailOffset() {
 const wrapperOffset = computed(() => {
   const historicalOffsetEm =
     offset.value
-    * (meta.$fork.offsetMultiplier ?? 1)
+    * normalizedOffsetMultiplier.value
     * -2.75
 
   return `translateY(calc(${historicalOffsetEm}em + ${targetRailOffsetPx.value}px))`
@@ -2735,7 +2751,7 @@ function updateOutputClearance() {
   const multiplier =
     Math.max(
       0.001,
-      meta.$fork.offsetMultiplier ?? 1,
+      normalizedOffsetMultiplier.value,
     )
 
   const requiredLevelGap =
@@ -3121,7 +3137,7 @@ function getY(value: number) {
     )
     * 2.75
     * emSize.value
-    * (meta.$fork.offsetMultiplier ?? 1)
+    * normalizedOffsetMultiplier.value
   )
 }
 
@@ -3205,7 +3221,7 @@ function getRoundedPath(
   const radius = Math.min(
     size.value
     * 0.9
-    * (meta.$fork.offsetMultiplier ?? 1),
+    * normalizedOffsetMultiplier.value,
     horizontalSpace / 4,
     verticalSpace / 2,
   )
@@ -3824,8 +3840,7 @@ watch(
     }
 
     const multiplier =
-      meta.$fork.offsetMultiplier
-      ?? 1
+      normalizedOffsetMultiplier.value
 
     sections[0].$lineSection.levelOffset =
       meta.$fork.linksOffset[0]
@@ -3955,7 +3970,7 @@ function getRoundedArrowPosition(
   const radius = Math.min(
     size.value
     * 0.9
-    * (meta.$fork.offsetMultiplier ?? 1),
+    * normalizedOffsetMultiplier.value,
     horizontalSpace / 4,
     verticalSpace / 2,
   )

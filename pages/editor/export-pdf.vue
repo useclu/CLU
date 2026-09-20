@@ -12,6 +12,7 @@ const CHARSET_DECLARATION = encodeURIComponent('<?xml version="1.0" encoding="UT
 
 const { line } = storeToRefs(useProject())
 const el = ref()
+const sncfPreview = ref(false)
 
 const { width, height } = useElementSize(el)
 const pageWidth = computed(() => `${((width.value + 1) / PIXEL_DENSITY).toFixed(7)}in`)
@@ -29,8 +30,10 @@ definePageMeta({
   layout: 'reset',
 })
 
-function generateSvg() {
+async function generateSvg() {
   const mapContainer = document.getElementById('canvas')!
+
+  await document.fonts.ready
 
   htmlToImage.toSvg(mapContainer, {
     canvasWidth: mapContainer.clientWidth,
@@ -63,13 +66,22 @@ function generateSvg() {
 }
 
 onMounted(() => {
-  setTimeout(generateSvg, 50)
+  sncfPreview.value =
+    window.localStorage.getItem(
+      'clu-sncf-preview',
+    ) === '1'
+
+  setTimeout(generateSvg, 100)
 })
 </script>
 
 <template>
   <div id="canvas-holder" class="absolute top-0 inline-block opacity-0">
-    <LineCanvas id="canvas" ref="el" />
+    <LineCanvas
+      id="canvas"
+      ref="el"
+      :sncf-preview="sncfPreview"
+    />
   </div>
 </template>
 

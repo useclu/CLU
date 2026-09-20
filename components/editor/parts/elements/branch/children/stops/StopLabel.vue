@@ -49,7 +49,10 @@ const useTerminusFrame = computed(() =>
     isTramMode.value
     || (
       lineContext.frameTerminusNames.value
-      && formatStyle.value === 'RATP'
+      && (
+        formatStyle.value === 'RATP'
+        || formatStyle.value === 'SNCF'
+      )
     )
   ),
 )
@@ -80,6 +83,7 @@ const useTerminusFrame = computed(() =>
     :accessible="props.accessible"
     :reverse="props.reverse"
     :future="props.future"
+    :terminus="props.terminus"
     :name-style="props.nameStyle"
     :prevent-subtitle-overlapping="preventSubtitleOverlapping"
   />

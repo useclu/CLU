@@ -359,7 +359,7 @@ async function onProfileSelected(
   }
   catch {
     window.alert(
-      'Impossible de lire ce fichier.',
+      t('ui.menu.profile_import_read_error'),
     )
 
     return
@@ -370,8 +370,7 @@ async function onProfileSelected(
 
   if (!profile) {
     window.alert(
-      'Ce fichier n’est pas un profil CLU valide '
-      + 'ou sa version n’est pas prise en charge.',
+      t('ui.menu.profile_import_invalid'),
     )
 
     return
@@ -385,12 +384,12 @@ async function onProfileSelected(
       t('ui.menu.profile_import_confirm_message'),
 
     acceptProps: {
-      label: 'Importer',
+      label: t('ui.common.import'),
       severity: 'warn',
     },
 
     rejectProps: {
-      label: 'Annuler',
+      label: t('ui.common.cancel'),
       severity: 'secondary',
       text: true,
     },

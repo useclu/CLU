@@ -134,7 +134,7 @@ function updateLineColor(
           </div>
 
           <div class="dialog-subtitle">
-            Configurez les lignes, l'espacement et l'ordre de la branche.
+            {{ $t('ui.dialogs.branch_properties.summary') }}
           </div>
         </div>
       </div>
@@ -150,20 +150,22 @@ function updateLineColor(
 
             <div class="property-card-heading-text">
               <div class="property-card-title">
-                Lignes de cette branche
+                {{ $t('ui.dialogs.branch_properties.lines_title') }}
               </div>
 
               <div class="property-card-description">
-                Ajoutez plusieurs lignes sur le même tracé de branche.
+                {{ $t('ui.dialogs.branch_properties.lines_hint') }}
               </div>
             </div>
 
             <div class="lines-count">
-              {{ visibleLineCount }}
               {{
-                visibleLineCount > 1
-                  ? 'lignes'
-                  : 'ligne'
+                $t(
+                  visibleLineCount === 1
+                    ? 'ui.dialogs.branch_properties.line_count_one'
+                    : 'ui.dialogs.branch_properties.line_count_many',
+                  { count: visibleLineCount },
+                )
               }}
             </div>
           </div>
@@ -200,11 +202,11 @@ function updateLineColor(
 
                 <div class="line-description">
                   <div class="line-title">
-                    Ligne principale
+                    {{ $t('ui.dialogs.branch_properties.main_line') }}
                   </div>
 
                   <div class="line-subtitle">
-                    Identité générale du plan
+                    {{ $t('ui.dialogs.branch_properties.main_line_identity') }}
                   </div>
                 </div>
               </div>
@@ -217,8 +219,8 @@ function updateLineColor(
                 "
                 :value="
                   primaryLineVisible
-                    ? 'Principale'
-                    : 'Masquée ici'
+                    ? $t('ui.dialogs.branch_properties.primary_visible')
+                    : $t('ui.dialogs.branch_properties.primary_hidden')
                 "
                 class="main-line-tag"
               />
@@ -228,7 +230,7 @@ function updateLineColor(
               <i class="i-tabler-info-circle" />
 
               <span>
-                Cette ligne est définie dans les paramètres généraux du plan.
+                {{ $t('ui.dialogs.branch_properties.main_line_notice') }}
               </span>
             </div>
 
@@ -238,11 +240,11 @@ function updateLineColor(
             >
               <div class="primary-line-visibility-text">
                 <div class="primary-line-visibility-title">
-                  Ligne principale sur cette branche
+                  {{ $t('ui.dialogs.branch_properties.main_line_on_branch') }}
                 </div>
 
                 <div class="primary-line-visibility-description">
-                  Désactivez-la pour laisser une ligne supplémentaire continuer seule sur cette branche.
+                  {{ $t('ui.dialogs.branch_properties.main_line_on_branch_hint') }}
                 </div>
               </div>
 
@@ -287,11 +289,11 @@ function updateLineColor(
 
                 <div class="line-description">
                   <div class="line-title">
-                    Ligne supplémentaire {{ index + 1 }}
+                    {{ $t('ui.dialogs.branch_properties.additional_line', { number: index + 1 }) }}
                   </div>
 
                   <div class="line-subtitle">
-                    Fusionnée avec cette branche
+                    {{ $t('ui.dialogs.branch_properties.additional_line_hint') }}
                   </div>
                 </div>
               </div>
@@ -309,7 +311,7 @@ function updateLineColor(
             <div class="line-editor-grid">
               <div class="line-field">
                 <label class="line-field-label">
-                  Mode de transport
+                  {{ $t('ui.dialogs.branch_properties.transport_mode') }}
                 </label>
 
                 <ModeSelect
@@ -326,7 +328,7 @@ function updateLineColor(
 
               <div class="line-field">
                 <label class="line-field-label">
-                  Indice
+                  {{ $t('ui.dialogs.branch_properties.index') }}
                 </label>
 
                 <IndexSelect
@@ -357,7 +359,7 @@ function updateLineColor(
             <i class="i-tabler-route-alt-left" />
 
             <span>
-              La couleur de chaque ligne est déterminée automatiquement par son indice.
+              {{ $t('ui.dialogs.branch_properties.color_hint') }}
             </span>
           </div>
         </div>
@@ -380,7 +382,7 @@ function updateLineColor(
               </div>
 
               <div class="property-card-description">
-                Ajustez l'espace entre les différents éléments de la branche.
+                {{ $t('ui.dialogs.branch_properties.element_spacing_hint') }}
               </div>
             </div>
           </div>
@@ -406,11 +408,11 @@ function updateLineColor(
 
             <div>
               <div class="property-card-title">
-                Ordre des éléments
+                {{ $t('ui.dialogs.branch_properties.elements_order') }}
               </div>
 
               <div class="property-card-description">
-                Inversez l'ordre d'affichage des éléments de cette branche.
+                {{ $t('ui.dialogs.branch_properties.elements_order_hint') }}
               </div>
             </div>
           </div>
@@ -436,7 +438,7 @@ function updateLineColor(
                 </div>
 
                 <div class="checkbox-option-description">
-                  Affiche les éléments de la branche dans l'ordre inverse.
+                  {{ $t('ui.dialogs.branch_properties.inverted_elements_hint') }}
                 </div>
               </div>
             </div>
@@ -461,11 +463,11 @@ function updateLineColor(
 
         <div>
           <div class="information-notice-title">
-            Branche
+            {{ $t('ui.dialogs.branch_properties.notice_title') }}
           </div>
 
           <div class="information-notice-text">
-            Les modifications sont appliquées immédiatement sur le plan.
+            {{ $t('ui.dialogs.branch_properties.immediate_changes') }}
           </div>
         </div>
       </div>
@@ -477,7 +479,7 @@ function updateLineColor(
           <i class="i-tabler-git-branch" />
 
           <span>
-            Configuration de la branche
+            {{ $t('ui.dialogs.branch_properties.footer_hint') }}
           </span>
         </div>
 

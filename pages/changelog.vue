@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { definePageMeta } from '#imports'
-import changelog from '~/assets/changelog.yml'
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import changelogFr from '~/assets/changelog.yml'
+import changelogEn from '~/assets/changelog.en.yml'
 import useVersion from '~/composables/useVersion'
 
 definePageMeta({
@@ -8,6 +11,10 @@ definePageMeta({
 })
 
 const { applicationVersion } = useVersion()
+const { locale } = useI18n()
+const changelog = computed(() =>
+  locale.value === 'en' ? changelogEn : changelogFr,
+)
 </script>
 
 <template>

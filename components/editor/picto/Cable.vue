@@ -18,7 +18,7 @@ const picto = computed(() => {
 </script>
 
 <template>
-  <img v-if="picto" :src="picto" alt="cable" class="picto">
+  <img v-if="picto" :src="picto" :alt="$t('data.mode.cable')" class="picto">
 </template>
 
 <style scoped lang="scss">

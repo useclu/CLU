@@ -385,21 +385,21 @@ function onNameEnter(
 
         <div class="shortcut-text">
           <span>
-            <kbd>Entrée</kbd>
+            <kbd>{{ $t('ui.common.enter') }}</kbd>
             {{ $t('ui.dialogs.warp_add.shortcut_add_stop') }}
           </span>
 
           <span>
             <kbd>Shift</kbd>
             +
-            <kbd>Entrée</kbd>
+            <kbd>{{ $t('ui.common.enter') }}</kbd>
             {{ $t('ui.dialogs.warp_add.shortcut_newline') }}
           </span>
 
           <span>
             <kbd>{{ metakey }}</kbd>
             +
-            <kbd>Entrée</kbd>
+            <kbd>{{ $t('ui.common.enter') }}</kbd>
             {{ $t('ui.dialogs.warp_add.shortcut_add_all') }}
           </span>
         </div>
@@ -731,7 +731,13 @@ function onNameEnter(
           v-if="stopCount > 0"
           class="footer-count"
         >
-          {{ stopCountLabel }} prêt{{ stopCount > 1 ? 's' : '' }}
+          {{ stopCountLabel }} {{
+            $t(
+              stopCount === 1
+                ? 'ui.dialogs.warp_add.ready_one'
+                : 'ui.dialogs.warp_add.ready_many',
+            )
+          }}
         </div>
 
         <Button

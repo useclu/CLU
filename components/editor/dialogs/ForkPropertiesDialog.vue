@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v4 as uuidv4 } from 'uuid'
 import { useProject } from '~/stores/useProject'
 
@@ -7,6 +8,7 @@ const visible = defineModel<boolean>('visible', { required: true })
 const fork = defineModel<Fork>({ required: true })
 
 const project = useProject()
+const { t } = useI18n()
 
 interface ForkLineOption {
   value: string
@@ -1475,7 +1477,7 @@ const anchorStopOptions =
                 branchElement.id,
               name:
                 branchElement.$stop.name
-                || 'Arrêt sans nom',
+                || t('ui.map_editor.toolbox.untitled_stop'),
             })
           }
         }
@@ -1571,7 +1573,7 @@ const anchorStopOptions =
               id: element.id,
               name:
                 element.$stop.name
-                || 'Arrêt sans nom',
+                || t('ui.map_editor.toolbox.untitled_stop'),
             })
           }
         }
@@ -1628,11 +1630,11 @@ const arrows = [
 
 const forkStyles = [
   {
-    label: 'Originale',
+    label: 'ui.dialogs.fork_properties.style_original',
     value: 'ORIGINAL',
   },
   {
-    label: 'Arrondie',
+    label: 'ui.dialogs.fork_properties.style_rounded',
     value: 'ROUNDED',
   },
 ]
@@ -1677,7 +1679,7 @@ const forkStyles = [
           </div>
 
           <div class="dialog-subtitle">
-            Configurez la forme et le comportement de la bifurcation.
+            {{ $t('ui.dialogs.fork_properties.summary') }}
           </div>
         </div>
       </div>
@@ -1693,11 +1695,11 @@ const forkStyles = [
 
             <div>
               <div class="property-card-title">
-                Ligne concernée
+                {{ $t('ui.dialogs.fork_properties.line_title') }}
               </div>
 
               <div class="property-card-description">
-                Choisissez la ligne qui doit réellement bifurquer.
+                {{ $t('ui.dialogs.fork_properties.line_hint') }}
               </div>
             </div>
           </div>
@@ -1740,7 +1742,7 @@ const forkStyles = [
                   v-if="!line.mode && !line.index"
                   class="line-choice-fallback"
                 >
-                  Ligne
+                  {{ $t('ui.dialogs.fork_properties.line_fallback') }}
                 </span>
               </span>
 
@@ -1748,7 +1750,7 @@ const forkStyles = [
                 v-if="line.primary"
                 class="line-choice-role"
               >
-                principale
+                {{ $t('ui.dialogs.fork_properties.primary') }}
               </span>
 
               <i
@@ -1772,11 +1774,11 @@ const forkStyles = [
 
             <div>
               <div class="property-card-title">
-                Branches parallèles
+                {{ $t('ui.dialogs.fork_properties.parallel_branches') }}
               </div>
 
               <div class="property-card-description">
-                Ajoutez explicitement les deux sorties à cette fourche multi-ligne.
+                {{ $t('ui.dialogs.fork_properties.parallel_branches_hint') }}
               </div>
             </div>
           </div>
@@ -1785,7 +1787,7 @@ const forkStyles = [
         <div class="property-card-body">
           <Button
             v-if="!hasPairedParallelBranches"
-            label="Ajouter les branches parallèles"
+            :label="$t('ui.dialogs.fork_properties.add_parallel_branches')"
             icon="i-tabler-git-branch"
             class="w-full"
             @click="addParallelBranchesToFork"
@@ -1798,7 +1800,7 @@ const forkStyles = [
             <i class="i-tabler-circle-check" />
 
             <span>
-              Les branches parallèles sont déjà liées à cette fourche.
+              {{ $t('ui.dialogs.fork_properties.parallel_branches_linked') }}
             </span>
           </div>
         </div>
@@ -1816,11 +1818,11 @@ const forkStyles = [
 
             <div>
               <div class="property-card-title">
-                Après quel arrêt ?
+                {{ $t('ui.dialogs.fork_properties.after_stop') }}
               </div>
 
               <div class="property-card-description">
-                La bifurcation sera placée structurellement juste après cet arrêt.
+                {{ $t('ui.dialogs.fork_properties.after_stop_hint') }}
               </div>
             </div>
           </div>
@@ -1862,7 +1864,7 @@ const forkStyles = [
             <i class="i-tabler-info-circle" />
 
             <span>
-              Les arrêts situés après le point choisi suivent automatiquement la sortie de continuité.
+              {{ $t('ui.dialogs.fork_properties.after_stop_continuity') }}
             </span>
           </div>
         </div>
@@ -1881,7 +1883,7 @@ const forkStyles = [
               </div>
 
               <div class="property-card-description">
-                Choisissez le côté vers lequel la fourche se développe.
+                {{ $t('ui.dialogs.fork_properties.orientation_hint') }}
               </div>
             </div>
           </div>
@@ -1913,7 +1915,7 @@ const forkStyles = [
               </div>
 
               <div class="property-card-description">
-                Déterminez la disposition verticale des deux branches.
+                {{ $t('ui.dialogs.fork_properties.shape_hint') }}
               </div>
             </div>
           </div>
@@ -1941,11 +1943,11 @@ const forkStyles = [
 
             <div>
               <div class="property-card-title">
-                Style de bifurcation
+                {{ $t('ui.dialogs.fork_properties.style_title') }}
               </div>
 
               <div class="property-card-description">
-                Choisissez l'apparence de la jonction entre les branches.
+                {{ $t('ui.dialogs.fork_properties.style_hint') }}
               </div>
             </div>
           </div>
@@ -1957,7 +1959,7 @@ const forkStyles = [
             class="property-select"
             pt:pc-toggle-button:root:class="flex-grow"
             :options="forkStyles"
-            option-label="label"
+            :option-label="option => $t(option.label)"
             option-value="value"
             :allow-empty="false"
           />
@@ -1977,7 +1979,7 @@ const forkStyles = [
               </div>
 
               <div class="property-card-description">
-                Ajoutez une indication de sens de circulation sur la fourche.
+                {{ $t('ui.dialogs.fork_properties.directional_arrows_hint') }}
               </div>
             </div>
           </div>
@@ -2009,7 +2011,7 @@ const forkStyles = [
               </div>
 
               <div class="property-card-description">
-                Ajustez l'écartement général de la bifurcation.
+                {{ $t('ui.dialogs.fork_properties.size_hint') }}
               </div>
             </div>
           </div>
@@ -2025,7 +2027,7 @@ const forkStyles = [
               <i class="i-tabler-info-circle" />
 
               <span>
-                Une valeur plus élevée augmente l'écartement des branches.
+                {{ $t('ui.dialogs.fork_properties.size_detail') }}
               </span>
             </div>
           </div>
@@ -2039,12 +2041,12 @@ const forkStyles = [
           <i class="i-tabler-info-circle" />
 
           <span>
-            Les modifications sont appliquées immédiatement sur le plan.
+            {{ $t('ui.dialogs.fork_properties.immediate_changes') }}
           </span>
         </div>
 
         <Button
-          label="Fermer"
+          :label="$t('ui.common.close')"
           severity="secondary"
           icon="i-tabler-x"
           @click="visible = false"

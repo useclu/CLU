@@ -2,6 +2,7 @@
 import { breakpointsTailwind, useBreakpoints } from '@vueuse/core'
 import { v4 as uuidv4 } from 'uuid'
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useProject } from '~/stores/useProject'
 import { cleanName } from '~/utils/text'
 import {
@@ -27,6 +28,7 @@ const emit = defineEmits<{
 
 const visible = defineModel<boolean>('visible', { required: true })
 const stop = defineModel<Stop>({ required: true })
+const { t } = useI18n()
 
 const accessibilityOptions = [
   {
@@ -511,7 +513,7 @@ function loadPersonalStopSuggestions() {
   }
   catch (error) {
     console.error(
-      'Impossible de charger le catalogue personnel CLU.',
+      t('ui.dialogs.stop_properties.catalog_load_error'),
       error,
     )
 
@@ -534,7 +536,7 @@ function persistPersonalStopSuggestions() {
   }
   catch (error) {
     console.error(
-      'Impossible d’enregistrer le catalogue personnel CLU.',
+      t('ui.dialogs.stop_properties.catalog_save_error'),
       error,
     )
   }
@@ -827,10 +829,10 @@ function stopSuggestionServiceLabel(
   service: StopSuggestionService,
 ) {
   const prefix = {
-    METRO: 'Métro',
-    RER: 'RER',
-    TRAIN: 'Train',
-    TRAM: 'Tram',
+    METRO: t('data.mode.metro'),
+    RER: t('data.mode.rer'),
+    TRAIN: t('data.mode.transilien'),
+    TRAM: t('data.mode.tram'),
   }[service.mode]
 
   return `${prefix} ${service.index}`
@@ -840,7 +842,7 @@ function stopSuggestionSourceLabel(
   suggestion: AnyStopSuggestion,
 ) {
   return suggestion.source === 'PERSONAL'
-    ? 'Personnel'
+    ? t('ui.dialogs.stop_properties.personal_source')
     : 'CLU'
 }
 
@@ -1659,7 +1661,10 @@ function deleteCurrentPersonalStopSuggestion() {
 
   const accepted =
     window.confirm(
-      `Supprimer « ${suggestion.name} » de votre catalogue personnel ?`,
+      t(
+        'ui.dialogs.stop_properties.delete_catalog_confirmation',
+        { name: suggestion.name },
+      ),
     )
 
   if (!accepted) {
@@ -1738,7 +1743,7 @@ const currentStopSuggestionSourceLabel =
       stopData.value.stopSuggestionSource
       === 'PERSONAL'
     ) {
-      return 'Personnel'
+      return t('ui.dialogs.stop_properties.personal_source')
     }
 
     if (
@@ -1765,7 +1770,7 @@ const terminusArrowEnabled = computed({
         || stopData.value.terminusArrowText.trim().length === 0
       )
     ) {
-      stopData.value.terminusArrowText = 'Vers '
+      stopData.value.terminusArrowText = `${t('ui.map_editor.towards')} `
     }
   },
 })
@@ -2541,12 +2546,13 @@ const selectedLineCount =
 
 /*
  * =========================================================
- * CHANGER DE LIGNE APRÈS CET ARRÊT
+ * CHANGER DE LIGNE SUR CET ARRÊT
  * =========================================================
  *
- * La nouvelle identité est indépendante des lignes déjà
- * présentes sur la branche. Elle peut donc représenter par
- * exemple un passage RER C -> Ligne V sur le même tracé.
+ * La nouvelle identité est locale à l'arrêt : elle recolore
+ * uniquement la zone de tracé rattachée à cet arrêt.
+ * L'arrêt suivant conserve sa propre identité tant qu'il n'est
+ * pas configuré explicitement à son tour.
  */
 type MultiLineStopDataWithTransition = MultiLineStopData & {
   lineAfterStopMode?: Mode | null
@@ -2659,7 +2665,7 @@ function openConnectionsEditor() {
 
           <div>
             <div class="card-title">
-              Informations
+              {{ $t('ui.dialogs.stop_properties.information') }}
             </div>
 
             <div class="card-description">
@@ -2801,7 +2807,7 @@ function openConnectionsEditor() {
 
               <div class="stop-catalog-buttons">
                 <Button
-                  label="Sauvegarder"
+                  :label="$t('ui.dialogs.stop_properties.save')"
                   icon="i-tabler-bookmark-plus"
                   severity="secondary"
                   size="small"
@@ -2906,7 +2912,7 @@ function openConnectionsEditor() {
 
           <div>
             <div class="card-title">
-              Apparence du nom
+              {{ $t('ui.dialogs.stop_properties.name_appearance') }}
             </div>
 
             <div class="card-description">
@@ -2918,7 +2924,7 @@ function openConnectionsEditor() {
         <div class="card-content">
           <div class="property-field">
             <span class="property-label">
-              Style du texte
+              {{ $t('ui.dialogs.stop_properties.text_style') }}
             </span>
 
             <div class="text-style-controls">
@@ -3007,7 +3013,7 @@ function openConnectionsEditor() {
 
               <Button
                 v-if="!hasCustomNameColor"
-                label="Personnaliser la couleur"
+                :label="$t('ui.dialogs.stop_properties.custom_color')"
                 severity="secondary"
                 size="small"
                 icon="i-tabler-palette"
@@ -3032,7 +3038,7 @@ function openConnectionsEditor() {
             <div class="field-heading">
               <div>
                 <div class="property-label">
-                  Logos / images du nom
+                  {{ $t('ui.dialogs.stop_properties.name_images') }}
                 </div>
 
                 <div class="field-description">
@@ -3077,7 +3083,7 @@ function openConnectionsEditor() {
                 <div class="image-actions">
                   <div>
                     <div class="image-title">
-                      Image {{ index + 1 }}
+                      {{ $t('ui.dialogs.stop_properties.image_label', { number: index + 1 }) }}
                     </div>
 
                     <div class="field-description">
@@ -3265,18 +3271,18 @@ function openConnectionsEditor() {
                 class="property-label"
                 :for="`${stop.id}_terminusArrowText`"
               >
-                Texte de direction
+                {{ $t('ui.dialogs.stop_properties.direction_text') }}
               </label>
 
               <InputText
                 :id="`${stop.id}_terminusArrowText`"
                 v-model="terminusArrowText"
                 :spellcheck="false"
-                placeholder="Vers Paris Saint-Lazare"
+                :placeholder="$t('ui.dialogs.stop_properties.direction_placeholder')"
               />
 
               <div class="field-description">
-                Exemple : Vers Paris Saint-Lazare
+                {{ $t('ui.dialogs.stop_properties.direction_example') }}
               </div>
             </div>
           </div>
@@ -3554,7 +3560,7 @@ function openConnectionsEditor() {
                   v-if="branchLine.primary"
                   class="served-line-primary"
                 >
-                  Ligne principale
+                  {{ $t('ui.dialogs.stop_properties.main_line') }}
                 </span>
               </div>
 
@@ -3616,7 +3622,7 @@ function openConnectionsEditor() {
 
         <div class="connections-button-content">
           <div class="connections-button-title">
-            Correspondances
+            {{ $t('ui.dialogs.stop_properties.connections') }}
           </div>
 
           <div class="connections-button-description">
@@ -4624,7 +4630,7 @@ function openConnectionsEditor() {
 
 /*
  * =========================================================
- * CHANGER DE LIGNE APRÈS CET ARRÊT
+ * CHANGER DE LIGNE SUR CET ARRÊT
  * =========================================================
  */
 

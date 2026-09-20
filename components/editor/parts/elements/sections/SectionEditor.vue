@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { SortableEvent } from 'vue-draggable-plus'
 import { useToast } from 'primevue/usetoast'
+import { useI18n } from 'vue-i18n'
 import {
   computed,
   inject,
@@ -31,6 +32,7 @@ const section = defineModel<LineSection>({ required: true })
 const sectionRoot = ref<HTMLElement>()
 
 const toast = useToast()
+const { t } = useI18n()
 const project = useProject()
 
 const elements = computed({
@@ -2526,19 +2528,23 @@ function onAction(
       && event.pullMode === 'clone'
     ) {
       toast.add({
-        summary:
+        summary: t(
           'ui.toasts.adjacent_branches.title',
-        detail:
+        ),
+        detail: t(
           'ui.toasts.adjacent_branches.detail',
+        ),
         severity: 'warn',
         life: 10000,
       })
     } else {
       toast.add({
-        summary:
+        summary: t(
           'ui.toasts.branch_merge.title',
-        detail:
+        ),
+        detail: t(
           'ui.toasts.branch_merge.detail',
+        ),
         severity: 'info',
         life: 5000,
       })

@@ -7,6 +7,7 @@ import { useProjectVersionCheck } from '~/composables/useProjectVersionCheck'
 import useVersion from '~/composables/useVersion'
 import { useCustomLineIndices } from '~/stores/useCustomLineIndices'
 import { useProject } from '~/stores/useProject'
+import { normalizeMapFontFamily } from '~/utils/mapFonts'
 
 export default function useLoadProject() {
   const toast = useToast()
@@ -56,6 +57,7 @@ export default function useLoadProject() {
   line.value.lineStyle = project.line.lineStyle
   line.value.dotsColorPolicy = project.line.dotsColorPolicy
   line.value.fullyAccessible = project.line.fullyAccessible
+  line.value.fontFamily = normalizeMapFontFamily(project.line.fontFamily)
   line.value.mapSize = project.line.mapSize
   line.value.topology = project.line.topology
   line.value.customModePictograms
@@ -69,8 +71,8 @@ export default function useLoadProject() {
   }
 
   toast.add({
-    summary: 'ui.toasts.load.success.title',
-    detail: 'ui.toasts.load.success.detail',
+    summary: t('ui.toasts.load.success.title'),
+    detail: t('ui.toasts.load.success.detail'),
     severity: 'success',
     life: 5000,
   })
@@ -84,8 +86,8 @@ export default function useLoadProject() {
       console.warn(error)
       lineStore.reset()
       toast.add({
-        summary: 'ui.toasts.load.failure.title',
-        detail: 'ui.toasts.load.failure.detail.corrupted',
+        summary: t('ui.toasts.load.failure.title'),
+        detail: t('ui.toasts.load.failure.detail.corrupted'),
         severity: 'error',
         life: 5000,
       })
@@ -93,8 +95,8 @@ export default function useLoadProject() {
   }
   reader.onerror = () => {
     toast.add({
-      summary: 'ui.toasts.load.success.title',
-      detail: 'ui.toasts.load.success.detail.unreadable',
+      summary: t('ui.toasts.load.failure.title'),
+      detail: t('ui.toasts.load.failure.detail.unreadable'),
       severity: 'error',
       life: 5000,
     })

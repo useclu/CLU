@@ -496,6 +496,25 @@ declare global {
       autoSpacing: boolean
       spacing: number
       height: number
+
+      /*
+       * En mode Bus, une limite peut concerner la commune,
+       * la zone, ou les deux. Absence = les deux pour assurer
+       * la compatibilité avec les anciens AreaSeparator.
+       */
+      busCityBoundary?: boolean
+      busZoneBoundary?: boolean
+    }
+  }
+
+  interface OneWayLoop {
+    id: string
+    $oneWayLoop: {
+      size: number
+      direction: 'LEFT' | 'RIGHT'
+      position?: 'TOP' | 'BOTTOM'
+      /** @deprecated Les arrêts intégrés aux boucles ne sont plus affichés. */
+      stop?: Stop
     }
   }
 
@@ -503,6 +522,7 @@ declare global {
     | Stop
     | Spacer
     | AreaSeparator
+    | OneWayLoop
 
   /*
    * Ligne supplémentaire affichée sur une branche.
@@ -528,6 +548,14 @@ declare global {
     mode: Mode
     index: LineIndex | null
     color: string
+  }
+
+  interface BusAreaRegion {
+    /** Nom de la commune affichée sous un plan Bus. */
+    cityName: string
+
+    /** Zone tarifaire / géographique affichée sous la commune. */
+    zoneName: string | null
   }
 
   interface Branch {
@@ -563,6 +591,19 @@ declare global {
        * - branche S seule : primaryLineVisible=false, additionalLines=[S]
        */
       primaryLineVisible?: boolean
+
+      /*
+       * Plages Commune / Zone affichées sous les plans Bus.
+       *
+       * La clé "__start__" décrit les plages qui commencent au
+       * premier arrêt. Les autres clés sont les identifiants des
+       * AreaSeparator : cityName et zoneName peuvent donc suivre
+       * des limites différentes tout en partageant le même stockage.
+       *
+       * La propriété est optionnelle afin que tous les anciens
+       * projets CLU restent valides sans migration.
+       */
+      busAreaRegions?: Record<string, BusAreaRegion>
     }
   }
 
@@ -767,6 +808,11 @@ declare global {
     | 'RATP'
     | 'SNCF'
 
+  type MapFontFamily =
+    | 'PARISINE'
+    | 'IDF_VOYAGEUR'
+    | 'ACHEMINE'
+
   interface Line {
     mode: Mode | null
     index: LineIndex | null
@@ -778,6 +824,7 @@ declare global {
     fullyAccessible: boolean
     frameTerminusNames: boolean
     formatStyle?: FormatStyle
+    fontFamily?: MapFontFamily
     topology: LineSection[]
   }
 

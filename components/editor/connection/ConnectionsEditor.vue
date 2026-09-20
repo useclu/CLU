@@ -91,7 +91,7 @@ function deleteConnection(
           </span>
 
           <span class="dialog-heading-description">
-            Configure les lignes, services et modes de correspondance
+            {{ $t('ui.dialogs.connections_editor.summary') }}
           </span>
         </div>
       </div>

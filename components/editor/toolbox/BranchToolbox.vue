@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { DraggableEvent } from 'vue-draggable-plus'
-import { storeToRefs } from 'pinia'
 import { v4 as uuidv4 } from 'uuid'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { VueDraggable } from 'vue-draggable-plus'
+import { storeToRefs } from 'pinia'
 import useElementGrabbing from '~/composables/useElementGrabbing'
 import { useProject } from '~/stores/useProject'
 
@@ -13,24 +14,14 @@ interface Element {
   type: 'STOP' | 'SPACER' | 'AREA_SEPARATOR'
 }
 
-type SignageStyle =
-  | 'IDFM'
-  | 'SNCF'
-
 const { grab, release } = useElementGrabbing()
 const { line } = storeToRefs(useProject())
+const { t } = useI18n()
 
-const signageStyle = computed<SignageStyle>(() =>
-  (
-    line.value as Line & {
-      signageStyle?: SignageStyle
-    }
-  ).signageStyle
-  ?? 'IDFM',
-)
-
-const isSncfSignage = computed(() =>
-  signageStyle.value === 'SNCF',
+const isBusAreaMode = computed(() =>
+  line.value.mode === 'BUS'
+  || line.value.mode === 'BRT'
+  || line.value.mode === 'NOCTILIEN',
 )
 
 const elements = ref<Element[]>([
@@ -92,127 +83,23 @@ function clone(element: Element): BranchElement {
       return {
         id: uuidv4(),
         $areaSeparator: {
-          cityName: 'Ville',
-          zoneName: 'Zone 1',
+          /*
+           * Sur un plan Bus, l'AreaSeparator devient une limite
+           * entre plages Commune / Zone. On conserve néanmoins les
+           * valeurs historiques afin qu'un
+           * projet repassé vers un mode non-Bus retrouve le rendu
+           * classique de l'AreaSeparator sans migration.
+           */
+          cityName: t('ui.map_editor.defaults.city'),
+          zoneName: t('ui.map_editor.defaults.zone', { number: 1 }),
           autoSpacing: true,
           spacing: 3,
           height: 10,
+          busCityBoundary: true,
+          busZoneBoundary: true,
         },
       }
   }
-}
-
-function lastBranchInSection(
-  section: LineSection,
-): Branch | null {
-  const sectionElements =
-    section.$lineSection.elements
-
-  for (
-    let index = sectionElements.length - 1;
-    index >= 0;
-    index--
-  ) {
-    const sectionElement =
-      sectionElements[index]
-
-    if ('$branch' in sectionElement) {
-      return sectionElement
-    }
-
-    if (
-      '$fork' in sectionElement
-      && sectionElement.$fork.sections
-    ) {
-      const forkSections =
-        sectionElement.$fork.sections
-
-      for (
-        let forkIndex = forkSections.length - 1;
-        forkIndex >= 0;
-        forkIndex--
-      ) {
-        const branch =
-          lastBranchInSection(
-            forkSections[forkIndex],
-          )
-
-        if (branch) {
-          return branch
-        }
-      }
-    }
-
-    if (
-      '$parallelBranches'
-      in sectionElement
-    ) {
-      const parallelSections =
-        sectionElement
-          .$parallelBranches
-          .sections
-
-      for (
-        let parallelIndex = parallelSections.length - 1;
-        parallelIndex >= 0;
-        parallelIndex--
-      ) {
-        const branch =
-          lastBranchInSection(
-            parallelSections[
-              parallelIndex
-            ],
-          )
-
-        if (branch) {
-          return branch
-        }
-      }
-    }
-  }
-
-  return null
-}
-
-const sncfTargetBranch =
-  computed<Branch | null>(() => {
-    const sections =
-      line.value.topology
-
-    for (
-      let index = sections.length - 1;
-      index >= 0;
-      index--
-    ) {
-      const branch =
-        lastBranchInSection(
-          sections[index],
-        )
-
-      if (branch) {
-        return branch
-      }
-    }
-
-    return null
-  })
-
-function addDirectlyInSncf(
-  element: Element,
-) {
-  const branch =
-    sncfTargetBranch.value
-
-  if (!branch) {
-    return
-  }
-
-  branch
-    .$branch
-    .elements
-    .push(
-      clone(element),
-    )
 }
 
 function onStart(
@@ -223,35 +110,7 @@ function onStart(
 </script>
 
 <template>
-  <!--
-    SNCF :
-    vrais boutons simples, sans VueDraggable.
-    On peut cliquer autant de fois que nécessaire.
-  -->
-  <div
-    v-if="isSncfSignage"
-    class="toolbox-section sncf-toolbox-section"
-  >
-    <button
-      v-for="element in elements"
-      :key="element.label"
-      type="button"
-      class="toolbox-item sncf-toolbox-button"
-      @click="addDirectlyInSncf(element)"
-    >
-      <div class="flex flex-col items-center">
-        <i :class="element.icon" />
-        <span>{{ $t(element.label) }}</span>
-      </div>
-    </button>
-  </div>
-
-  <!--
-    IDFM :
-    comportement historique strictement conservé.
-  -->
-  <VueDraggable
-    v-else
+    <VueDraggable
     v-model="elements"
     class="toolbox-section"
     :group="{
@@ -271,8 +130,22 @@ function onStart(
     >
       <div class="item hidden">
         <div class="flex flex-col items-center">
-          <i :class="element.icon" />
-          <span>{{ $t(element.label) }}</span>
+          <i
+            :class="
+              element.type === 'AREA_SEPARATOR'
+              && isBusAreaMode
+                ? 'i-tabler-map-pin'
+                : element.icon
+            "
+          />
+          <span>
+            {{
+              element.type === 'AREA_SEPARATOR'
+              && isBusAreaMode
+                ? $t('ui.map_editor.toolbox.bus_area_boundary')
+                : $t(element.label)
+            }}
+          </span>
         </div>
       </div>
 
@@ -331,14 +204,4 @@ function onStart(
   }
 }
 
-.sncf-toolbox-button {
-  appearance: none;
-  font-family: inherit;
-  color: inherit;
-  cursor: pointer !important;
-}
-
-.sncf-toolbox-button:active {
-  cursor: pointer !important;
-}
 </style>

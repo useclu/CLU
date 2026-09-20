@@ -14,7 +14,9 @@
       "line_name": "Ligne {index}",
       "official_indices": "Indices officiels",
       "placeholder": "Sélectionner un indice",
-      "unknown_index": "Inconnu"
+      "unknown_index": "Inconnu",
+      "tram_name": "Tramway T{index}",
+      "cable_name": "Câble C{index}"
     },
     "line_style_select": {
       "placeholder": "Sélectionner un style"
@@ -43,7 +45,26 @@
       "ory": "Orly"
     },
     "colors": {
-      "custom": "Personnalisée"
+      "custom": "Personnalisée",
+      "poppy_red": "Rouge Coquelicot",
+      "orange": "Orange",
+      "bright_yellow": "Jaune Vif",
+      "ochre_yellow": "Jaune Ocre",
+      "brown": "Marron",
+      "light_olive": "Olive Clair",
+      "dark_olive": "Olive Foncé",
+      "dark_green": "Vert Foncé",
+      "light_green": "Vert Clair",
+      "turquoise": "Turquoise",
+      "light_blue": "Bleu Clair",
+      "ultramarine_blue": "Bleu Outremer",
+      "dark_blue": "Bleu Foncé",
+      "violet": "Violet",
+      "magenta": "Magenta",
+      "lilac": "Lilas",
+      "pink": "Rose",
+      "raspberry_red": "Rouge Framboise",
+      "metro_19_gray": "Gris Métro 19"
     },
     "dots_color": {
       "inherit": "Héritée",

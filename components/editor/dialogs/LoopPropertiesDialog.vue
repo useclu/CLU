@@ -62,7 +62,7 @@ const orientations = [
           </div>
 
           <div class="dialog-subtitle">
-            Configurez l'orientation et les niveaux du demi-tour.
+            {{ $t('ui.dialogs.loop_properties.summary') }}
           </div>
         </div>
       </div>
@@ -86,7 +86,7 @@ const orientations = [
               </div>
 
               <div class="property-card-description">
-                Choisissez le côté vers lequel s'effectue le demi-tour.
+                {{ $t('ui.dialogs.loop_properties.orientation_hint') }}
               </div>
             </div>
           </div>
@@ -116,11 +116,11 @@ const orientations = [
 
             <div>
               <div class="property-card-title">
-                Niveaux du demi-tour
+                {{ $t('ui.dialogs.loop_properties.levels_title') }}
               </div>
 
               <div class="property-card-description">
-                Ajustez indépendamment le niveau de chaque liaison.
+                {{ $t('ui.dialogs.loop_properties.levels_hint') }}
               </div>
             </div>
           </div>
@@ -186,11 +186,11 @@ const orientations = [
 
         <div>
           <div class="information-notice-title">
-            Demi-tour
+            {{ $t('ui.dialogs.loop_properties.notice_title') }}
           </div>
 
           <div class="information-notice-text">
-            Les modifications sont appliquées immédiatement sur le plan.
+            {{ $t('ui.dialogs.loop_properties.immediate_changes') }}
           </div>
         </div>
       </div>
@@ -202,12 +202,12 @@ const orientations = [
           <i class="i-tabler-arrow-back-up" />
 
           <span>
-            Configuration du demi-tour
+            {{ $t('ui.dialogs.loop_properties.footer_hint') }}
           </span>
         </div>
 
         <Button
-          label="Fermer"
+          :label="$t('ui.common.close')"
           severity="secondary"
           icon="i-tabler-x"
           @click="visible = false"

@@ -1,0 +1,588 @@
+---
+changelog:
+  - version: 1.6.2-alpha
+    date: '2026-09-06T00:00:00.000Z'
+    entries:
+      ADDED:
+        - value: Finalized the custom line index directory
+          details:
+            - The directory can be used to create, browse, edit and delete custom line indices
+            - Indices are organized by transport family to make them easier to use in maps and connections
+            - Categories are ordered as RER, Transilien, Tram, Metro, Cable car, Bus, Busilien (BRT), Noctilien, River shuttle and Bicycle
+            - Each category clearly shows the custom indices that are already available
+            - Creating a new index still relies on the application's native index system so the available shapes, colors, prefixes and suffixes are preserved
+        - value: New global management for transport mode pictograms
+          details:
+            - Generic pictograms for the different modes can be replaced with custom images
+            - Each mode has its own preview and indicates whether it uses the default pictogram or a custom one
+            - A custom pictogram can be changed or restored individually
+            - A command can restore all default pictograms at once
+            - Custom images are stored directly with the project's local data
+      CHANGED:
+        - value: Finalized the new CLU identity
+          details:
+            - The project now uses the name "CLU — Urban Line Creator"
+            - The BULB visual identity has been replaced by the new CLU identity in the main interface
+            - The new CLU logo has been introduced
+            - The application title displayed in the browser tab is now "CLU • Urban Line Creator"
+            - Internal technical names inherited from BULB are kept where required for operation or project compatibility
+        - value: Redesigned the new project confirmation
+          details:
+            - The "New project" dialog now uses the CLU visual identity
+            - The warning about losing unsaved changes is more prominent
+            - Cancel and confirmation actions are more clearly differentiated
+            - The project reset behavior remains unchanged
+        - value: Redesigned the preset selector
+          details:
+            - Modernized the presentation of predefined line choices
+            - Preserved the distinction between presets with a complete template and those that only apply the selected mode identity and settings
+            - Complete templates can still replace the relevant topology and settings after confirmation
+            - The goal is to make template selection easier to understand without changing how existing presets work
+        - value: Redesigned the save dialog
+          details:
+            - Modernized the save interface using CLU's visual language
+            - Actions and information required to save a project are now better organized
+            - The existing save system and project compatibility are preserved
+        - value: Technical reorganization of File menu dialogs
+          details:
+            - The main File menu dialogs are now managed outside the context menu itself
+            - Closing the File menu no longer unintentionally unmounts open dialogs
+            - Custom indices, mode pictograms and save dialogs are now controlled by the top bar
+            - This organization makes dialog behavior more reliable while keeping the same access from the File menu
+        - value: Redesigned annotation properties
+          details:
+            - New presentation consistent with the CLU interface
+            - Text, bold, italic, underline, color and size settings are grouped more clearly
+            - Annotations remain independent from map topology and can still be moved freely
+        - value: Redesigned fork properties
+          details:
+            - Reorganized orientation and geometry settings
+            - The different fork profiles are presented more clearly
+            - Offset, style and directional arrow settings are preserved
+            - Original and rounded styles remain available
+        - value: Redesigned vertical segment properties
+          details:
+            - Simplified the dialog around the settings actually needed for segment geometry
+            - The vertical direction can still define an upward or downward segment
+            - The left or right side of the segment remains configurable
+            - Stops on vertical segments continue to be managed by the editor and are no longer unnecessarily duplicated in this properties dialog
+        - value: Redesigned parallel branch properties
+          details:
+            - New presentation for parallel branch alignment settings
+            - Left, smooth and right alignments remain available
+            - Level offsets for both sections can still be adjusted independently
+        - value: Redesigned loop properties
+          details:
+            - Modernized loop and U-turn configuration
+            - Left or right orientation remains configurable
+            - Both connection offsets can still be changed independently
+        - value: Redesigned branch properties
+          details:
+            - Reorganized general spacing and branch margins
+            - Preserved the option to reverse the visual order of elements
+            - The WarpAdd assistant remains directly accessible from branch properties
+            - Existing settings are preserved while being presented more clearly
+        - value: Redesigned City / Zone separator properties
+          details:
+            - New presentation grouping city and zone identity, spacing and height
+            - The zone name remains optional
+            - Automatic spacing can still reserve the required space around the separator
+            - Distance from neighboring elements can be adjusted when automatic spacing is enabled
+            - The height of the vertical dotted line remains fully adjustable
+        - value: General harmonization of property dialogs
+          details:
+            - Adopted a shared visual language across the main construction tools
+            - Cards and setting groups are used to distinguish the different functions more clearly
+            - Improved the hierarchy of titles, descriptions, controls and actions
+            - Visual redesigns were made while preserving the behaviors and data already supported by the editor
+      FIXED:
+        - Fixed opening and manipulating annotations to prevent an error when releasing the pointer
+        - Fixed the City / Zone separator dialog closing behavior that could open the properties of the branch behind it
+        - Fixed integration of the main File menu dialogs so they remain properly mounted when the menu closes
+
+  - version: 1.6.1-alpha
+    date: '2026-09-05T00:00:00.000Z'
+    entries:
+      ADDED:
+        - value: Added a real Undo / Redo history
+          details:
+            - The "Undo" and "Redo" buttons can now undo and restore project changes
+            - History is based on complete snapshots of the project state so changes made across the different editors are included
+            - Closely spaced changes are grouped to avoid creating a state for every tiny modification
+            - Up to 100 states can be retained
+            - Future history is cleared when a new change is made after an undo
+        - value: New floating editor toolbar
+          details:
+            - The main construction elements are now grouped in a floating capsule inside the editor
+            - Structure tools include Branch, Fork, Vertical segment, Parallel branches and Loop
+            - Placeable elements include Stop, Spacing, City / Zone separator and Annotation
+            - The trash area is integrated directly into the toolbar and visually differentiated
+            - The goal is to free space around the map while keeping construction tools immediately accessible
+      CHANGED:
+        - value: Main interface transformed around the CLU identity
+          details:
+            - The interface progressively adopts the "Urban Line Creator" identity
+            - The top bar is reorganized around essential creation and navigation actions
+            - Main navigation groups File, Tools, Undo, Redo, Map editor, Changelog and the theme control
+            - The goal is to reduce permanent elements around the map and provide more space for creation work
+        - value: Simplified the main editor page
+          details:
+            - Removed old side panels that became unnecessary with the new organization
+            - The map editor now occupies most of the available area
+            - Functions that were previously scattered are grouped in the top bar, configuration dialogs and floating toolbar
+        - value: Reorganized the File menu
+          details:
+            - The menu now focuses on actions that are actually useful for creating and managing a project
+            - Access to custom indices
+            - Access to custom mode pictograms
+            - Create a new project
+            - Open an existing project
+            - Use a preset
+            - Save the project
+            - Export PNG
+            - Export PDF
+            - Removed the old troubleshooting entry, which is no longer useful in this organization
+        - value: Redesigned general map settings
+          details:
+            - Settings are grouped into thematic cards that are easier to browse
+            - A "Line identity" section groups the main information about the represented service
+            - A "Map style" section groups choices that affect the graphic rendering
+            - An "Options" section groups additional behaviors
+            - A "Dimensions" section centralizes document size settings
+            - This organization becomes the visual basis used by the other CLU dialogs
+        - value: Redesigned the stop editor
+          details:
+            - The many stop properties are reorganized into clearer groups
+            - General information and name appearance are clearly separated
+            - Settings related to stop behavior and rendering have their own section
+            - Access to connections is better integrated into the whole dialog
+            - New options such as future stops, out-of-map stops and name customization remain available
+        - value: Redesigned the connections editor
+          details:
+            - Modernized the different components used to create and edit connections
+            - Information is organized more consistently across the different connection types
+            - For connections tied to a transport mode, the configuration order is now Pictogram, Mode, Lines, then Transfer
+            - Advanced features for pictograms, custom lines, transfer modes and duration are preserved
+        - value: General modernization of controls and dialogs
+          details:
+            - Progressively unified spacing, borders, cards, headers and actions
+            - Better distinction between primary settings and secondary information
+            - The new interfaces are designed to remain usable in both light and dark themes
+
+  - version: 1.6.0-alpha
+    date: '2026-09-04T00:00:00.000Z'
+    entries:
+      ADDED:
+        - value: Added the City / Zone separator
+          details:
+            - A new element can be placed directly between stops on a branch
+            - The separator is shown as a vertical dotted line to represent a change of municipality, sector or zone
+            - The city name can be displayed above the separator
+            - An optional zone can be displayed as well
+            - Separator height is adjustable
+            - An automatic spacing system can reserve the required space around the element
+            - The reserved distance from neighboring elements can be customized
+            - The separator is saved with the project like the other line elements
+        - value: Expanded connections with a transfer mode
+          details:
+            - A connection can now indicate how the traveler should make the transfer
+            - Available modes include Walking, Bicycle, Car, Bus and Other
+            - An optional duration can accompany the transfer mode
+            - The system remains compatible with older walking connections created using BULB's historical behavior
+        - value: Added future or planned stops
+          details:
+            - A stop can be marked as future or planned directly from its properties
+            - These stops have a specific graphic rendering to distinguish them from stations already in service
+            - The information is stored individually for each stop
+        - value: Advanced customization of each stop name
+          details:
+            - A stop name can be displayed in bold
+            - The name can be displayed in italics
+            - The name can be underlined
+            - A custom color can be applied individually
+            - An optional local image or logo can be displayed near the name
+            - The size of this image can be adjusted
+            - Customizations remain specific to each station and do not impose their appearance on other stops
+        - value: Added true free annotations
+          details:
+            - Free text can be placed directly on the map independently of branches and stops
+            - Annotations do not affect topology or automatic line spacing
+            - They can be moved freely
+            - Text can be customized with bold, italic or underline
+            - Text color and size can be changed
+            - Annotations are directly accessible from the editor toolbar
+        - value: Custom pictograms in connections
+          details:
+            - A connection linked to a mode can receive its own custom pictogram
+            - Lines shown in some connections can use a custom line index image
+            - Custom image size can be adjusted
+            - The historical custom connection system remains supported to preserve compatibility with existing projects
+        - value: Automatic detection of shared connections
+          details:
+            - CLU can detect when two neighboring stops have exactly the same set of connections
+            - A shared connection link can then be represented automatically between those stations
+            - Connection order and internal identifiers do not prevent detection when their content is identical
+            - Spacing and City / Zone separator elements placed between the two stops are ignored for this detection
+            - This automation avoids having to rebuild shared links manually
+        - value: Added support for stops outside the fare zone
+          details:
+            - A stop can be identified as being outside the map's main fare zone
+            - CLU detects consecutive groups of affected stops
+            - Several independent groups can exist on the same line
+            - An optional gray area can be displayed behind the affected stops
+            - A customizable and movable label can accompany the area
+            - The line uses a micro-segmented appearance so the section is immediately identifiable
+            - The graphic boundaries of the area take the actual width of the first and last affected stop names into account
+            - New areas use "OUTSIDE ÎLE-DE-FRANCE FARE ZONE" by default
+        - value: Added out-of-map or dimmed stops
+          details:
+            - A stop can be marked as "out of map / dimmed"
+            - This property can represent sections that are not part of the main highlighted section
+            - A transition between a normal section and an out-of-map section uses a continuous gray line
+            - A link between two out-of-map stops uses a gray dotted line
+            - Returning from an out-of-map section to a normal section keeps a consistent gray transition
+            - Normal sections retain the standard line rendering
+        - value: Added RATP and SNCF graphic formats
+          details:
+            - A global choice can adapt some map graphic conventions to the desired format
+            - RATP format keeps, among other things, blue bold intermediate names and the historical terminus frame behavior
+            - SNCF format uses black intermediate names with normal font weight
+            - SNCF terminus names use black bold text
+            - Terminus frames are visually hidden in SNCF mode
+            - Frame settings are not destroyed when switching to SNCF and reappear if RATP format is re-enabled
+            - A custom color applied directly to a stop remains higher priority than the global format
+        - value: Created a dedicated graphic identity for Bus maps
+          details:
+            - Bus lines now have a presentation adapted to this type of network
+            - A top banner clearly presents line identity, index and destinations
+            - Accessibility information can be integrated into this identity
+            - Stops use a representation closer to bus line maps
+            - Station names are angled to improve density and readability
+            - Connections are organized below stop names
+            - Termini receive stronger visual treatment
+            - The transport mode pictogram can accompany the line index
+            - This graphic family can also be used for Busilien (BRT), Noctilien, Cable car, River shuttle and Bicycle modes
+        - value: Created a dedicated graphic identity for Tram maps
+          details:
+            - Tram now has rendering distinct from other transport families
+            - The "ANGLED" style uses angled station names and terminus labels suited to that orientation
+            - The "HORIZONTAL" style uses horizontal names and dark horizontal terminus labels
+            - A tram-specific top identity presents the main line information
+            - The banner can include accessibility and the Tram mode pictogram
+            - The displayed index comes directly from the line's actual index and is not hard-coded
+        - value: Improved forks
+          details:
+            - Forks can keep their historical geometry or use a more rounded rendering
+            - The style can be selected independently to suit the created map
+            - Existing orientation, offset and directional arrow settings are preserved
+        - value: Extended vertical segments
+          details:
+            - Vertical segments can participate in more complex structures containing several stops
+            - A branch can be dropped onto a vertical segment and then receive its stops
+            - Stops placed on these structures use rendering adapted to vertical orientation
+      CHANGED:
+        - value: Progressive rendering adaptation by transport mode
+          details:
+            - Metro, RER and Transilien modes retain a presentation close to the historical general behavior
+            - Bus and Tram families now have their own visual conventions
+            - The goal is to let the same editor produce several map families without imposing one rendering on every transport mode
+        - value: Improved geometry and rendering of new features
+          details:
+            - Adjusted positioning of out-of-fare-zone areas
+            - Improved transitions for out-of-map sections
+            - Adjusted rounded fork rendering
+            - Improved integration of stops into vertical structures
+      FIXED:
+        - Fixed a color artifact that could remain visible after an out-of-map line section
+        - Fixed several geometry issues encountered with the new forks
+        - Fixed graphic boundaries of out-of-fare-zone areas so they match the names of the affected stops
+
+  - version: 1.5.2-alpha
+    date: '2025-11-09T00:00:00.000Z'
+    entries:
+      FIXED:
+        - Fixed font rendering that could be incorrect on some operating systems
+
+  - version: 1.5.1-alpha
+    date: '2025-11-08T00:00:00.000Z'
+    entries:
+      FIXED:
+        - Fixed the Parisine font not supporting some accented or cedilla Latin letters
+        - Enabled font antialiasing
+
+  - version: 1.5.0-alpha
+    date: '2025-05-09T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added the option to choose a custom frame size
+        - Added the option to edit connections from a stop's properties
+        - Introduced PDF export
+      FIXED:
+        - value: Fixed several presets
+          details:
+            - Metro lines 3, 4, 6, 14, 16 and 18
+            - RER A, B and C
+            - Transilien K
+            - Tram lines 1, 3a, 6, 7, 10 and 12
+        - Fixed decorations that could be displayed without a junction
+      CHANGED:
+        - Changed the top bar
+        - Updated the editor layout
+
+  - version: 1.4.5-alpha
+    date: '2025-01-06T00:00:00.000Z'
+    entries:
+      FIXED:
+        - Fixed the Christmas easter egg remaining visible after the holiday period
+
+  - version: 1.4.4-alpha
+    date: '2024-12-29T00:00:00.000Z'
+    entries:
+      FIXED:
+        - value: Fixed several presets
+          details:
+            - Metro 17
+            - RER A and B
+            - Tram 3a
+        - Fixed the Christmas easter egg
+
+  - version: 1.4.3-alpha
+    date: '2024-12-29T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added the changelog page
+      CHANGED:
+        - Changed the top bar
+        - Improved the layout
+        - Changed the Christmas easter egg
+        - Numeric fields now support commas as decimal separators
+        - Stop dots have been reworked
+
+  - version: 1.4.2-alpha
+    date: '2024-12-22T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added the "CDG Express" transport service
+      FIXED:
+        - value: Fixed several presets
+          details:
+            - Metro 17
+            - Transilien K and V
+            - Tram lines 3b, 7, 10 and 12
+
+  - version: 1.4.1-alpha
+    date: '2024-12-22T00:00:00.000Z'
+    entries:
+      ADDED:
+        - value: Added presets
+          details:
+            - Metro lines 16, 17 and 18
+            - RER A, B, C and E
+            - Transilien K, N, U and V
+            - All tram lines except T4 and T8
+        - value: Added bus indices
+          details:
+            - 393 and 183
+        - value: Added the "OrlyVal (large) 2" transport service
+      CHANGED:
+        - Changed the watermark
+      FIXED:
+        - Fixed airport name labels
+        - Fixed point-of-interest name font weight
+        - Fixed subtitle margins not updating
+        - Fixed unnamed stops
+        - value: Fixed several presets
+          details:
+            - Metro 13
+
+  - version: 1.4.0-alpha
+    date: '2024-12-11T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added the option to change line style
+        - Added the option to change line thickness
+        - Added the option to change stop-dot color policy
+        - Added the option to mark a line as wheelchair accessible
+        - Added the option to mark a stop as wheelchair accessible or not
+        - Added the option to add arrows to a fork
+        - Added the "Noctilien" transport mode
+        - Added the "Cut rectangle" custom index shape
+        - Added the "OrlyVal" transport service in large and framed versions
+        - Added the option to display branch elements in reverse order
+        - Added the Christmas easter egg
+      CHANGED:
+        - Changed text margins
+        - Redesigned the WarpAdd assistant
+        - Redesigned the stop properties dialog
+        - Choice buttons now use a fluid shape
+        - Walking connections are better managed to limit forbidden combinations
+        - The title of unnamed stops is now hidden in exports
+        - value: Changed the top bar
+          details:
+            - Added a "Social" menu with links to GitHub, X (formerly Twitter) and Discord
+            - Added a button to enable/disable the Christmas easter egg
+        - Updated presets
+      FIXED:
+        - Fixed project loading
+        - Fixed saving projects that use custom indices
+
+  - version: 1.3.2-alpha
+    date: '2024-10-27T00:00:00.000Z'
+    entries:
+      ADDED:
+        - value: Added new languages
+          details:
+            - German
+            - Spanish
+            - Italian
+      CHANGED:
+        - Changed the flag used for the "English" language
+
+  - version: 1.3.1-alpha
+    date: '2024-10-17T00:00:00.000Z'
+    entries:
+      FIXED:
+        - Fixed the untitled state of stop names
+
+  - version: 1.3.0-alpha
+    date: '2024-10-13T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added the "Japanese" language
+        - Added the WarpAdd assistant
+        - Added the troubleshooting menu
+        - Branches are now highlighted when a stop is selected
+        - Added an untitled state for stop names
+        - Added the option to edit loop levels
+        - Added the "Spacing" object
+        - Added the option to edit loop levels
+        - value: Added a search field to some selectors
+          details:
+            - Color selector
+            - Index selector
+            - Service selector
+        - Added the option to edit loop levels
+        - Added the application version to the project
+        - value: Added presets
+          details:
+            - Metro 1, 2, 3, 3bis, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 and 14
+        - Added the branch properties dialog
+      CHANGED:
+        - Adjacent branches now merge automatically
+        - Changed notification appearance
+        - Changed the top banner appearance
+        - Disabled automatic spell checking on proper-name fields
+        - Added error handling in the map editor
+        - Updated translations
+        - Changed dialog animations
+      FIXED:
+        - Fixed a bug that could prevent property propagation
+        - Fixed an object overlap issue
+
+  - version: 1.2.0-alpha
+    date: '2024-10-04T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added the "Coach" service
+      CHANGED:
+        - Renamed the "High-speed train" transport service to "TGV"
+        - Renamed the "Regional train" transport service to "TER"
+        - Redesigned the editor canvas
+        - Updated the FAQ
+        - Updated translations
+      FIXED:
+        - Fixed cropped custom indices
+        - Fixed incorrect links
+
+  - version: 1.1.3-alpha
+    date: '2024-10-01T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added the "Rectangle" custom index shape
+        - value: Added bus indices
+          details:
+            - Tzen 1 to 6
+            - Trans Val-de-Marne
+        - Added zig-zag layout for small indices
+        - Added the option to mark a stop as closed
+        - Added the "Busilien (BRT)" mode
+        - Added the "High-speed train" transport service
+        - Added the "Regional train" transport service
+        - Added the "Airport name" decoration
+        - value: Added airport transport services
+          details:
+            - OrlyVal (small)
+            - OrlyVal (large)
+            - CDGVAL
+            - OrlyBus
+            - RoissyBus
+      CHANGED:
+        - Decorations are now disabled on small indices
+      FIXED:
+        - Fixed connection alignment
+
+  - version: 1.1.2-alpha
+    date: '2024-09-26T00:00:00.000Z'
+    entries:
+      FIXED:
+        - Fixed a branch hitbox issue
+
+  - version: 1.1.1-alpha
+    date: '2024-09-26T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added a watermark
+        - Added a disclaimer
+
+  - version: 1.1.0-alpha
+    date: '2024-09-25T00:00:00.000Z'
+    entries:
+      FIXED:
+        - Fixed overlapping stop names
+
+  - version: 1.0.5-alpha
+    date: '2024-09-23T00:00:00.000Z'
+    entries:
+      CHANGED:
+        - Fork corners are now rounded
+
+  - version: 1.0.4-alpha
+    date: '2024-09-19T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added the option to choose canvas size
+      FIXED:
+        - Fixed a selector bug that allowed no option to be selected
+
+  - version: 1.0.3-alpha
+    date: '2024-09-17T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added a check for the browser being used
+      CHANGED:
+        - Empty lines are ignored in stop names
+
+  - version: 1.0.2-alpha
+    date: '2024-09-16T00:00:00.000Z'
+    entries:
+      FIXED:
+        - Fixed deletion of a connection group of type "Transport service"
+        - Fixed connection button alignment
+        - Fixed project loading
+        - Fixed project export
+        - Fixed a typo in color names
+
+  - version: 1.0.1-alpha
+    date: '2024-09-14T00:00:00.000Z'
+    entries:
+      ADDED:
+        - Added a link to the FAQ page
+        - Stop spacing is based on connections
+      FIXED:
+        - Fixed connection alignment
+        - Fixed overflow on the last stop
+        - Fixed deletion of a connection group of type "Transport mode"
+        - Fixed project loading
+
+  - version: 1.0.0-alpha
+    date: '2024-09-14T00:00:00.000Z'

@@ -180,8 +180,8 @@ const sharedMarkerExtra = '.9em'
   left: 50%;
   transform: translate(-50%, -50%);
 
-  width: 1.5em;
-  height: 1.5em;
+  width: 1.4em;
+  height: 1.4em;
   border-radius: 50%;
 
   background-color: v-bind(dotColor);
@@ -451,8 +451,8 @@ const sharedMarkerExtra = '.9em'
 
 .dot-wrapper.bus-mode {
   .dot {
-    width: .58em;
-    height: .58em;
+    width: .55em;
+    height: .55em;
 
     background-color: white;
 
@@ -467,8 +467,8 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.connection {
-    width: .68em;
-    height: .68em;
+    width: .64em;
+    height: .64em;
 
     background-color: white;
 
@@ -481,8 +481,8 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.terminus {
-    width: .76em;
-    height: .76em;
+    width: .72em;
+    height: .72em;
 
     background-color: white;
 
@@ -495,8 +495,8 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.terminus.connection {
-    width: .76em;
-    height: .76em;
+    width: .72em;
+    height: .72em;
 
     background-color: white;
 
@@ -509,8 +509,8 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.future {
-    width: .58em;
-    height: .58em;
+    width: .55em;
+    height: .55em;
 
     background-color: white;
 
@@ -525,8 +525,8 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.future.connection {
-    width: .68em;
-    height: .68em;
+    width: .64em;
+    height: .64em;
 
     background-color: white;
 
@@ -541,8 +541,8 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.future.terminus {
-    width: .76em;
-    height: .76em;
+    width: .72em;
+    height: .72em;
 
     background-color: white;
 
@@ -658,8 +658,8 @@ const sharedMarkerExtra = '.9em'
    * Arrêt Tram classique.
    */
   .dot {
-    width: .52em;
-    height: .52em;
+    width: .49em;
+    height: .49em;
 
     background-color: white;
 
@@ -677,8 +677,8 @@ const sharedMarkerExtra = '.9em'
    * Arrêt avec correspondance.
    */
   .dot.connection {
-    width: .62em;
-    height: .62em;
+    width: .59em;
+    height: .59em;
 
     background-color: white;
 
@@ -698,8 +698,8 @@ const sharedMarkerExtra = '.9em'
    * deuxième anneau intérieur.
    */
   .dot.terminus {
-    width: .82em;
-    height: .82em;
+    width: .78em;
+    height: .78em;
 
     background-color: white;
 
@@ -714,8 +714,8 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.terminus.connection {
-    width: .82em;
-    height: .82em;
+    width: .78em;
+    height: .78em;
 
     background-color: white;
 
@@ -733,8 +733,8 @@ const sharedMarkerExtra = '.9em'
    * Arrêt futur.
    */
   .dot.future {
-    width: .52em;
-    height: .52em;
+    width: .49em;
+    height: .49em;
 
     background-color: white;
 
@@ -752,8 +752,8 @@ const sharedMarkerExtra = '.9em'
    * Arrêt futur avec correspondance.
    */
   .dot.future.connection {
-    width: .62em;
-    height: .62em;
+    width: .59em;
+    height: .59em;
 
     background-color: white;
 
@@ -771,8 +771,8 @@ const sharedMarkerExtra = '.9em'
    * Terminus futur.
    */
   .dot.future.terminus {
-    width: .82em;
-    height: .82em;
+    width: .78em;
+    height: .78em;
 
     background-color: white;
 

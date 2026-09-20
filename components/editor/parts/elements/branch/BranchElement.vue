@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AreaSeparator from './children/AreaSeparator.vue'
-import { isAreaSeparator, isSpacer, isStop } from '~/utils/types'
+import { isAreaSeparator, isOneWayLoop, isSpacer, isStop } from '~/utils/types'
 
 defineOptions({
   inheritAttrs: false,
@@ -51,5 +51,13 @@ const element = defineModel<BranchElement>({ required: true })
     v-else-if="isAreaSeparator(element)"
     v-bind="$attrs"
     v-model="element"
+  />
+
+  <OneWayLoop
+    v-else-if="isOneWayLoop(element)"
+    v-bind="$attrs"
+    v-model="element"
+    :branch="branch"
+    :reverse="reverse"
   />
 </template>

@@ -66,11 +66,11 @@ const color = computed({
 
             <div>
               <div class="property-card-title">
-                Texte
+                {{ $t('ui.dialogs.annotation_properties.text') }}
               </div>
 
               <div class="property-card-description">
-                Modifiez le contenu de l'annotation.
+                {{ $t('ui.dialogs.annotation_properties.text_hint') }}
               </div>
             </div>
           </div>
@@ -95,11 +95,11 @@ const color = computed({
 
             <div>
               <div class="property-card-title">
-                Style du texte
+                {{ $t('ui.dialogs.annotation_properties.text_style') }}
               </div>
 
               <div class="property-card-description">
-                Activez les styles typographiques souhaités.
+                {{ $t('ui.dialogs.annotation_properties.text_style_hint') }}
               </div>
             </div>
           </div>
@@ -118,7 +118,7 @@ const color = computed({
                 <i class="i-tabler-bold" />
 
                 <span>
-                  Gras
+                  {{ $t('ui.dialogs.annotation_properties.bold') }}
                 </span>
               </span>
             </label>
@@ -134,7 +134,7 @@ const color = computed({
                 <i class="i-tabler-italic" />
 
                 <span>
-                  Italique
+                  {{ $t('ui.dialogs.annotation_properties.italic') }}
                 </span>
               </span>
             </label>
@@ -150,7 +150,7 @@ const color = computed({
                 <i class="i-tabler-underline" />
 
                 <span>
-                  Souligné
+                  {{ $t('ui.dialogs.annotation_properties.underline') }}
                 </span>
               </span>
             </label>
@@ -168,11 +168,11 @@ const color = computed({
 
               <div>
                 <div class="property-card-title">
-                  Couleur
+                  {{ $t('ui.dialogs.annotation_properties.color') }}
                 </div>
 
                 <div class="property-card-description">
-                  Choisissez la couleur du texte.
+                  {{ $t('ui.dialogs.annotation_properties.color_hint') }}
                 </div>
               </div>
             </div>
@@ -204,11 +204,11 @@ const color = computed({
 
               <div>
                 <div class="property-card-title">
-                  Taille du texte
+                  {{ $t('ui.dialogs.annotation_properties.text_size') }}
                 </div>
 
                 <div class="property-card-description">
-                  Ajustez la taille de l'annotation.
+                  {{ $t('ui.dialogs.annotation_properties.text_size_hint') }}
                 </div>
               </div>
             </div>
@@ -232,7 +232,7 @@ const color = computed({
           <i class="i-tabler-info-circle" />
 
           <span>
-            Les modifications sont appliquées immédiatement sur le plan.
+            {{ $t('ui.dialogs.annotation_properties.immediate_changes') }}
           </span>
         </div>
 

@@ -81,7 +81,7 @@ const connection = defineModel<Connection>(
             </template>
 
             <template v-else>
-              Type inconnu
+              {{ $t('ui.connections.unknown_type') }}
             </template>
           </div>
         </div>

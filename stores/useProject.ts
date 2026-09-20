@@ -372,6 +372,7 @@ export const useProject = defineStore(
       dotsColorPolicy: 'INHERIT',
       fullyAccessible: false,
       frameTerminusNames: true,
+      fontFamily: 'PARISINE',
       mapSize: 15,
 
       topology: [
@@ -1119,6 +1120,9 @@ export const useProject = defineStore(
 
       line.frameTerminusNames =
         true
+
+      line.fontFamily =
+        'PARISINE'
 
       line.mapSize = 15
 

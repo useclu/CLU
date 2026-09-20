@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { ref } from 'vue'
+import { useRoute, useState } from '#app'
 import { useProject } from '~/stores/useProject'
 import { useSnow } from '~/stores/useSnow'
 
@@ -9,6 +10,12 @@ const { canUndo, canRedo } = storeToRefs(project)
 const { undo, redo } = project
 
 const { snowEnabled, isWinter } = storeToRefs(useSnow())
+
+const route = useRoute()
+const sncfPreview = useState<boolean>(
+  'clu-sncf-preview',
+  () => false,
+)
 
 const showMenu = ref(false)
 
@@ -105,6 +112,24 @@ function applyCustomLineThickness() {
   showCustomLineThicknessDialog.value = false
 }
 
+function toggleSncfPreview() {
+  filePopover.value?.hide()
+  toolsPopover.value?.hide()
+  sncfPreview.value = !sncfPreview.value
+
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(
+      'clu-sncf-preview',
+      sncfPreview.value ? '1' : '0',
+    )
+  }
+}
+
+function toggleSncfPreviewFromMobile() {
+  toggleSncfPreview()
+  showMenu.value = false
+}
+
 function toggleSnow() {
   snowEnabled.value = !snowEnabled.value
 }
@@ -151,6 +176,29 @@ function toggleSnow() {
             severity="secondary"
             text
             @click="toggleToolsMenu"
+          />
+
+          <Button
+            v-if="route.path === '/editor'"
+            :label="
+              $t(
+                sncfPreview
+                  ? 'ui.map_editor.back_to_editing'
+                  : 'ui.map_editor.preview_sncf',
+              )
+            "
+            :icon="
+              sncfPreview
+                ? 'i-tabler-edit'
+                : 'i-tabler-eye'
+            "
+            :severity="
+              sncfPreview
+                ? 'primary'
+                : 'secondary'
+            "
+            text
+            @click="toggleSncfPreview"
           />
         </div>
       </div>
@@ -384,6 +432,29 @@ function toggleSnow() {
         <GeneralMapSettings
           @open-custom-map-size="openCustomMapSize"
           @open-custom-line-thickness="openCustomLineThickness"
+        />
+
+        <Button
+          v-if="route.path === '/editor'"
+          :label="
+            $t(
+              sncfPreview
+                ? 'ui.map_editor.back_to_editing'
+                : 'ui.map_editor.preview_sncf',
+            )
+          "
+          :icon="
+            sncfPreview
+              ? 'i-tabler-edit'
+              : 'i-tabler-eye'
+          "
+          :severity="
+            sncfPreview
+              ? 'primary'
+              : 'secondary'
+          "
+          size="large"
+          @click="toggleSncfPreviewFromMobile"
         />
       </div>
 

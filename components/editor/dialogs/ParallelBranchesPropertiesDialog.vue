@@ -197,8 +197,7 @@ const section2Level =
               </div>
 
               <div class="property-card-description">
-                Définissez la manière dont les deux branches
-                s'alignent entre elles.
+                {{ $t('ui.dialogs.parallel_branches_properties.alignment_hint') }}
               </div>
             </div>
           </div>
@@ -228,12 +227,11 @@ const section2Level =
 
             <div>
               <div class="property-card-title">
-                Niveaux des branches
+                {{ $t('ui.dialogs.parallel_branches_properties.levels_title') }}
               </div>
 
               <div class="property-card-description">
-                Ajustez indépendamment le niveau vertical
-                de chaque section.
+                {{ $t('ui.dialogs.parallel_branches_properties.levels_hint') }}
               </div>
             </div>
           </div>
@@ -291,12 +289,11 @@ const section2Level =
 
         <div>
           <div class="information-notice-title">
-            Branches parallèles
+            {{ $t('ui.dialogs.parallel_branches_properties.notice_title') }}
           </div>
 
           <div class="information-notice-text">
-            Les modifications sont appliquées immédiatement
-            sur le plan.
+            {{ $t('ui.dialogs.parallel_branches_properties.immediate_changes') }}
           </div>
         </div>
       </div>
@@ -308,12 +305,12 @@ const section2Level =
           <i class="i-tabler-arrows-split-2" />
 
           <span>
-            Configuration des branches parallèles
+            {{ $t('ui.dialogs.parallel_branches_properties.footer_hint') }}
           </span>
         </div>
 
         <Button
-          label="Fermer"
+          :label="$t('ui.common.close')"
           severity="secondary"
           icon="i-tabler-x"
           @click="visible = false"

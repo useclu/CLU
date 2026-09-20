@@ -30,7 +30,7 @@ const picto = computed(() => {
 </script>
 
 <template>
-  <img v-if="picto" :src="picto" alt="rer" class="picto">
+  <img v-if="picto" :src="picto" :alt="$t('data.mode.rer')" class="picto">
 </template>
 
 <style scoped lang="scss">

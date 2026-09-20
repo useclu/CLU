@@ -60,7 +60,7 @@ const icon = computed(() => {
 </script>
 
 <template>
-  <img v-if="icon" :src="icon" alt="service" class="picto">
+  <img v-if="icon" :src="icon" :alt="$t('ui.general_settings.transport_service')" class="picto">
 </template>
 
 <style scoped lang="scss">
