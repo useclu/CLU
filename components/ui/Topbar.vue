@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useState } from '#app'
 import { useProject } from '~/stores/useProject'
 import { useSnow } from '~/stores/useSnow'
@@ -12,6 +12,7 @@ const { undo, redo } = project
 const { snowEnabled, isWinter } = storeToRefs(useSnow())
 
 const route = useRoute()
+const isEditorRoute = computed(() => route.path.replace(/\/+$/, '') === '/editor')
 const sncfPreview = useState<boolean>(
   'clu-sncf-preview',
   () => false,
@@ -179,7 +180,7 @@ function toggleSnow() {
           />
 
           <Button
-            v-if="route.path === '/editor'"
+            v-if="isEditorRoute"
             :label="
               $t(
                 sncfPreview
@@ -435,7 +436,7 @@ function toggleSnow() {
         />
 
         <Button
-          v-if="route.path === '/editor'"
+          v-if="isEditorRoute"
           :label="
             $t(
               sncfPreview
