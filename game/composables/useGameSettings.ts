@@ -20,6 +20,7 @@ export function useGameSettings() {
     root.dataset.cluGameTheme = 'dark'
     root.dataset.cluGameMotion = settings.value.reducedMotion ? 'reduced' : 'full'
     root.dataset.cluGameContrast = settings.value.highContrast ? 'high' : 'standard'
+    root.dataset.cluGameTextSize = settings.value.textSize.toLowerCase()
   }
 
   function persist() {
@@ -52,6 +53,7 @@ export function useGameSettings() {
       document.documentElement.removeAttribute('data-clu-game-theme')
       document.documentElement.removeAttribute('data-clu-game-motion')
       document.documentElement.removeAttribute('data-clu-game-contrast')
+      document.documentElement.removeAttribute('data-clu-game-text-size')
     }
   }
 

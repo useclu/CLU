@@ -121,14 +121,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 .legal-brand span {
   color: #7de7eb;
-  font-size: 10px;
+  font-size:calc(10px * var(--clu-text-scale,1));
   font-weight: 900;
   letter-spacing: .18em;
   text-transform: uppercase;
 }
 
 .legal-brand strong {
-  font-size: 16px;
+  font-size:calc(16px * var(--clu-text-scale,1));
   letter-spacing: -.02em;
 }
 
@@ -148,7 +148,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   background: transparent;
   color: rgba(237,248,250,.68);
   text-align: left;
-  font-size: 11px;
+  font-size:calc(11px * var(--clu-text-scale,1));
   line-height: 1.25;
   cursor: pointer;
 }
@@ -175,7 +175,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .legal-reference strong {
   display: block;
   color: #7de7eb;
-  font-size: 9px;
+  font-size:calc(9px * var(--clu-text-scale,1));
   text-transform: uppercase;
   letter-spacing: .1em;
 }
@@ -183,7 +183,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .legal-reference p {
   margin: 6px 0 0;
   color: rgba(234,246,248,.52);
-  font-size: 9px;
+  font-size:calc(9px * var(--clu-text-scale,1));
   line-height: 1.5;
 }
 
@@ -206,7 +206,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 .legal-head span {
   color: #7de7eb;
-  font-size: 9px;
+  font-size:calc(9px * var(--clu-text-scale,1));
   font-weight: 900;
   letter-spacing: .16em;
   text-transform: uppercase;
@@ -215,7 +215,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .legal-head h2 {
   margin: 7px 0 5px;
   max-width: 720px;
-  font-size: 25px;
+  font-size:calc(25px * var(--clu-text-scale,1));
   line-height: 1.08;
   letter-spacing: -.03em;
 }
@@ -223,7 +223,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .legal-head p {
   margin: 0;
   color: rgba(235,247,249,.48);
-  font-size: 10px;
+  font-size:calc(10px * var(--clu-text-scale,1));
 }
 
 .legal-close {
@@ -234,7 +234,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   border: 1px solid rgba(255,255,255,.10);
   background: rgba(255,255,255,.03);
   color: #eef8fa;
-  font-size: 21px;
+  font-size:calc(21px * var(--clu-text-scale,1));
   cursor: pointer;
 }
 
@@ -258,14 +258,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .legal-content h3 {
   margin: 0 0 10px;
   color: #ecfbfc;
-  font-size: 15px;
+  font-size:calc(15px * var(--clu-text-scale,1));
   letter-spacing: -.01em;
 }
 
 .legal-content p,
 .legal-content li {
   color: rgba(232,246,248,.73);
-  font-size: 11px;
+  font-size:calc(11px * var(--clu-text-scale,1));
   line-height: 1.72;
 }
 
@@ -302,7 +302,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     white-space: nowrap;
   }
   .legal-head { padding: 18px 18px 14px; }
-  .legal-head h2 { font-size: 20px; }
+  .legal-head h2 { font-size:calc(20px * var(--clu-text-scale,1)); }
   .legal-main { min-height: 0; overflow: hidden; }
   .legal-content { min-height: 0; padding: 20px 18px 80px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 }

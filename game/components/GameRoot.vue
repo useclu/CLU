@@ -27,6 +27,7 @@ onMounted(() => {
   help.initialize()
   audio.initialize()
   audio.setScene(game.state.value.status === 'PLAYING' ? 'GAME' : 'HOME')
+  if (typeof document !== 'undefined') document.documentElement.dataset.cluGameView = game.state.value.status.toLowerCase()
   i18n.startDomTranslation()
   if (typeof document !== 'undefined') document.title = 'CLU Métropole'
 })
@@ -39,13 +40,17 @@ watch(
 
 watch(
   () => game.state.value.status,
-  status => audio.setScene(status === 'PLAYING' ? 'GAME' : 'HOME'),
+  status => {
+    audio.setScene(status === 'PLAYING' ? 'GAME' : 'HOME')
+    if (typeof document !== 'undefined') document.documentElement.dataset.cluGameView = status.toLowerCase()
+  },
 )
 
 onUnmounted(() => {
   audio.dispose()
   i18n.stopDomTranslation()
   preferences.dispose()
+  if (typeof document !== 'undefined') document.documentElement.removeAttribute('data-clu-game-view')
 })
 </script>
 
@@ -77,6 +82,10 @@ onUnmounted(() => {
 
 <style>
 html[data-clu-game-theme='dark']{color-scheme:dark}
+html[data-clu-game-text-size='small']{--clu-text-scale:1}
+html[data-clu-game-text-size='medium']{--clu-text-scale:1.15}
+html[data-clu-game-text-size='large']{--clu-text-scale:1.3}
+html[data-clu-game-view='setup'] .metropole-editor-return,html[data-clu-game-view='playing'] .metropole-editor-return{display:none!important}
 .clu-view-enter-active,.clu-view-leave-active{transition:opacity .26s ease,filter .26s ease,transform .26s ease}
 .clu-view-enter-from{opacity:0;filter:blur(5px);transform:scale(1.008)}
 .clu-view-leave-to{opacity:0;filter:blur(4px);transform:scale(.994)}
@@ -85,7 +94,7 @@ html[data-clu-game-motion='reduced'] .home *,
 html[data-clu-game-motion='reduced'] .setup *,
 html[data-clu-game-motion='reduced'] .game-shell *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
 
-.clu-skip-link{position:fixed;z-index:10000;left:12px;top:10px;padding:10px 14px;border-radius:9px;background:#f6ffff;color:#071116;font:800 13px/1.2 Inter,ui-sans-serif,system-ui,sans-serif;transform:translateY(-180%);transition:transform .14s ease;box-shadow:0 8px 28px rgba(0,0,0,.35)}
+.clu-skip-link{position:fixed;z-index:10000;left:12px;top:10px;padding:10px 14px;border-radius:9px;background:#f6ffff;color:#071116;font:800 calc(13px * var(--clu-text-scale,1))/1.2 Inter,ui-sans-serif,system-ui,sans-serif;transform:translateY(-180%);transition:transform .14s ease;box-shadow:0 8px 28px rgba(0,0,0,.35)}
 .clu-skip-link:focus{transform:translateY(0)}
 .commercial-home :is(button,a,input,select,textarea,[tabindex]):focus-visible,
 .home :is(button,a,input,select,textarea,[tabindex]):focus-visible,

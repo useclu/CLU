@@ -39,6 +39,7 @@ import {
   getRenderedLineSequences,
 } from '../../engine/network/renderGeometry'
 import { getGameTerritoryMapDefinition } from '../../config/territories'
+import { gameMapAssetUrl } from '../../config/mapAssets'
 import { generateGeneratedTerritory, normalizeGeneratedTerritorySettings } from '../../engine/territory/generator'
 import { getRealTerritoryMunicipalityFallback } from '../../engine/territory/realTerritories'
 import { buildSmartRoutingGraph, routeThroughWaypoints, type SmartRouteCoordinate, type SmartRoutingGraph } from '../../engine/network/smartRouting'
@@ -335,8 +336,6 @@ function hasSetData(
   ) === 'function'
 }
 
-const R2_PUBLIC_MAP_BASE_URL = 'https://pub-6ef94121c43244d0b29c016b647e66d0.r2.dev'
-
 async function resolveBasemapUrl() {
   const definition = territoryDefinition()
   if (definition.kind !== 'STATIC') return null
@@ -357,7 +356,7 @@ async function resolveBasemapUrl() {
   const localMapPrefix = '/game/map/'
   if (basemapPath.startsWith(localMapPrefix)) {
     const objectKey = basemapPath.slice(localMapPrefix.length).replace(/^\/+/, '')
-    return `${R2_PUBLIC_MAP_BASE_URL}/${objectKey}`
+    return gameMapAssetUrl(objectKey)
   }
 
   // Dernier filet de sécurité pour un chemin relatif inhabituel.
@@ -805,7 +804,7 @@ async function rebuildInterchangeMarkers() {
     element.className = 'clu-interchange-marker'
     element.dataset.i18nSkip = '1'
     element.dataset.lineIds = [...group.lineIds].join(',')
-    element.style.cssText = 'display:none;align-items:center;gap:5px;max-width:210px;padding:4px 6px;border:1px solid rgba(255,255,255,.82);border-radius:10px;background:rgba(8,14,19,.88);box-shadow:0 5px 15px rgba(0,0,0,.36);backdrop-filter:blur(8px);color:#eef7f8;font:700 10px/1.1 Inter,system-ui,sans-serif;pointer-events:auto;white-space:nowrap;transition:opacity .15s ease;'
+    element.style.cssText = 'display:none;align-items:center;gap:5px;max-width:210px;padding:4px 6px;border:1px solid rgba(255,255,255,.82);border-radius:10px;background:rgba(8,14,19,.88);box-shadow:0 5px 15px rgba(0,0,0,.36);backdrop-filter:blur(8px);color:#eef7f8;font:700 calc(10px * var(--clu-text-scale,1))/1.1 Inter,system-ui,sans-serif;pointer-events:auto;white-space:nowrap;transition:opacity .15s ease;'
     element.title = `${group.name} · ${group.lineIds.size} lignes`
 
     const name = document.createElement('span')
@@ -821,7 +820,7 @@ async function rebuildInterchangeMarkers() {
       if (!line) continue
       const badge = document.createElement('span')
       badge.title = line.name
-      badge.style.cssText = `width:20px;height:20px;border-radius:6px;display:grid;place-items:center;overflow:hidden;background:${line.color};color:#081014;font:900 8px/1 Inter,system-ui,sans-serif;`
+      badge.style.cssText = `width:20px;height:20px;border-radius:6px;display:grid;place-items:center;overflow:hidden;background:${line.color};color:#081014;font:900 calc(8px * var(--clu-text-scale,1))/1 Inter,system-ui,sans-serif;`
       if (line.customLogoDataUrl) {
         const image = document.createElement('img')
         image.src = line.customLogoDataUrl

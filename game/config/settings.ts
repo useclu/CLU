@@ -18,6 +18,7 @@ export function createDefaultGameUserSettings(): GameUserSettings {
     buildings2D5: true,
     reducedMotion: false,
     highContrast: false,
+    textSize: 'MEDIUM',
     contextualTips: true,
     tutorialEnabled: true,
     wikiEnabled: true,
@@ -38,6 +39,10 @@ export function normalizeGameUserSettings(value?: Partial<GameUserSettings> | nu
     ? value?.graphicsQuality as GameGraphicsQuality
     : fallback.graphicsQuality
 
+  const textSize = ['SMALL', 'MEDIUM', 'LARGE'].includes(String(value?.textSize))
+    ? value?.textSize as GameUserSettings['textSize']
+    : fallback.textSize
+
   const volume = (raw: unknown, fallbackValue: number) => {
     const numeric = Number(raw)
     return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : fallbackValue
@@ -50,6 +55,7 @@ export function normalizeGameUserSettings(value?: Partial<GameUserSettings> | nu
     buildings2D5: value?.buildings2D5 !== false,
     reducedMotion: value?.reducedMotion === true,
     highContrast: value?.highContrast === true,
+    textSize,
     contextualTips: value?.contextualTips !== false,
     tutorialEnabled: value?.tutorialEnabled !== false,
     wikiEnabled: value?.wikiEnabled !== false,
