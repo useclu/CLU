@@ -35,6 +35,7 @@ export default defineNuxtConfig({
       ],
 
       script: [
+        // Google Analytics
         {
           src: 'https://www.googletagmanager.com/gtag/js?id=G-246N628L35',
           async: true,
@@ -47,6 +48,8 @@ export default defineNuxtConfig({
             gtag('config', 'G-246N628L35');
           `,
         },
+
+        // Google AdSense
         {
           src: 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8786106294126792',
           async: true,
@@ -56,9 +59,16 @@ export default defineNuxtConfig({
     },
   },
 
-  imports: { autoImport: false },
+  imports: {
+    autoImport: false,
+  },
 
-  components: [{ path: '~/components', pathPrefix: false }],
+  components: [
+    {
+      path: '~/components',
+      pathPrefix: false,
+    },
+  ],
 
   typescript: {
     tsConfig: {
@@ -80,7 +90,9 @@ export default defineNuxtConfig({
       },
     },
 
-    plugins: [ViteYaml()],
+    plugins: [
+      ViteYaml(),
+    ],
 
     css: {
       preprocessorOptions: {
