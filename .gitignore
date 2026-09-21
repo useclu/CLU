@@ -10,3 +10,9 @@ dist
 .idea
 .data
 /public/font/
+public/game/map/*.pmtiles
+public/game/map/**/*.pmtiles
+.game-tools/
+.nuxt/
+.output/
+node_modules/

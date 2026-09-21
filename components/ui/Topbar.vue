@@ -12,7 +12,9 @@ const { undo, redo } = project
 const { snowEnabled, isWinter } = storeToRefs(useSnow())
 
 const route = useRoute()
-const isEditorRoute = computed(() => route.path.replace(/\/+$/, '') === '/editor')
+const normalizedRoutePath = computed(() => route.path.replace(/\/+$/, '') || '/')
+const isEditorRoute = computed(() => normalizedRoutePath.value === '/editor')
+const isGameRoute = computed(() => normalizedRoutePath.value === '/game')
 const sncfPreview = useState<boolean>(
   'clu-sncf-preview',
   () => false,
@@ -137,7 +139,8 @@ function toggleSnow() {
 </script>
 
 <template>
-  <Menubar class="bulb-topbar">
+  <template v-if="!isGameRoute">
+    <Menubar class="bulb-topbar">
     <template #start>
       <div class="topbar-left">
         <!--
@@ -242,6 +245,13 @@ function toggleSnow() {
           :label="$t('ui.topbar.editor')"
           icon="i-tabler-map"
           to="/editor"
+        />
+
+        <TopbarPageButton
+          v-if="isEditorRoute"
+          label="CLU Métropole"
+          icon="i-tabler-train"
+          to="/game"
         />
 
         <a
@@ -469,6 +479,15 @@ function toggleSnow() {
         @click="showMenu = false"
       />
 
+      <TopbarPageButton
+        v-if="isEditorRoute"
+        label="CLU Métropole"
+        icon="i-tabler-train"
+        to="/game"
+        size="large"
+        @click="showMenu = false"
+      />
+
       <a
         class="mobile-bulb-official-link"
         href="https://bulb.slama.io"
@@ -640,6 +659,7 @@ function toggleSnow() {
       />
     </template>
   </Dialog>
+  </template>
 </template>
 
 <style scoped lang="scss">
