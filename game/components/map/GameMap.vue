@@ -308,32 +308,33 @@ function hasSetData(
   ) === 'function'
 }
 
+const R2_PUBLIC_MAP_BASE_URL = 'https://pub-6ef94121c43244d0b29c016b647e66d0.r2.dev'
+
 async function resolveBasemapUrl() {
   const definition = territoryDefinition()
   if (definition.kind !== 'STATIC') return null
 
-  if (definition.basemapPath) {
-    const resolvedUrl = new URL(definition.basemapPath, window.location.origin)
-
-    // Les fonds R2 sont cross-origin. Ne pas les bloquer sur une requête HEAD :
-    // le protocole PMTiles effectuera lui-même les requêtes Range nécessaires.
-    // Certains endpoints/CDN acceptent parfaitement GET/Range mais peuvent
-    // refuser ou traiter différemment HEAD/CORS, ce qui faisait croire à tort
-    // que le fichier était absent.
-    if (resolvedUrl.origin !== window.location.origin) {
-      return resolvedUrl.href
-    }
-
-    try {
-      const response = await fetch(resolvedUrl.href, { method: 'HEAD', cache: 'no-cache' })
-      if (response.ok) return resolvedUrl.href
-    }
-    catch {}
+  const basemapPath = definition.basemapPath?.trim()
+  if (!basemapPath) {
+    throw new Error(`Aucun fond PMTiles n'est configuré pour ${definition.label}.`)
   }
 
-  throw new Error(
-    `Le fond de carte réel de ${definition.label} est absent. Installez l’extrait PMTiles local correspondant.`,
-  )
+  // URLs déjà distantes (R2 / futur maps.useclu.pro) : PMTiles gère directement
+  // ses requêtes HTTP Range. Aucun HEAD préalable, pour éviter les faux négatifs CORS.
+  if (/^https?:\/\//i.test(basemapPath)) {
+    return basemapPath
+  }
+
+  // Compatibilité avec les anciennes configs qui pointent encore vers
+  // /game/map/... : on les redirige automatiquement vers le bucket R2.
+  const localMapPrefix = '/game/map/'
+  if (basemapPath.startsWith(localMapPrefix)) {
+    const objectKey = basemapPath.slice(localMapPrefix.length).replace(/^\/+/, '')
+    return `${R2_PUBLIC_MAP_BASE_URL}/${objectKey}`
+  }
+
+  // Dernier filet de sécurité pour un chemin relatif inhabituel.
+  return new URL(basemapPath, window.location.origin).href
 }
 
 async function loadCommunes():

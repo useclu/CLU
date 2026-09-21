@@ -22,8 +22,9 @@ export interface GameRealMapSource {
 /**
  * V40 — vraies cartes.
  *
- * Le fond de carte est un extrait Protomaps/OSM au format PMTiles servi par Cloudflare R2.
- * Les limites administratives peuvent rester locales et utiliser le fallback CLU si elles sont absentes.
+ * Le fond de carte est un extrait Protomaps/OSM au format PMTiles local.
+ * Depuis V40.1, aucun fallback PMTiles distant n'est utilise : le jeu exige le
+ * fichier local pour eviter les erreurs HTTP Byte Serving rencontrees en test.
  *
  * Les limites administratives locales peuvent etre installees separement. Tant
  * qu'elles sont absentes, le jeu garde uniquement ses zones de simulation V32

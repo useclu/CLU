@@ -3,13 +3,13 @@ import type { GameMunicipalityBounds } from '../types/territory'
 import { getRealTerritoryMunicipalityFallback, hasRealTerritoryMunicipalityFallback } from '../engine/territory/realTerritories'
 import { getRealMapSource } from './realMapSources'
 
-const R2_PUBLIC_MAP_BASE_URL = 'https://pub-6ef94121c43244d0b29c016b647e66d0.r2.dev'
-
 export interface GameTerritoryDepartmentStyle {
   code: string
   name: string
   color: string
 }
+
+const R2_PUBLIC_MAP_BASE_URL = 'https://pub-6ef94121c43244d0b29c016b647e66d0.r2.dev'
 
 export interface GameTerritoryCatalogEntry {
   id: GameTerritory
