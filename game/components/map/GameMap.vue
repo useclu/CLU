@@ -313,9 +313,20 @@ async function resolveBasemapUrl() {
   if (definition.kind !== 'STATIC') return null
 
   if (definition.basemapPath) {
+    const resolvedUrl = new URL(definition.basemapPath, window.location.origin)
+
+    // Les fonds R2 sont cross-origin. Ne pas les bloquer sur une requête HEAD :
+    // le protocole PMTiles effectuera lui-même les requêtes Range nécessaires.
+    // Certains endpoints/CDN acceptent parfaitement GET/Range mais peuvent
+    // refuser ou traiter différemment HEAD/CORS, ce qui faisait croire à tort
+    // que le fichier était absent.
+    if (resolvedUrl.origin !== window.location.origin) {
+      return resolvedUrl.href
+    }
+
     try {
-      const response = await fetch(definition.basemapPath, { method: 'HEAD', cache: 'no-cache' })
-      if (response.ok) return new URL(definition.basemapPath, window.location.origin).href
+      const response = await fetch(resolvedUrl.href, { method: 'HEAD', cache: 'no-cache' })
+      if (response.ok) return resolvedUrl.href
     }
     catch {}
   }
