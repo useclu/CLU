@@ -262,15 +262,42 @@ function territoryNameExpression(): any {
   ]
 }
 
+function lineWidthAtZoom(scale: number, extra = 0): any {
+  const scaledWidth: any = ['*', ['get', 'width'], scale]
+  return extra === 0 ? scaledWidth : ['+', scaledWidth, extra]
+}
+
 function lineWidthExpression(extra = 0): any {
+  // MapLibre impose que `zoom` soit l'entrée directe d'un `interpolate`/`step`.
+  // Les calculs dépendant de la largeur de ligne restent donc dans les sorties
+  // de l'interpolation, jamais autour de l'expression de zoom.
   return [
-    '+',
-    [
-      '*',
-      ['get', 'width'],
-      ['interpolate', ['linear'], ['zoom'], 6, .62, 9, .84, 12, 1, 15, 1.14],
-    ],
-    extra,
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    6, lineWidthAtZoom(.62, extra),
+    9, lineWidthAtZoom(.84, extra),
+    12, lineWidthAtZoom(1, extra),
+    15, lineWidthAtZoom(1.14, extra),
+  ]
+}
+
+function selectedLineWidthExpression(): any {
+  const widthFor = (scale: number): any => [
+    'case',
+    ['==', ['get', 'active'], 1], lineWidthAtZoom(scale, 1.35),
+    ['==', ['get', 'selected'], 1], lineWidthAtZoom(scale, .8),
+    lineWidthAtZoom(scale),
+  ]
+
+  return [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    6, widthFor(.62),
+    9, widthFor(.84),
+    12, widthFor(1),
+    15, widthFor(1.14),
   ]
 }
 
@@ -1975,12 +2002,7 @@ onMounted(async () => {
           },
           paint: {
             'line-color': ['get', 'color'],
-            'line-width': [
-              'case',
-              ['==', ['get', 'active'], 1], ['+', lineWidthExpression(), 1.35],
-              ['==', ['get', 'selected'], 1], ['+', lineWidthExpression(), .8],
-              lineWidthExpression(),
-            ],
+            'line-width': selectedLineWidthExpression(),
             'line-opacity': focusedLineOpacity(),
           },
         })
