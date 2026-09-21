@@ -6,8 +6,12 @@ type ElementType =
   | 'STOP'
   | 'SPACER'
   | 'AREA_SEPARATOR'
-  | 'LOOP'
   | 'ONE_WAY_LOOP'
+  | 'BRANCH'
+  | 'FORK'
+  | 'VERTICAL_SEGMENT'
+  | 'PARALLEL_BRANCHES'
+  | 'LOOP'
   | null
 
 interface ElementGrabbingEvent {

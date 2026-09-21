@@ -13,6 +13,7 @@ interface Element {
     | 'FORK'
     | 'VERTICAL_SEGMENT'
     | 'PARALLEL_BRANCHES'
+    | 'LOOP'
 }
 
 const elements = ref<Element[]>([
@@ -35,6 +36,11 @@ const elements = ref<Element[]>([
     label: 'ui.map_editor.toolbox.parallel_branches',
     icon: 'i-bulb-parallel-branches',
     type: 'PARALLEL_BRANCHES',
+  },
+  {
+    label: 'ui.map_editor.toolbox.loop',
+    icon: 'i-bulb-u-turn',
+    type: 'LOOP',
   },
 ])
 
@@ -109,11 +115,32 @@ function clone(element: Element): LineElement {
       return {
         id: uuidv4(),
         $parallelBranches: {
-          alignement: 'LEFT',
+          alignement: 'FLUID',
           sections: [
             createForkSection(1),
             createForkSection(-1),
           ],
+        },
+      }
+
+    /*
+     * Le demi-tour redevient un vrai élément de SECTION.
+     *
+     * C'est volontaire : lorsqu'il accompagne des branches parallèles,
+     * il doit pouvoir être posé AVANT ou APRÈS le bloc (donc à gauche
+     * ou à droite visuellement), et non se comporter comme un arrêt
+     * inséré à l'intérieur d'une des branches.
+     *
+     * Les offsets +1 / -1 correspondent directement aux deux niveaux
+     * créés par défaut par `Branches parallèles`. Ils donnent aussi une
+     * géométrie visible lorsque le plan ne contient encore rien d'autre.
+     */
+    case 'LOOP':
+      return {
+        id: uuidv4(),
+        $loop: {
+          toward: 'LEFT',
+          linksOffsets: [1, -1],
         },
       }
   }
@@ -123,15 +150,10 @@ function clone(element: Element): LineElement {
 interface BranchSpecialToolElement {
   label: string
   icon: string
-  type: 'LOOP' | 'ONE_WAY_LOOP'
+  type: 'ONE_WAY_LOOP'
 }
 
 const branchSpecialElements = ref<BranchSpecialToolElement[]>([
-  {
-    label: 'ui.map_editor.toolbox.loop',
-    icon: 'i-bulb-u-turn',
-    type: 'LOOP',
-  },
   {
     label: 'ui.map_editor.toolbox.one_way_loop',
     icon: 'i-bulb-u-turn',
@@ -142,20 +164,8 @@ const branchSpecialElements = ref<BranchSpecialToolElement[]>([
 const { grab, release } = useElementGrabbing()
 
 function cloneBranchSpecial(
-  element: BranchSpecialToolElement,
+  _element: BranchSpecialToolElement,
 ): BranchElement {
-  if (element.type === 'LOOP') {
-    return {
-      id: uuidv4(),
-      $loop: {
-        toward: 'LEFT',
-        // Dans une branche : section 1 = hauteur haute,
-        // section 2 = hauteur basse. Les deux sont des distances positives.
-        linksOffsets: [1, 1],
-      },
-    }
-  }
-
   return {
     id: uuidv4(),
     $oneWayLoop: {
@@ -164,6 +174,12 @@ function cloneBranchSpecial(
       position: 'TOP',
     },
   }
+}
+
+function onSectionElementStart(
+  event: DraggableEvent<Element>,
+) {
+  grab(event.data.type)
 }
 
 function onBranchSpecialStart(
@@ -181,6 +197,8 @@ function onBranchSpecialStart(
       :group="{ name: 'sectionElements', pull: 'clone', put: false }"
       :clone="clone"
       :sort="false"
+      @start="e => onSectionElementStart(e as DraggableEvent<Element>)"
+      @end="release()"
     >
       <div
         v-for="element in elements"

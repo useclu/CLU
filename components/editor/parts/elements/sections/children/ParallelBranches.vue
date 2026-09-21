@@ -1,5 +1,54 @@
 <script setup lang="ts">
+import { computed, inject, provide } from 'vue'
+
 const meta = defineModel<ParallelBranches>({ required: true })
+
+type NumericComputedRef = {
+  readonly value: number
+}
+
+/*
+ * Niveau absolu de la section qui contient ce ParallelBranches.
+ * SectionEditor le fournit de manière récursive : on peut donc calculer
+ * les vrais niveaux des deux sorties sans dépendre du DOM ni de l'ordre
+ * dans lequel les éléments ont été déposés.
+ */
+const parentSectionAbsoluteLevel =
+  inject<NumericComputedRef>(
+    'sectionAbsoluteLevel',
+    computed(() => 0),
+  )
+
+const absoluteOutputLevels =
+  computed<[number, number]>(() => {
+    const sections =
+      meta.value.$parallelBranches.sections
+
+    const base =
+      parentSectionAbsoluteLevel.value
+
+    return [
+      base
+      + (
+        sections[0]?.$lineSection.levelOffset
+        ?? 0
+      ),
+      base
+      + (
+        sections[1]?.$lineSection.levelOffset
+        ?? 0
+      ),
+    ]
+  })
+
+/*
+ * Les SectionEditor des deux sorties peuvent maintenant convertir ces
+ * niveaux absolus en offsets locaux pour un Demi-tour déposé dedans.
+ */
+provide(
+  'parallelBranchesAbsoluteLevels',
+  absoluteOutputLevels,
+)
 </script>
 
 <template>

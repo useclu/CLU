@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { SortableEvent } from 'vue-draggable-plus'
 import { useToast } from 'primevue/usetoast'
-import { useI18n } from 'vue-i18n'
 import {
   computed,
   inject,
@@ -15,8 +14,9 @@ import {
 } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { v4 as uuidv4 } from 'uuid'
-import { isBranch, isFork, isParallelBranches } from '~/utils/types'
+import { isBranch, isFork, isLoop, isParallelBranches } from '~/utils/types'
 import { useProject } from '~/stores/useProject'
+import useElementGrabbing from '~/composables/useElementGrabbing'
 
 const {
   inner = false,
@@ -32,8 +32,31 @@ const section = defineModel<LineSection>({ required: true })
 const sectionRoot = ref<HTMLElement>()
 
 const toast = useToast()
-const { t } = useI18n()
 const project = useProject()
+
+/*
+ * Un Demi-tour est un élément de SECTION, pas un élément d'une des
+ * sorties de Branches parallèles.
+ *
+ * Pendant son drag depuis la toolbox, les SectionEditor internes du
+ * ParallelBranches refusent donc explicitement le drop. Le seul couloir
+ * proposé par Sortable reste la section parente (le milieu), ce qui évite
+ * de demander "branche du haut ou branche du bas" et conserve le
+ * Demi-tour comme sibling du bloc ParallelBranches.
+ */
+const grabbedElementType = ref<string | null>(null)
+
+useElementGrabbing((event) => {
+  grabbedElementType.value = event.type
+})
+
+const sectionElementsGroup = computed(() => ({
+  name: 'sectionElements',
+  put: !(
+    inner
+    && grabbedElementType.value === 'LOOP'
+  ),
+}))
 
 const elements = computed({
   get: () => section.value.$lineSection.elements,
@@ -219,12 +242,60 @@ provide(
   },
 )
 
+/*
+ * Niveau absolu de la Section dans la topologie.
+ *
+ * Une SectionEditor imbriquée dans des Branches parallèles ne part pas
+ * forcément du niveau 0 : son levelOffset s'ajoute au niveau de la
+ * section parente. On expose donc ce niveau absolu aux descendants afin
+ * que les éléments qui relient plusieurs niveaux (notamment Demi-tour)
+ * puissent convertir proprement un niveau global en offset local.
+ */
+type NumericComputedRef = {
+  readonly value: number
+}
+
+type LevelPairComputedRef = {
+  readonly value: [number, number]
+}
+
+const inheritedSectionAbsoluteLevel =
+  inject<NumericComputedRef>(
+    'sectionAbsoluteLevel',
+    computed(() => 0),
+  )
+
+const localSectionLevel = computed(() =>
+  layoutLevelOffset
+  ?? section.value.$lineSection.levelOffset
+  ?? 0,
+)
+
+const sectionAbsoluteLevel = computed(() =>
+  inheritedSectionAbsoluteLevel.value
+  + localSectionLevel.value,
+)
+
+provide(
+  'sectionAbsoluteLevel',
+  sectionAbsoluteLevel,
+)
+
+/*
+ * Lorsqu'on se trouve DANS un ParallelBranches, celui-ci fournit les
+ * deux niveaux absolus de ses sorties. Cette information permet à un
+ * Demi-tour déposé accidentellement / volontairement dans l'une des
+ * sorties de se recaler automatiquement sur LES DEUX rails, au lieu
+ * d'ajouter son propre +/-1 au niveau de la sortie et de finir décalé.
+ */
+const enclosingParallelBranchesAbsoluteLevels =
+  inject<LevelPairComputedRef | null>(
+    'parallelBranchesAbsoluteLevels',
+    null,
+  )
+
 const offset = computed(() =>
-  `calc(${
-    layoutLevelOffset
-    ?? section.value.$lineSection.levelOffset
-    ?? 0
-  } * -2.75em)`,
+  `calc(${localSectionLevel.value} * -2.75em)`,
 )
 
 /*
@@ -2432,6 +2503,200 @@ async function pairNewManualParallelBranches(
   }
 }
 
+/*
+ * =========================================================
+ * DEMI-TOUR <-> NIVEAUX RÉELS DES BRANCHES PARALLÈLES
+ * =========================================================
+ *
+ * Le Demi-tour stocke ses linksOffsets dans le repère LOCAL de la
+ * SectionEditor qui le contient. Les deux sorties d'un ParallelBranches
+ * stockent, elles, chacune leur levelOffset dans le repère de la section
+ * parente.
+ *
+ * Quand le Demi-tour est posé APRÈS les branches parallèles, le pointeur
+ * peut tomber dans l'une des deux SectionEditor internes. Dans ce cas,
+ * conserver le défaut [1, -1] ajoute à tort +/-1 AU niveau déjà décalé de
+ * la sortie. Résultat : tout le U est translaté d'un niveau.
+ *
+ * On ne code donc aucun correctif pixel / aucune valeur spéciale selon
+ * l'ordre de dépôt. On convertit simplement les niveaux TOPOLOGIQUES :
+ *
+ *   offsetLocal = niveauAbsoluCible - niveauAbsoluSectionCourante
+ *
+ * Le même calcul fonctionne :
+ * - Demi-tour puis Branches parallèles ;
+ * - Branches parallèles puis Demi-tour ;
+ * - niveaux personnalisés ;
+ * - section parente déjà décalée.
+ */
+function localParallelLevels(
+  parallelBranches: ParallelBranches,
+): [number, number] {
+  const sections =
+    parallelBranches.$parallelBranches.sections
+
+  return [
+    sections[0]?.$lineSection.levelOffset ?? 0,
+    sections[1]?.$lineSection.levelOffset ?? 0,
+  ]
+}
+
+function parallelNeighborForLoop(
+  index: number,
+): ParallelBranches | null {
+  const currentElements =
+    section.value.$lineSection.elements
+
+  const before = currentElements[index - 1]
+  const after = currentElements[index + 1]
+
+  if (
+    before
+    && isParallelBranches(before)
+  ) {
+    return before
+  }
+
+  if (
+    after
+    && isParallelBranches(after)
+  ) {
+    return after
+  }
+
+  return null
+}
+
+function setLoopOffsetsIfNeeded(
+  loop: Loop,
+  desired: [number, number],
+) {
+  const current = loop.$loop.linksOffsets
+
+  if (
+    Math.abs(current[0] - desired[0]) < 0.0001
+    && Math.abs(current[1] - desired[1]) < 0.0001
+  ) {
+    return
+  }
+
+  loop.$loop.linksOffsets = [
+    desired[0],
+    desired[1],
+  ]
+}
+
+function syncLoopsWithParallelLevels() {
+  const currentElements =
+    section.value.$lineSection.elements
+
+  for (
+    let index = 0;
+    index < currentElements.length;
+    index++
+  ) {
+    const element = currentElements[index]
+
+    if (!isLoop(element)) {
+      continue
+    }
+
+    /*
+     * Cas 1 : le Demi-tour est un sibling direct du ParallelBranches.
+     * Les deux éléments partagent le même repère local : les offsets du
+     * loop sont donc exactement les levelOffset des deux sorties.
+     */
+    const localParallel =
+      parallelNeighborForLoop(index)
+
+    if (localParallel) {
+      setLoopOffsetsIfNeeded(
+        element,
+        localParallelLevels(localParallel),
+      )
+
+      continue
+    }
+
+    /*
+     * Cas 2 : le Demi-tour a été déposé DANS l'une des sorties du
+     * ParallelBranches. Les cibles sont exprimées en niveaux absolus ;
+     * on les convertit dans le repère de cette SectionEditor interne.
+     */
+    const absoluteTargets =
+      enclosingParallelBranchesAbsoluteLevels
+        ?.value
+
+    if (!absoluteTargets) {
+      continue
+    }
+
+    const base = sectionAbsoluteLevel.value
+
+    setLoopOffsetsIfNeeded(
+      element,
+      [
+        absoluteTargets[0] - base,
+        absoluteTargets[1] - base,
+      ],
+    )
+  }
+}
+
+/*
+ * Signature volontairement basée sur la TOPOLOGIE et les niveaux, pas
+ * sur linksOffsets : un réglage manuel du Demi-tour reste possible tant
+ * que les niveaux des branches ne changent pas. Dès qu'un PB est ajouté,
+ * déplacé ou que ses niveaux sont modifiés, le raccord est recalculé.
+ */
+const loopParallelLevelSignature = computed(() =>
+  JSON.stringify({
+    sectionAbsoluteLevel:
+      sectionAbsoluteLevel.value,
+    enclosingParallelLevels:
+      enclosingParallelBranchesAbsoluteLevels
+        ?.value
+        ?? null,
+    elements:
+      section.value.$lineSection.elements.map(
+        element => {
+          if (isLoop(element)) {
+            return {
+              type: 'LOOP',
+              id: element.id,
+            }
+          }
+
+          if (isParallelBranches(element)) {
+            return {
+              type: 'PARALLEL_BRANCHES',
+              id: element.id,
+              levels:
+                localParallelLevels(element),
+            }
+          }
+
+          return {
+            type: 'OTHER',
+            id: element.id,
+          }
+        },
+      ),
+  }),
+)
+
+watch(
+  loopParallelLevelSignature,
+  async () => {
+    await nextTick()
+    syncLoopsWithParallelLevels()
+  },
+  {
+    immediate: true,
+    flush: 'post',
+  },
+)
+
 const forkParallelPairSignature =
   computed(() =>
     JSON.stringify(
@@ -2528,23 +2793,19 @@ function onAction(
       && event.pullMode === 'clone'
     ) {
       toast.add({
-        summary: t(
+        summary:
           'ui.toasts.adjacent_branches.title',
-        ),
-        detail: t(
+        detail:
           'ui.toasts.adjacent_branches.detail',
-        ),
         severity: 'warn',
         life: 10000,
       })
     } else {
       toast.add({
-        summary: t(
+        summary:
           'ui.toasts.branch_merge.title',
-        ),
-        detail: t(
+        detail:
           'ui.toasts.branch_merge.detail',
-        ),
         severity: 'info',
         life: 5000,
       })
@@ -2565,6 +2826,7 @@ function onAction(
 
     void nextTick().then(() => {
       restorePersistedForkParallelPairs()
+      syncLoopsWithParallelLevels()
     })
   }
 }
@@ -2585,7 +2847,7 @@ function onAction(
       v-model="elements"
       :animation="150"
       class="elements open"
-      group="sectionElements"
+      :group="sectionElementsGroup"
       ghost-class="section-ghost"
       :swap-threshold="inner ? .5 : .25"
       @update="e => onAction('UPDATE', e)"
