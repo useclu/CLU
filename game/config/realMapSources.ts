@@ -1,6 +1,8 @@
 import type { GameTerritory } from '../types/game'
 import type { GameMunicipalityBounds } from '../types/territory'
 
+const R2_PUBLIC_MAP_BASE_URL = 'https://pub-6ef94121c43244d0b29c016b647e66d0.r2.dev'
+
 export interface GameRealMapSource {
   id: Exclude<GameTerritory, 'ILE_DE_FRANCE' | 'GENERATED'>
   label: string
@@ -20,9 +22,8 @@ export interface GameRealMapSource {
 /**
  * V40 — vraies cartes.
  *
- * Le fond de carte est un extrait Protomaps/OSM au format PMTiles local.
- * Depuis V40.1, aucun fallback PMTiles distant n'est utilise : le jeu exige le
- * fichier local pour eviter les erreurs HTTP Byte Serving rencontrees en test.
+ * Le fond de carte est un extrait Protomaps/OSM au format PMTiles servi par Cloudflare R2.
+ * Les limites administratives peuvent rester locales et utiliser le fallback CLU si elles sont absentes.
  *
  * Les limites administratives locales peuvent etre installees separement. Tant
  * qu'elles sont absentes, le jeu garde uniquement ses zones de simulation V32
@@ -31,7 +32,7 @@ export interface GameRealMapSource {
 export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   {
     id: 'LONDON', label: 'Londres', locale: 'en',
-    localBasemapPath: '/game/map/real/london.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/london.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/london-municipalities.geojson'],
     bounds: { west: -0.72, south: 51.20, east: 0.42, north: 51.82 },
     worldBounds: { west: -1.05, south: 51.00, east: 0.72, north: 52.02 },
@@ -41,7 +42,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'BERLIN', label: 'Berlin', locale: 'de',
-    localBasemapPath: '/game/map/real/berlin.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/berlin.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/berlin-municipalities.geojson'],
     bounds: { west: 12.72, south: 52.12, east: 14.02, north: 52.82 },
     worldBounds: { west: 12.40, south: 51.90, east: 14.35, north: 53.02 },
@@ -51,7 +52,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'RANDSTAD', label: 'Randstad', locale: 'nl',
-    localBasemapPath: '/game/map/real/randstad.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/randstad.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/randstad-municipalities.geojson'],
     bounds: { west: 3.85, south: 51.65, east: 5.72, north: 52.70 },
     worldBounds: { west: 3.55, south: 51.45, east: 6.02, north: 52.92 },
@@ -61,7 +62,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'BRUSSELS', label: 'Bruxelles', locale: 'fr',
-    localBasemapPath: '/game/map/real/brussels.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/brussels.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/brussels-municipalities.geojson'],
     bounds: { west: 3.88, south: 50.55, east: 4.92, north: 51.15 },
     worldBounds: { west: 3.58, south: 50.35, east: 5.20, north: 51.35 },
@@ -71,7 +72,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'MADRID', label: 'Madrid', locale: 'es',
-    localBasemapPath: '/game/map/real/madrid.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/madrid.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/madrid-municipalities.geojson'],
     bounds: { west: -4.28, south: 39.90, east: -3.02, north: 41.08 },
     worldBounds: { west: -4.58, south: 39.65, east: -2.72, north: 41.33 },
@@ -81,7 +82,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'MILAN', label: 'Milan', locale: 'it',
-    localBasemapPath: '/game/map/real/milan.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/milan.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/milan-municipalities.geojson'],
     bounds: { west: 8.40, south: 45.05, east: 9.88, north: 46.03 },
     worldBounds: { west: 8.10, south: 44.82, east: 10.18, north: 46.25 },
@@ -91,7 +92,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'WARSAW', label: 'Varsovie', locale: 'pl',
-    localBasemapPath: '/game/map/real/warsaw.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/warsaw.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/warsaw-municipalities.geojson'],
     bounds: { west: 20.30, south: 51.78, east: 21.72, north: 52.72 },
     worldBounds: { west: 20.00, south: 51.55, east: 22.02, north: 52.95 },
@@ -101,7 +102,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'LISBON', label: 'Lisbonne', locale: 'pt',
-    localBasemapPath: '/game/map/real/lisbon.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/lisbon.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/lisbon-municipalities.geojson'],
     bounds: { west: -9.78, south: 38.40, east: -8.62, north: 39.18 },
     worldBounds: { west: -10.05, south: 38.18, east: -8.35, north: 39.40 },
@@ -111,7 +112,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'PRAGUE', label: 'Prague', locale: 'cs',
-    localBasemapPath: '/game/map/real/prague.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/prague.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/prague-municipalities.geojson'],
     bounds: { west: 13.72, south: 49.72, east: 15.02, north: 50.48 },
     worldBounds: { west: 13.42, south: 49.50, east: 15.32, north: 50.70 },
@@ -121,7 +122,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'BERN', label: 'Berne', locale: 'de',
-    localBasemapPath: '/game/map/real/bern.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/bern.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/bern-municipalities.geojson'],
     bounds: { west: 6.62, south: 46.45, east: 8.28, north: 47.48 },
     worldBounds: { west: 6.32, south: 46.20, east: 8.58, north: 47.72 },
@@ -131,7 +132,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'NEW_YORK', label: 'New York', locale: 'en',
-    localBasemapPath: '/game/map/real/new-york.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/new-york.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/new-york-municipalities.geojson'],
     bounds: { west: -74.65, south: 40.25, east: -73.30, north: 41.15 },
     worldBounds: { west: -74.95, south: 40.05, east: -73.00, north: 41.35 },
@@ -141,7 +142,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'OTTAWA', label: 'Ottawa', locale: 'en',
-    localBasemapPath: '/game/map/real/ottawa.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/ottawa.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/ottawa-municipalities.geojson'],
     bounds: { west: -76.35, south: 44.85, east: -74.95, north: 45.85 },
     worldBounds: { west: -76.65, south: 44.60, east: -74.65, north: 46.10 },
@@ -151,7 +152,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'TOKYO', label: 'Tokyo', locale: 'ja',
-    localBasemapPath: '/game/map/real/tokyo.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/tokyo.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/tokyo-municipalities.geojson'],
     bounds: { west: 138.80, south: 35.25, east: 140.45, north: 36.20 },
     worldBounds: { west: 138.45, south: 35.00, east: 140.80, north: 36.45 },
@@ -161,7 +162,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'VIENNA', label: 'Vienne', locale: 'de',
-    localBasemapPath: '/game/map/real/vienna.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/vienna.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/vienna-municipalities.geojson'],
     bounds: { west: 15.65, south: 47.75, east: 16.95, north: 48.65 },
     worldBounds: { west: 15.35, south: 47.50, east: 17.25, north: 48.90 },
@@ -171,7 +172,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'COPENHAGEN', label: 'Copenhague', locale: 'da',
-    localBasemapPath: '/game/map/real/copenhagen.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/copenhagen.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/copenhagen-municipalities.geojson'],
     bounds: { west: 11.55, south: 55.35, east: 13.05, north: 56.15 },
     worldBounds: { west: 11.25, south: 55.10, east: 13.35, north: 56.40 },
@@ -181,7 +182,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'STOCKHOLM', label: 'Stockholm', locale: 'sv',
-    localBasemapPath: '/game/map/real/stockholm.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/stockholm.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/stockholm-municipalities.geojson'],
     bounds: { west: 17.25, south: 59.00, east: 19.05, north: 59.75 },
     worldBounds: { west: 16.95, south: 58.78, east: 19.35, north: 59.98 },
@@ -191,7 +192,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'OSLO', label: 'Oslo', locale: 'no',
-    localBasemapPath: '/game/map/real/oslo.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/oslo.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/oslo-municipalities.geojson'],
     bounds: { west: 10.05, south: 59.55, east: 11.35, north: 60.25 },
     worldBounds: { west: 9.75, south: 59.30, east: 11.65, north: 60.50 },
@@ -201,7 +202,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'HELSINKI', label: 'Helsinki', locale: 'fi',
-    localBasemapPath: '/game/map/real/helsinki.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/helsinki.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/helsinki-municipalities.geojson'],
     bounds: { west: 24.20, south: 59.85, east: 25.65, north: 60.55 },
     worldBounds: { west: 23.90, south: 59.60, east: 25.95, north: 60.80 },
@@ -211,7 +212,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'ATHENS', label: 'Athènes', locale: 'el',
-    localBasemapPath: '/game/map/real/athens.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/athens.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/athens-municipalities.geojson'],
     bounds: { west: 22.70, south: 37.55, east: 24.35, north: 38.45 },
     worldBounds: { west: 22.40, south: 37.30, east: 24.65, north: 38.70 },
@@ -221,7 +222,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'BUDAPEST', label: 'Budapest', locale: 'hu',
-    localBasemapPath: '/game/map/real/budapest.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/budapest.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/budapest-municipalities.geojson'],
     bounds: { west: 18.20, south: 47.15, east: 19.80, north: 47.85 },
     worldBounds: { west: 17.90, south: 46.90, east: 20.10, north: 48.10 },
@@ -231,7 +232,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'ISTANBUL', label: 'Istanbul', locale: 'tr',
-    localBasemapPath: '/game/map/real/istanbul.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/istanbul.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/istanbul-municipalities.geojson'],
     bounds: { west: 28.20, south: 40.60, east: 30.25, north: 41.55 },
     worldBounds: { west: 27.85, south: 40.35, east: 30.60, north: 41.80 },
@@ -241,7 +242,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'SAO_PAULO', label: 'São Paulo', locale: 'pt',
-    localBasemapPath: '/game/map/real/sao-paulo.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/sao-paulo.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/sao-paulo-municipalities.geojson'],
     bounds: { west: -47.35, south: -24.25, east: -45.75, north: -23.15 },
     worldBounds: { west: -47.65, south: -24.50, east: -45.45, north: -22.90 },
@@ -251,7 +252,7 @@ export const REAL_MAP_SOURCES: readonly GameRealMapSource[] = [
   },
   {
     id: 'SYDNEY', label: 'Sydney', locale: 'en',
-    localBasemapPath: '/game/map/real/sydney.pmtiles',
+    localBasemapPath: `${R2_PUBLIC_MAP_BASE_URL}/real/sydney.pmtiles`,
     localMunicipalityPaths: ['/game/map/real/sydney-municipalities.geojson'],
     bounds: { west: 150.25, south: -34.25, east: 151.75, north: -33.45 },
     worldBounds: { west: 149.95, south: -34.50, east: 152.05, north: -33.20 },

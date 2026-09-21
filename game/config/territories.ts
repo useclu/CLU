@@ -3,6 +3,8 @@ import type { GameMunicipalityBounds } from '../types/territory'
 import { getRealTerritoryMunicipalityFallback, hasRealTerritoryMunicipalityFallback } from '../engine/territory/realTerritories'
 import { getRealMapSource } from './realMapSources'
 
+const R2_PUBLIC_MAP_BASE_URL = 'https://pub-6ef94121c43244d0b29c016b647e66d0.r2.dev'
+
 export interface GameTerritoryDepartmentStyle {
   code: string
   name: string
@@ -248,7 +250,7 @@ const catalogById = new Map<GameTerritory, GameTerritoryCatalogEntry>(
 
 const ILE_DE_FRANCE: GameTerritoryMapDefinition = {
   id: 'ILE_DE_FRANCE', kind: 'STATIC', label: 'Paris / Île-de-France',
-  basemapPath: '/game/map/idf-basemap.pmtiles',
+  basemapPath: `${R2_PUBLIC_MAP_BASE_URL}/idf-basemap.pmtiles`,
   municipalityGeoJsonPaths: [
     '/game/map/communes-75.geojson', '/game/map/communes-77.geojson', '/game/map/communes-78.geojson', '/game/map/communes-91.geojson',
     '/game/map/communes-92.geojson', '/game/map/communes-93.geojson', '/game/map/communes-94.geojson', '/game/map/communes-95.geojson',
