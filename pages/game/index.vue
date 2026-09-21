@@ -33,7 +33,7 @@ const hasEarlyAccess = ref(false)
 const { locale } = useI18n()
 
 const EARLY_ACCESS_SESSION_KEY = 'clu-metropole-early-access'
-const EARLY_ACCESS_HASH = '2573172e897d5e0b51b01a6e48c3bb0944d03615b0bad1c85449140d051d3b47'
+const EARLY_ACCESS_FINGERPRINT = 43_328_081
 
 const GameRoot = defineAsyncComponent(
   () => import('~/game/components/GameRoot.vue'),
@@ -110,13 +110,15 @@ function stopClock() {
   timer = null
 }
 
-async function hashAccessCode(value: string) {
-  const bytes = new TextEncoder().encode(value)
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
+function fingerprintAccessCode(value: string) {
+  let hash = 0x811c9dc5
 
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+
+  return hash
 }
 
 async function unlockEarlyAccess() {
@@ -126,9 +128,9 @@ async function unlockEarlyAccess() {
   earlyAccessError.value = false
 
   try {
-    const hash = await hashAccessCode(earlyAccessCode.value.trim())
+    const fingerprint = fingerprintAccessCode(earlyAccessCode.value.trim())
 
-    if (hash !== EARLY_ACCESS_HASH) {
+    if (fingerprint !== EARLY_ACCESS_FINGERPRINT) {
       earlyAccessError.value = true
       return
     }
