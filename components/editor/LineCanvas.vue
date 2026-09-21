@@ -1584,6 +1584,7 @@ type SncfNetworkFork = {
   fromLane: number
   toLane: number
   color: string
+  kind: 'SPLIT' | 'MERGE'
 }
 
 type SncfNetworkLane = {
@@ -1591,6 +1592,7 @@ type SncfNetworkLane = {
   startRow: number
   endRow: number
   color: string
+  activeRows: Set<number>
 }
 
 type SncfNetworkLocalRange = {
@@ -1697,6 +1699,45 @@ function sncfForkSections(
   }
 
   if (!pairId) {
+    /*
+     * Compatibilité avec les anciens préréglages CLU : ils n'ont pas
+     * toujours parallelBranchesId / forkId. La relation est alors
+     * portée par l'ordre topologique :
+     *
+     *   ParallelBranches -> Fork LEFT  = fusion
+     *   Fork RIGHT -> ParallelBranches = séparation
+     *
+     * C'est notamment le cas du préréglage RER B. Sans cette détection,
+     * le ParallelBranches était rendu comme une fourche autonome puis
+     * la Fork voisine était ignorée, ce qui créait les grands rectangles.
+     */
+    const forkIndex =
+      sectionElements.findIndex(
+        element => element.id === fork.id,
+      )
+
+    const adjacentIndex =
+      fork.$fork.toward === 'LEFT'
+        ? forkIndex - 1
+        : forkIndex + 1
+
+    const adjacentPair =
+      forkIndex >= 0
+        ? sectionElements[adjacentIndex]
+        : undefined
+
+    if (
+      adjacentPair
+      && isParallelBranches(adjacentPair)
+    ) {
+      return {
+        sections:
+          adjacentPair.$parallelBranches.sections,
+        pairedParallelBranchesId:
+          adjacentPair.id,
+      }
+    }
+
     return {
       sections: null,
       pairedParallelBranchesId: null,
@@ -1820,6 +1861,7 @@ const sncfNetwork = computed(() => {
           startRow: row,
           endRow: row,
           color,
+          activeRows: new Set([row]),
         },
       )
 
@@ -1843,6 +1885,41 @@ const sncfNetwork = computed(() => {
       existing.endRow,
       row,
     )
+    existing.activeRows.add(row)
+  }
+
+  /*
+   * Une même colonne logique peut être réutilisée plus loin par une
+   * autre branche (cas RER B : branche nord puis branche sud).
+   * `touchLane()` n'active donc qu'une ligne précise et ne remplit
+   * jamais implicitement le vide entre deux usages distincts.
+   *
+   * Quand on veut réellement prolonger une branche courte jusqu'à
+   * une fusion, on le demande explicitement avec cette fonction.
+   */
+  function extendLaneTo(
+    lane: number,
+    row: number,
+    color: string,
+  ) {
+    const existing = lanes.get(lane)
+
+    if (!existing) {
+      touchLane(lane, row, color)
+      return
+    }
+
+    const fromRow = existing.endRow
+
+    for (
+      let activeRow = fromRow;
+      activeRow <= row;
+      activeRow += 1
+    ) {
+      existing.activeRows.add(activeRow)
+    }
+
+    touchLane(lane, row, color)
   }
 
   function addStop(
@@ -1907,31 +1984,54 @@ const sncfNetwork = computed(() => {
     color: string,
     key: string,
     rowIndex: number,
+    kind: 'SPLIT' | 'MERGE',
   ) {
     ensureRow(rowIndex).forks.push({
       key,
       fromLane,
       toLane,
       color,
+      kind,
     })
 
-    /*
-     * Le tronc traverse la ligne de bifurcation. La nouvelle voie
-     * commence juste APRES la courbe afin de ne pas dessiner un
-     * deuxième trait vertical sous le raccord arrondi.
-     */
-    touchLane(
-      fromLane,
-      rowIndex,
-      lanes.get(fromLane)?.color
-      ?? mainColor,
-    )
+    if (kind === 'SPLIT') {
+      /*
+       * La voie source existe avant la fourche. La voie secondaire
+       * commence seulement sous le raccord.
+       */
+      touchLane(
+        fromLane,
+        rowIndex,
+        lanes.get(fromLane)?.color
+        ?? mainColor,
+      )
 
-    touchLane(
-      toLane,
-      rowIndex + 1,
-      color,
-    )
+      touchLane(
+        toLane,
+        rowIndex + 1,
+        color,
+      )
+    }
+    else {
+      /*
+       * Pour une fourche LEFT le ParallelBranches est AVANT la Fork
+       * dans la topologie de l'éditeur : on dessine donc une fusion.
+       * Les deux voies arrivent par le haut et la voie commune repart
+       * sous le raccord, exactement comme dans le rendu IDFM.
+       */
+      touchLane(
+        fromLane,
+        rowIndex,
+        color,
+      )
+
+      touchLane(
+        toLane,
+        rowIndex + 1,
+        lanes.get(toLane)?.color
+        ?? mainColor,
+      )
+    }
 
     maxRow = Math.max(
       maxRow,
@@ -2041,12 +2141,6 @@ const sncfNetwork = computed(() => {
 
     hasBranches = true
 
-    const secondaryLane =
-      allocateLane(
-        lane,
-        toward,
-      )
-
     const primaryColor =
       sncfSectionColor(
         sections[0],
@@ -2059,29 +2153,198 @@ const sncfNetwork = computed(() => {
         color,
       )
 
-    addForkRow(
-      lane,
-      secondaryLane,
-      secondaryColor,
-      key,
-      startRow,
-    )
+    /*
+     * Certaines lignes utilisent une branche parallèle asymétrique :
+     * une des deux sous-sections est volontairement vide et représente
+     * la continuité de la branche déjà dessinée sur `lane`.
+     *
+     * Exemple : Tram T8 avant la fourche LEFT.
+     * - la branche Épinay existe déjà sur la voie courante ;
+     * - une seule sous-section contient Villetaneuse Université ;
+     * - les deux se rejoignent ensuite vers le tronc commun.
+     *
+     * Il ne faut surtout pas créer une seconde voie vide : c'était la
+     * cause du trait mort à droite et de la coupure sous Blumenthal.
+     */
+    const sectionHasStops = [
+      getStopsFromSection(sections[0]).length > 0,
+      getStopsFromSection(sections[1]).length > 0,
+    ] as const
 
-    const branchStartRow =
-      startRow + 1
+    const populatedSectionCount =
+      sectionHasStops.filter(Boolean).length
+
+    if (
+      toward === 'LEFT'
+      && populatedSectionCount === 1
+    ) {
+      const branchIndex =
+        sectionHasStops[0] ? 0 : 1
+
+      const branchSection =
+        sections[branchIndex]
+
+      const branchColor =
+        branchIndex === 0
+          ? primaryColor
+          : secondaryColor
+
+      /*
+       * La branche existante reste sur `lane`. La vraie branche
+       * parallèle est placée sur une voie latérale, puis rejoint la
+       * voie existante avec un seul raccord MERGE arrondi.
+       */
+      const branchLane =
+        allocateLane(
+          lane,
+          'LEFT',
+        )
+
+      const branchEnd =
+        processSection(
+          branchSection,
+          branchLane,
+          depth + 1,
+          branchColor,
+          startRow,
+        )
+
+      const mergeRow = branchEnd
+
+      /*
+       * Prolonge explicitement les deux branches jusqu'à la fusion.
+       * La voie courante contient ici les arrêts déjà rencontrés avant
+       * ParallelBranches (Épinay / Blumenthal dans le preset T8).
+       */
+      extendLaneTo(
+        lane,
+        mergeRow,
+        lanes.get(lane)?.color
+        ?? color,
+      )
+
+      extendLaneTo(
+        branchLane,
+        mergeRow,
+        branchColor,
+      )
+
+      addForkRow(
+        branchLane,
+        lane,
+        color,
+        `${key}-single-branch`,
+        mergeRow,
+        'MERGE',
+      )
+
+      return mergeRow + 1
+    }
 
     /*
-     * IMPORTANT : même branchStartRow pour les deux sorties.
-     * C'est ce qui empêche Chelles puis Tournan d'être concaténées
-     * verticalement comme dans le premier prototype.
+     * La topologie CLU donne un vrai sens à toward :
+     *
+     * - RIGHT : Fork puis ParallelBranches -> séparation ;
+     * - LEFT  : ParallelBranches puis Fork -> fusion.
+     *
+     * L'ancien aperçu SNCF traitait les deux cas comme une séparation
+     * vers le bas. C'est exactement ce qui transformait une branche
+     * parallèle comme Plailly en grande fourche flottante au-dessus
+     * de la ligne commune.
      */
+    if (toward === 'RIGHT') {
+      /*
+       * Comme pour LEFT, les deux sections après la fourche sont deux
+       * vraies branches. Le tronc commun ne doit donc pas continuer sur
+       * l'axe central sous la bifurcation.
+       *
+       * On place la section 0 à gauche et la section 1 à droite du tronc
+       * puis on dessine deux raccords arrondis depuis la voie commune.
+       * Cela donne le miroir du cas LEFT validé par l'utilisateur.
+       */
+      const primaryLane =
+        lane - 1
+
+      const secondaryLane =
+        lane + 1
+
+      minLane = Math.min(
+        minLane,
+        primaryLane,
+      )
+      maxLane = Math.max(
+        maxLane,
+        secondaryLane,
+      )
+
+      addForkRow(
+        lane,
+        primaryLane,
+        primaryColor,
+        `${key}-primary`,
+        startRow,
+        'SPLIT',
+      )
+
+      addForkRow(
+        lane,
+        secondaryLane,
+        secondaryColor,
+        `${key}-secondary`,
+        startRow,
+        'SPLIT',
+      )
+
+      const branchStartRow =
+        startRow + 1
+
+      const primaryEnd =
+        processSection(
+          sections[0],
+          primaryLane,
+          depth + 1,
+          primaryColor,
+          branchStartRow,
+        )
+
+      const secondaryEnd =
+        processSection(
+          sections[1],
+          secondaryLane,
+          depth + 1,
+          secondaryColor,
+          branchStartRow,
+        )
+
+      return Math.max(
+        primaryEnd,
+        secondaryEnd,
+      )
+    }
+
+    /*
+     * LEFT : le couple ParallelBranches est situé AVANT la Fork.
+     * Les DEUX sections sont donc de vraies branches et aucune d'elles
+     * ne doit être confondue avec le tronc commun.
+     *
+     * On place la section 0 à droite et la section 1 à gauche du tronc
+     * logique `lane`. Le tronc commun n'existe graphiquement qu'après
+     * la fusion. C'est notamment ce qui fait de Plailly une branche à
+     * part entière, symétrique de la branche Creil.
+     */
+    const primaryLane =
+      lane + 1
+
+    const secondaryLane =
+      lane - 1
+
     const primaryEnd =
       processSection(
         sections[0],
-        lane,
+        primaryLane,
         depth + 1,
         primaryColor,
-        branchStartRow,
+        startRow,
       )
 
     const secondaryEnd =
@@ -2090,13 +2353,56 @@ const sncfNetwork = computed(() => {
         secondaryLane,
         depth + 1,
         secondaryColor,
-        branchStartRow,
+        startRow,
       )
 
-    return Math.max(
+    const mergeRow = Math.max(
       primaryEnd,
       secondaryEnd,
     )
+
+    /*
+     * Une branche courte est prolongée jusqu'au DÉBUT de la ligne de
+     * fusion. Le rendu de cette dernière ligne s'arrête exactement au
+     * bord supérieur : aucun petit trait ne dépasse sous le dernier
+     * arrêt (cas La Borne Blanche).
+     */
+    extendLaneTo(
+      primaryLane,
+      mergeRow,
+      primaryColor,
+    )
+
+    extendLaneTo(
+      secondaryLane,
+      mergeRow,
+      secondaryColor,
+    )
+
+    /*
+     * Deux raccords arrondis, un pour chaque branche, rejoignent le
+     * même tronc central. On obtient une vraie fourche symétrique au
+     * lieu d'une branche courbe venant se greffer sur une ligne droite.
+     */
+    addForkRow(
+      primaryLane,
+      lane,
+      color,
+      `${key}-primary`,
+      mergeRow,
+      'MERGE',
+    )
+
+    addForkRow(
+      secondaryLane,
+      lane,
+      color,
+      `${key}-secondary`,
+      mergeRow,
+      'MERGE',
+    )
+
+    return mergeRow + 1
   }
 
   function processSection(
@@ -2206,6 +2512,32 @@ const sncfNetwork = computed(() => {
           }
         }
 
+        /*
+         * Ancien format sans IDs de liaison : lorsqu'un
+         * ParallelBranches est immédiatement suivi d'une Fork LEFT,
+         * il ne faut surtout pas le rendre ici comme une séparation
+         * RIGHT. On attend la Fork suivante, qui le récupérera via
+         * sncfForkSections() et dessinera la vraie fusion.
+         */
+        const parallelIndex =
+          sectionElements.findIndex(
+            candidate =>
+              candidate.id === element.id,
+          )
+
+        const nextElement =
+          parallelIndex >= 0
+            ? sectionElements[parallelIndex + 1]
+            : undefined
+
+        if (
+          nextElement
+          && isFork(nextElement)
+          && nextElement.$fork.toward === 'LEFT'
+        ) {
+          continue
+        }
+
         row = processParallelSections(
           element
             .$parallelBranches
@@ -2245,12 +2577,12 @@ const sncfNetwork = computed(() => {
     return row
   }
 
-  touchLane(
-    0,
-    0,
-    mainColor,
-  )
-
+  /*
+   * Ne pas pré-créer la voie 0 : si le plan commence par un couple
+   * ParallelBranches -> Fork (fusion), la voie commune doit seulement
+   * apparaître APRÈS les deux branches. Les arrêts et les fourches
+   * créent eux-mêmes les voies au moment logique où elles existent.
+   */
   let rootRow = 0
 
   for (
@@ -2314,6 +2646,30 @@ const sncfNetwork = computed(() => {
   const localRanges:
     SncfNetworkLocalRange[] = []
 
+  function laneIsActiveBetween(
+    lane: number,
+    startRow: number,
+    endRow: number,
+  ) {
+    const laneData = lanes.get(lane)
+
+    if (!laneData) {
+      return false
+    }
+
+    for (
+      let row = startRow;
+      row <= endRow;
+      row += 1
+    ) {
+      if (!laneData.activeRows.has(row)) {
+        return false
+      }
+    }
+
+    return true
+  }
+
   stopRowsByLane.forEach(
     (laneStops, lane) => {
       laneStops.forEach(
@@ -2333,7 +2689,14 @@ const sncfNetwork = computed(() => {
           const previous =
             laneStops[index - 1]
 
-          if (next) {
+          if (
+            next
+            && laneIsActiveBetween(
+              lane,
+              item.row,
+              next.row,
+            )
+          ) {
             localRanges.push({
               key:
                 `local-${item.stop.id}`
@@ -2347,7 +2710,14 @@ const sncfNetwork = computed(() => {
             return
           }
 
-          if (previous) {
+          if (
+            previous
+            && laneIsActiveBetween(
+              lane,
+              previous.row,
+              item.row,
+            )
+          ) {
             localRanges.push({
               key:
                 `local-${previous.stop.id}`
@@ -2375,20 +2745,31 @@ const sncfNetwork = computed(() => {
   }
 })
 
+const sncfNetworkMaxLaneDistance =
+  computed(() =>
+    Math.max(
+      Math.abs(sncfNetwork.value.minLane),
+      Math.abs(sncfNetwork.value.maxLane),
+    ),
+  )
+
 const sncfNetworkLaneAreaWidth =
   computed(() => {
-    const laneCount =
-      sncfNetwork.value.maxLane
-      - sncfNetwork.value.minLane
-      + 1
-
+    /*
+     * La voie 0 est la voie commune du plan. Elle doit rester au
+     * centre du panneau même lorsqu'une seule branche part à gauche
+     * ou à droite. L'ancien calcul compactait uniquement les voies
+     * existantes : avec [-1, 0], la voie commune se retrouvait donc
+     * visuellement décalée à droite.
+     *
+     * On réserve désormais le même espace des deux côtés de la voie
+     * centrale. Les branches s'écartent autour d'elle sans déplacer
+     * le tronc principal.
+     */
     return (
-      SNCF_NETWORK_SIDE_RESERVE
-      + Math.max(
-        0,
-        laneCount - 1,
-      ) * SNCF_NETWORK_LANE_GAP
-      + SNCF_NETWORK_SIDE_RESERVE
+      SNCF_NETWORK_SIDE_RESERVE * 2
+      + sncfNetworkMaxLaneDistance.value
+      * SNCF_NETWORK_LANE_GAP * 2
     )
   })
 
@@ -2397,11 +2778,9 @@ function sncfNetworkLaneX(
 ) {
   return (
     SNCF_NETWORK_LANE_START
-    + (
-      lane
-      - sncfNetwork.value.minLane
-    )
+    + sncfNetworkMaxLaneDistance.value
     * SNCF_NETWORK_LANE_GAP
+    + lane * SNCF_NETWORK_LANE_GAP
   )
 }
 
@@ -2418,9 +2797,7 @@ function sncfNetworkLanesAtRow(
   rowIndex: number,
 ) {
   return sncfNetwork.value.lanes.filter(
-    lane =>
-      rowIndex >= lane.startRow
-      && rowIndex <= lane.endRow,
+    lane => lane.activeRows.has(rowIndex),
   )
 }
 
@@ -2432,12 +2809,33 @@ function sncfNetworkLaneStartsFromFork(
     return false
   }
 
+  /*
+   * Une voie de sortie de SPLIT comme le tronc commun créé par MERGE
+   * commence au bord supérieur de la ligne suivante : le SVG de la
+   * fourche arrive précisément sur ce bord.
+   */
   return (
     sncfNetwork.value.rows[
       rowIndex - 1
     ]?.forks.some(
       fork =>
         fork.toLane === lane,
+    )
+    ?? false
+  )
+}
+
+function sncfNetworkLaneEndsIntoMerge(
+  lane: number,
+  rowIndex: number,
+) {
+  return (
+    sncfNetwork.value.rows[
+      rowIndex
+    ]?.forks.some(
+      fork =>
+        fork.kind === 'MERGE'
+        && fork.fromLane === lane,
     )
     ?? false
   )
@@ -2478,11 +2876,24 @@ function sncfNetworkLaneStyle(
   lane: SncfNetworkLane,
   rowIndex: number,
 ) {
+  /*
+   * Une voie peut maintenant avoir plusieurs segments disjoints.
+   * On calcule donc le début / la fin du segment ACTUEL à partir des
+   * lignes actives voisines, et non plus avec le startRow/endRow global.
+   * C'est ce qui empêche une branche nord du RER B de rester visible
+   * jusqu'à une branche sud qui réutilise la même colonne.
+   */
+  const startsSegment =
+    !lane.activeRows.has(rowIndex - 1)
+
+  const endsSegment =
+    !lane.activeRows.has(rowIndex + 1)
+
   return {
     left:
       `${sncfNetworkLaneX(lane.lane)}em`,
     top:
-      rowIndex === lane.startRow
+      startsSegment
         ? (
             sncfNetworkLaneStartsFromFork(
               lane.lane,
@@ -2493,8 +2904,15 @@ function sncfNetworkLaneStyle(
           )
         : '0',
     bottom:
-      rowIndex === lane.endRow
-        ? '50%'
+      endsSegment
+        ? (
+            sncfNetworkLaneEndsIntoMerge(
+              lane.lane,
+              rowIndex,
+            )
+              ? '100%'
+              : '50%'
+          )
         : '0',
     backgroundColor:
       sncfNetworkLaneColorAtRow(
@@ -2537,6 +2955,7 @@ function sncfNetworkLocalRangeStyle(
 
 function sncfNetworkForkPath(
   fork: SncfNetworkFork,
+  _rowIndex: number,
 ) {
   const fromX =
     sncfNetworkLaneX(
@@ -2551,26 +2970,77 @@ function sncfNetworkForkPath(
   const height =
     SNCF_NETWORK_FORK_HEIGHT
 
-  const deltaX =
-    toX - fromX
+  /*
+   * Les deux sens utilisent exactement la même géométrie ROUNDED,
+   * simplement inversée verticalement :
+   *
+   * - MERGE : deux branches -> tronc commun ;
+   * - SPLIT : tronc commun -> deux branches.
+   *
+   * On évite ainsi les grandes Bézier diagonales qui donnaient un
+   * aspect "trait au crayon". Le raccord est composé de deux quarts
+   * de cercle et d'un court segment horizontal, comme la fourche
+   * arrondie du rendu IDFM.
+   */
+  const direction =
+    Math.sign(toX - fromX) || 1
+
+  const horizontalSpace =
+    Math.abs(toX - fromX)
+
+  const radius = Math.min(
+    height * .16,
+    horizontalSpace / 4,
+  )
+
+  const bendY =
+    height * .5
+
+  const firstHorizontalX =
+    fromX + direction * radius
+
+  const lastHorizontalX =
+    toX - direction * radius
+
+  if (fork.kind === 'MERGE') {
+    const beforeBendY =
+      bendY - radius
+
+    const afterBendY =
+      bendY + radius
+
+    return (
+      `M ${fromX} 0 `
+      + `L ${fromX} ${beforeBendY} `
+      + `Q ${fromX} ${bendY} `
+      + `${firstHorizontalX} ${bendY} `
+      + `L ${lastHorizontalX} ${bendY} `
+      + `Q ${toX} ${bendY} `
+      + `${toX} ${afterBendY} `
+      + `L ${toX} ${height}`
+    )
+  }
 
   /*
-   * Une vraie courbe en S remplace le grand raccord quasi rectangulaire.
-   * La tangente reste verticale au départ et à l'arrivée, ce qui donne
-   * une séparation beaucoup plus proche d'une signalétique ferroviaire.
+   * SPLIT = miroir vertical parfait du MERGE.
+   * Le tronc reste droit jusqu'au coeur de la bifurcation, puis
+   * chaque branche part latéralement avant de redevenir verticale.
    */
-  const control1X = fromX
-  const control1Y = height * .34
-  const control2X =
-    fromX + deltaX * .78
-  const control2Y =
-    height * .58
+  const beforeBendY =
+    bendY - radius
+
+  const afterBendY =
+    bendY + radius
 
   return (
     `M ${fromX} 0 `
-    + `C ${control1X} ${control1Y} `
-    + `${control2X} ${control2Y} `
-    + `${toX} ${height}`
+    + `L ${fromX} ${beforeBendY} `
+    + `Q ${fromX} ${bendY} `
+    + `${firstHorizontalX} ${bendY} `
+    + `L ${lastHorizontalX} ${bendY} `
+    + `Q ${toX} ${bendY} `
+    + `${toX} ${afterBendY} `
+    + `L ${toX} ${height}`
   )
 }
 
@@ -3262,7 +3732,7 @@ function deleteAnnotation(
               <path
                 v-for="fork in row.forks"
                 :key="fork.key"
-                :d="sncfNetworkForkPath(fork)"
+                :d="sncfNetworkForkPath(fork, rowIndex)"
                 :stroke="fork.color"
               />
             </svg>
@@ -5808,6 +6278,22 @@ function deleteAnnotation(
 .sncf-signage-stop-content {
   margin-top: 0;
   margin-bottom: 0;
+}
+
+/*
+ * .sncf-signage-dot est déclaré plus bas dans la feuille avec
+ * position: relative. Sans cette règle plus spécifique, il écrasait
+ * le position:absolute du réseau : les points glissaient vers le bas
+ * et n'étaient plus en face de leur nom d'arrêt.
+ */
+.sncf-signage-network .sncf-network-stop-dot {
+  position: absolute;
+  top: 50%;
+
+  margin: 0;
+
+  transform:
+    translate(-50%, -50%);
 }
 
 /*
