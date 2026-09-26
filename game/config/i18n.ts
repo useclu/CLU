@@ -1570,28 +1570,64 @@ Object.assign(FINAL_EXACT_4, {
 
 
 
-// V46 HOTFIX 15 — libellés juridiques et navigation commerciale traduits.
+// CLU Métropole — libellés juridiques et consentement encore utilisés.
 Object.assign(FINAL_EXACT_4, {
-  'CGV': row('Terms of Sale', 'Verkaufsbedingungen', 'Verkoopvoorwaarden', 'Condiciones de venta', 'Condizioni di vendita', 'Condições de venda', 'Warunki sprzedaży'),
-  'CGU': row('Terms of Use', 'Nutzungsbedingungen', 'Gebruiksvoorwaarden', 'Condiciones de uso', 'Condizioni d’uso', 'Termos de utilização', 'Warunki użytkowania'),
-  'Semaine gratuite': row('Free week', 'Kostenlose Woche', 'Gratis week', 'Semana gratuita', 'Settimana gratuita', 'Semana gratuita', 'Darmowy tydzień'),
   'Licences & crédits': row('Licences & credits', 'Lizenzen & Credits', 'Licenties & credits', 'Licencias y créditos', 'Licenze e crediti', 'Licenças e créditos', 'Licencje i autorzy'),
-  'CLU · Informations juridiques': row('CLU · Legal information', 'CLU · Rechtliche Informationen', 'CLU · Juridische informatie', 'CLU · Información legal', 'CLU · Informazioni legali', 'CLU · Informações jurídicas', 'CLU · Informacje prawne'),
   'Version française de référence': row('French reference version', 'Französische Referenzfassung', 'Franse referentieversie', 'Versión francesa de referencia', 'Versione francese di riferimento', 'Versão francesa de referência', 'Francuska wersja referencyjna'),
-  'Les traductions éventuelles facilitent la lecture ; les droits impératifs applicables restent toujours réservés.': row(
-    'Translations are provided for easier reading; any mandatory rights that apply remain fully reserved.',
-    'Übersetzungen dienen der besseren Lesbarkeit; zwingende anwendbare Rechte bleiben uneingeschränkt vorbehalten.',
-    'Vertalingen worden aangeboden voor een vlottere leesbaarheid; toepasselijke dwingende rechten blijven volledig voorbehouden.',
-    'Las traducciones se ofrecen para facilitar la lectura; los derechos imperativos aplicables permanecen plenamente reservados.',
-    'Le traduzioni sono fornite per facilitare la lettura; restano integralmente salvi i diritti inderogabili applicabili.',
-    'As traduções são fornecidas para facilitar a leitura; os direitos imperativos aplicáveis permanecem integralmente salvaguardados.',
-    'Tłumaczenia służą ułatwieniu lektury; wszelkie bezwzględnie obowiązujące prawa pozostają w pełni zachowane.'
+  'Politique de confidentialité': row('Privacy policy', 'Datenschutzerklärung', 'Privacybeleid', 'Política de privacidad', 'Informativa sulla privacy', 'Política de privacidade', 'Polityka prywatności'),
+  'Politique Cookies et stockage local': row('Cookie and local storage policy', 'Cookie- und lokale Speicher-Richtlinie', 'Cookie- en lokaal-opslagbeleid', 'Política de cookies y almacenamiento local', 'Politica cookie e archiviazione locale', 'Política de cookies e armazenamento local', 'Polityka cookies i pamięci lokalnej'),
+  'Votre choix de confidentialité': row('Your privacy choice', 'Ihre Datenschutzauswahl', 'Uw privacykeuze', 'Tu elección de privacidad', 'La tua scelta sulla privacy', 'A sua escolha de privacidade', 'Twój wybór prywatności'),
+  'CLU utilise des stockages locaux nécessaires au jeu. Google Analytics n’est chargé que si vous l’acceptez.': row(
+    'CLU uses local storage required by the game. Google Analytics is loaded only if you accept it.',
+    'CLU verwendet für das Spiel erforderliche lokale Speicherungen. Google Analytics wird nur geladen, wenn Sie zustimmen.',
+    'CLU gebruikt lokale opslag die nodig is voor het spel. Google Analytics wordt alleen geladen als u ermee instemt.',
+    'CLU utiliza almacenamiento local necesario para el juego. Google Analytics solo se carga si lo aceptas.',
+    'CLU utilizza memorie locali necessarie al gioco. Google Analytics viene caricato solo se lo accetti.',
+    'O CLU utiliza armazenamento local necessário ao jogo. O Google Analytics só é carregado se aceitar.',
+    'CLU używa lokalnej pamięci niezbędnej do działania gry. Google Analytics jest ładowany tylko po akceptacji.'
   ),
-  'Conditions générales de vente — CLU Métropole': row('Terms of Sale — CLU Métropole', 'Verkaufsbedingungen — CLU Métropole', 'Verkoopvoorwaarden — CLU Métropole', 'Condiciones de venta — CLU Métropole', 'Condizioni di vendita — CLU Métropole', 'Condições de venda — CLU Métropole', 'Warunki sprzedaży — CLU Métropole'),
-  'Conditions générales d’utilisation': row('Terms of Use', 'Nutzungsbedingungen', 'Gebruiksvoorwaarden', 'Condiciones de uso', 'Condizioni d’uso', 'Termos de utilização', 'Warunki użytkowania'),
-  'Politique de confidentialité — RGPD': row('Privacy Policy — GDPR', 'Datenschutzerklärung — DSGVO', 'Privacybeleid — AVG', 'Política de privacidad — RGPD', 'Informativa sulla privacy — GDPR', 'Política de privacidade — RGPD', 'Polityka prywatności — RODO'),
-  'Politique Cookies & stockages locaux': row('Cookies & local storage policy', 'Cookie- & lokale Speicher-Richtlinie', 'Cookie- en lokale-opslagbeleid', 'Política de cookies y almacenamiento local', 'Politica cookie e archiviazione locale', 'Política de cookies e armazenamento local', 'Polityka plików cookie i pamięci lokalnej'),
-  'Règles de la semaine découverte CLU Métropole': row('CLU Métropole discovery-week rules', 'Regeln der CLU-Métropole-Entdeckerwoche', 'Regels van de CLU Métropole-ontdekkingsweek', 'Reglas de la semana de descubrimiento de CLU Métropole', 'Regole della settimana di prova di CLU Métropole', 'Regras da semana de descoberta do CLU Métropole', 'Zasady tygodnia próbnego CLU Métropole'),
+  'Lire la politique Cookies': row('Read the cookie policy', 'Cookie-Richtlinie lesen', 'Cookiebeleid lezen', 'Leer la política de cookies', 'Leggi la politica cookie', 'Ler a política de cookies', 'Przeczytaj politykę cookies'),
+  'Tout refuser': row('Reject all', 'Alle ablehnen', 'Alles weigeren', 'Rechazar todo', 'Rifiuta tutto', 'Recusar tudo', 'Odrzuć wszystko'),
+  'Personnaliser': row('Customize', 'Anpassen', 'Aanpassen', 'Personalizar', 'Personalizza', 'Personalizar', 'Dostosuj'),
+  'Tout accepter': row('Accept all', 'Alle akzeptieren', 'Alles accepteren', 'Aceptar todo', 'Accetta tutto', 'Aceitar tudo', 'Zaakceptuj wszystko'),
+  'Confidentialité': row('Privacy', 'Datenschutz', 'Privacy', 'Privacidad', 'Privacy', 'Privacidade', 'Prywatność'),
+  'Gérer mes cookies': row('Manage my cookies', 'Cookies verwalten', 'Mijn cookies beheren', 'Gestionar mis cookies', 'Gestisci i miei cookie', 'Gerir os meus cookies', 'Zarządzaj plikami cookie'),
+  'Nécessaires': row('Necessary', 'Erforderlich', 'Noodzakelijk', 'Necesarias', 'Necessari', 'Necessários', 'Niezbędne'),
+  'Préférences, tutoriel, choix de confidentialité et sauvegardes locales du jeu.': row(
+    'Preferences, tutorial, privacy choice and local game saves.',
+    'Einstellungen, Tutorial, Datenschutzauswahl und lokale Spielstände.',
+    'Voorkeuren, tutorial, privacykeuze en lokale spelopslagen.',
+    'Preferencias, tutorial, elección de privacidad y partidas guardadas locales.',
+    'Preferenze, tutorial, scelta sulla privacy e salvataggi locali.',
+    'Preferências, tutorial, escolha de privacidade e gravações locais.',
+    'Preferencje, samouczek, wybór prywatności i lokalne zapisy gry.'
+  ),
+  'Toujours actifs': row('Always active', 'Immer aktiv', 'Altijd actief', 'Siempre activas', 'Sempre attivi', 'Sempre ativos', 'Zawsze aktywne'),
+  'Mesure d’audience': row('Audience measurement', 'Reichweitenmessung', 'Publieksmeting', 'Medición de audiencia', 'Misurazione del pubblico', 'Medição de audiência', 'Pomiar odbiorców'),
+  'Autorise Google Analytics afin de comprendre l’utilisation générale du site.': row(
+    'Allows Google Analytics to understand general website usage.',
+    'Erlaubt Google Analytics, die allgemeine Nutzung der Website zu verstehen.',
+    'Staat Google Analytics toe om het algemene gebruik van de website te begrijpen.',
+    'Permite Google Analytics para comprender el uso general del sitio.',
+    'Consente a Google Analytics di comprendere l’utilizzo generale del sito.',
+    'Permite ao Google Analytics compreender a utilização geral do site.',
+    'Pozwala Google Analytics analizować ogólne korzystanie z witryny.'
+  ),
+  'Publicité': row('Advertising', 'Werbung', 'Advertenties', 'Publicidad', 'Pubblicità', 'Publicidade', 'Reklamy'),
+  'CLU Métropole n’utilise pas de traceur publicitaire dans le jeu.': row(
+    'CLU Métropole does not use advertising trackers in the game.',
+    'CLU Métropole verwendet im Spiel keine Werbetracker.',
+    'CLU Métropole gebruikt geen advertentietrackers in het spel.',
+    'CLU Métropole no utiliza rastreadores publicitarios en el juego.',
+    'CLU Métropole non utilizza tracker pubblicitari nel gioco.',
+    'O CLU Métropole não utiliza rastreadores publicitários no jogo.',
+    'CLU Métropole nie używa w grze trackerów reklamowych.'
+  ),
+  'Inactif': row('Inactive', 'Inaktiv', 'Inactief', 'Inactivo', 'Inattivo', 'Inativo', 'Nieaktywne'),
+  'Enregistrer mes choix': row('Save my choices', 'Meine Auswahl speichern', 'Mijn keuzes opslaan', 'Guardar mis opciones', 'Salva le mie scelte', 'Guardar as minhas escolhas', 'Zapisz moje wybory'),
+  'Politique Cookies complète': row('Full cookie policy', 'Vollständige Cookie-Richtlinie', 'Volledig cookiebeleid', 'Política de cookies completa', 'Politica cookie completa', 'Política de cookies completa', 'Pełna polityka cookies'),
+  'Cookies': row('Cookies', 'Cookies', 'Cookies', 'Cookies', 'Cookie', 'Cookies', 'Pliki cookie'),
+  'Documents juridiques': row('Legal documents', 'Rechtliche Dokumente', 'Juridische documenten', 'Documentos legales', 'Documenti legali', 'Documentos jurídicos', 'Dokumenty prawne'),
 })
 
 FINAL_DYNAMIC_PATTERNS_2.push({
@@ -1607,79 +1643,8 @@ FINAL_DYNAMIC_PATTERNS_2.push({
   })[l],
 })
 
-
-Object.assign(FINAL_EXACT_4, {
-  'Se connecter': row('Sign in', 'Anmelden', 'Inloggen', 'Iniciar sesión', 'Accedi', 'Iniciar sessão', 'Zaloguj się'),
-  'Se déconnecter': row('Sign out', 'Abmelden', 'Uitloggen', 'Cerrar sesión', 'Esci', 'Terminar sessão', 'Wyloguj się'),
-  'Créer un compte': row('Create an account', 'Konto erstellen', 'Account aanmaken', 'Crear una cuenta', 'Crea un account', 'Criar conta', 'Utwórz konto'),
-  'Compte CLU': row('CLU account', 'CLU-Konto', 'CLU-account', 'Cuenta CLU', 'Account CLU', 'Conta CLU', 'Konto CLU'),
-  'Mot de passe': row('Password', 'Passwort', 'Wachtwoord', 'Contraseña', 'Password', 'Palavra-passe', 'Hasło'),
-  'Confirmer': row('Confirm', 'Bestätigen', 'Bevestigen', 'Confirmar', 'Conferma', 'Confirmar', 'Potwierdź'),
-  'Email': row('Email', 'E-Mail', 'E-mail', 'Email', 'Email', 'Email', 'E-mail'),
-  'Mot de passe oublié ?': row('Forgot password?', 'Passwort vergessen?', 'Wachtwoord vergeten?', '¿Olvidaste la contraseña?', 'Password dimenticata?', 'Esqueceu a palavra-passe?', 'Nie pamiętasz hasła?'),
-  'Récupération': row('Recovery', 'Wiederherstellung', 'Herstel', 'Recuperación', 'Recupero', 'Recuperação', 'Odzyskiwanie'),
-  'Retrouver mon compte': row('Recover my account', 'Mein Konto wiederherstellen', 'Mijn account herstellen', 'Recuperar mi cuenta', 'Recupera il mio account', 'Recuperar a minha conta', 'Odzyskaj moje konto'),
-  'Code de récupération': row('Recovery code', 'Wiederherstellungscode', 'Herstelcode', 'Código de recuperación', 'Codice di recupero', 'Código de recuperação', 'Kod odzyskiwania'),
-  'Nouveau mot de passe': row('New password', 'Neues Passwort', 'Nieuw wachtwoord', 'Nueva contraseña', 'Nuova password', 'Nova palavra-passe', 'Nowe hasło'),
-  'Récupérer le compte': row('Recover account', 'Konto wiederherstellen', 'Account herstellen', 'Recuperar cuenta', 'Recupera account', 'Recuperar conta', 'Odzyskaj konto'),
-  'Choisissez votre accès': row('Choose your access', 'Zugang wählen', 'Kies uw toegang', 'Elige tu acceso', 'Scegli il tuo accesso', 'Escolha o seu acesso', 'Wybierz dostęp'),
-  'Jouer gratuitement en invité': row('Play free as guest', 'Kostenlos als Gast spielen', 'Gratis als gast spelen', 'Jugar gratis como invitado', 'Gioca gratis come ospite', 'Jogar grátis como convidado', 'Graj za darmo jako gość'),
-  'Jouer avec mon compte gratuitement': row('Play free with my account', 'Kostenlos mit meinem Konto spielen', 'Gratis spelen met mijn account', 'Jugar gratis con mi cuenta', 'Gioca gratis con il mio account', 'Jogar grátis com a minha conta', 'Graj za darmo na moim koncie'),
-  'Acheter maintenant': row('Buy now', 'Jetzt kaufen', 'Nu kopen', 'Comprar ahora', 'Acquista ora', 'Comprar agora', 'Kup teraz'),
-  'Achat unique': row('One-time purchase', 'Einmalkauf', 'Eenmalige aankoop', 'Compra única', 'Acquisto una tantum', 'Compra única', 'Zakup jednorazowy'),
-  'Aucun abonnement.': row('No subscription.', 'Kein Abonnement.', 'Geen abonnement.', 'Sin suscripción.', 'Nessun abbonamento.', 'Sem subscrição.', 'Bez abonamentu.'),
-  'Aucun renouvellement automatique.': row('No automatic renewal.', 'Keine automatische Verlängerung.', 'Geen automatische verlenging.', 'Sin renovación automática.', 'Nessun rinnovo automatico.', 'Sem renovação automática.', 'Bez automatycznego odnawiania.'),
-  'Connexion Internet obligatoire pour jouer.': row('Internet connection required to play.', 'Internetverbindung zum Spielen erforderlich.', 'Internetverbinding vereist om te spelen.', 'Se requiere conexión a Internet para jugar.', 'Connessione Internet necessaria per giocare.', 'É necessária ligação à Internet para jogar.', 'Do gry wymagane jest połączenie z Internetem.'),
-  'Semaine découverte ouverte': row('Discovery week is open', 'Entdeckerwoche ist geöffnet', 'Ontdekkingsweek is open', 'Semana de descubrimiento abierta', 'Settimana di prova aperta', 'Semana de descoberta aberta', 'Tydzień próbny trwa'),
-  'La semaine découverte est terminée': row('Discovery week has ended', 'Die Entdeckerwoche ist beendet', 'De ontdekkingsweek is afgelopen', 'La semana de descubrimiento ha terminado', 'La settimana di prova è terminata', 'A semana de descoberta terminou', 'Tydzień próbny dobiegł końca'),
-  'Voir les règles complètes': row('View full rules', 'Vollständige Regeln anzeigen', 'Volledige regels bekijken', 'Ver reglas completas', 'Vedi regole complete', 'Ver regras completas', 'Zobacz pełne zasady'),
-  'Connexion requise': row('Connection required', 'Verbindung erforderlich', 'Verbinding vereist', 'Conexión requerida', 'Connessione necessaria', 'Ligação necessária', 'Wymagane połączenie'),
-  'Réessayer': row('Retry', 'Erneut versuchen', 'Opnieuw proberen', 'Reintentar', 'Riprova', 'Tentar novamente', 'Spróbuj ponownie'),
-  'Connexion à CLU…': row('Connecting to CLU…', 'Verbindung mit CLU…', 'Verbinden met CLU…', 'Conectando con CLU…', 'Connessione a CLU…', 'A ligar ao CLU…', 'Łączenie z CLU…'),
-  'Créer mon compte': row('Create my account', 'Mein Konto erstellen', 'Mijn account aanmaken', 'Crear mi cuenta', 'Crea il mio account', 'Criar a minha conta', 'Utwórz moje konto'),
-  'J’ai déjà un compte': row('I already have an account', 'Ich habe bereits ein Konto', 'Ik heb al een account', 'Ya tengo una cuenta', 'Ho già un account', 'Já tenho uma conta', 'Mam już konto'),
-  'Retour': row('Back', 'Zurück', 'Terug', 'Volver', 'Indietro', 'Voltar', 'Wstecz'),
-  'Compte créé / récupéré': row('Account created / recovered', 'Konto erstellt / wiederhergestellt', 'Account aangemaakt / hersteld', 'Cuenta creada / recuperada', 'Account creato / recuperato', 'Conta criada / recuperada', 'Konto utworzone / odzyskane'),
-  'Conservez votre code de récupération': row('Keep your recovery code', 'Bewahren Sie Ihren Wiederherstellungscode auf', 'Bewaar uw herstelcode', 'Guarda tu código de recuperación', 'Conserva il codice di recupero', 'Guarde o seu código de recuperação', 'Zachowaj kod odzyskiwania'),
-  'Copier le code': row('Copy code', 'Code kopieren', 'Code kopiëren', 'Copiar código', 'Copia codice', 'Copiar código', 'Kopiuj kod'),
-  'J’ai sauvegardé mon code': row('I saved my code', 'Ich habe meinen Code gespeichert', 'Ik heb mijn code opgeslagen', 'He guardado mi código', 'Ho salvato il codice', 'Guardei o meu código', 'Zapisałem kod'),
-  'Paiements réels actuellement désactivés côté serveur. La semaine découverte reste accessible.': row('Real payments are currently disabled on the server. Discovery week remains available.', 'Echte Zahlungen sind serverseitig derzeit deaktiviert. Die Entdeckerwoche bleibt verfügbar.', 'Echte betalingen zijn momenteel uitgeschakeld op de server. De ontdekkingsweek blijft beschikbaar.', 'Los pagos reales están desactivados actualmente en el servidor. La semana de descubrimiento sigue disponible.', 'I pagamenti reali sono attualmente disattivati sul server. La settimana di prova resta disponibile.', 'Os pagamentos reais estão atualmente desativados no servidor. A semana de descoberta continua disponível.', 'Prawdziwe płatności są obecnie wyłączone na serwerze. Tydzień próbny pozostaje dostępny.'),
-  'Continuer gratuitement pour l’instant': row('Continue free for now', 'Vorläufig kostenlos weiterspielen', 'Voorlopig gratis doorgaan', 'Continuar gratis por ahora', 'Continua gratis per ora', 'Continuar grátis por agora', 'Na razie kontynuuj za darmo'),
-  'Compte, récupération & sécurité': row('Account, recovery & security', 'Konto, Wiederherstellung & Sicherheit', 'Account, herstel & beveiliging', 'Cuenta, recuperación y seguridad', 'Account, recupero e sicurezza', 'Conta, recuperação e segurança', 'Konto, odzyskiwanie i bezpieczeństwo'),
-  'Appliquer le pseudo': row('Apply username', 'Benutzernamen anwenden', 'Gebruikersnaam toepassen', 'Aplicar nombre de usuario', 'Applica nome utente', 'Aplicar nome de utilizador', 'Zastosuj nazwę użytkownika'),
-  'Appliquer l’email': row('Apply email', 'E-Mail übernehmen', 'E-mail toepassen', 'Aplicar email', 'Applica email', 'Aplicar email', 'Zastosuj e-mail'),
-  'Afficher / copier le code actuel': row('Show / copy current code', 'Aktuellen Code anzeigen / kopieren', 'Huidige code tonen / kopiëren', 'Mostrar / copiar código actual', 'Mostra / copia codice attuale', 'Mostrar / copiar código atual', 'Pokaż / kopiuj bieżący kod'),
-  'Générer un nouveau code': row('Generate a new code', 'Neuen Code erzeugen', 'Nieuwe code genereren', 'Generar un nuevo código', 'Genera un nuovo codice', 'Gerar novo código', 'Wygeneruj nowy kod'),
-  'Sessions & appareils': row('Sessions & devices', 'Sitzungen & Geräte', 'Sessies & apparaten', 'Sesiones y dispositivos', 'Sessioni e dispositivi', 'Sessões e dispositivos', 'Sesje i urządzenia'),
-  'Actualiser': row('Refresh', 'Aktualisieren', 'Vernieuwen', 'Actualizar', 'Aggiorna', 'Atualizar', 'Odśwież'),
-  'Déconnecter tous les appareils': row('Sign out all devices', 'Alle Geräte abmelden', 'Alle apparaten uitloggen', 'Cerrar sesión en todos los dispositivos', 'Disconnetti tutti i dispositivi', 'Terminar sessão em todos os dispositivos', 'Wyloguj wszystkie urządzenia'),
-  'Documents juridiques': row('Legal documents', 'Rechtliche Dokumente', 'Juridische documenten', 'Documentos legales', 'Documenti legali', 'Documentos jurídicos', 'Dokumenty prawne'),
-  'Zone sensible': row('Sensitive area', 'Sensibler Bereich', 'Gevoelig gebied', 'Zona sensible', 'Area sensibile', 'Zona sensível', 'Strefa wrażliwa'),
-  'Supprimer mon compte': row('Delete my account', 'Mein Konto löschen', 'Mijn account verwijderen', 'Eliminar mi cuenta', 'Elimina il mio account', 'Eliminar a minha conta', 'Usuń moje konto'),
-  'Votre choix de confidentialité': row('Your privacy choice', 'Ihre Datenschutzauswahl', 'Uw privacykeuze', 'Tu elección de privacidad', 'La tua scelta sulla privacy', 'A sua escolha de privacidade', 'Twój wybór prywatności'),
-  'Tout refuser': row('Reject all', 'Alle ablehnen', 'Alles weigeren', 'Rechazar todo', 'Rifiuta tutto', 'Recusar tudo', 'Odrzuć wszystko'),
-  'Personnaliser': row('Customize', 'Anpassen', 'Aanpassen', 'Personalizar', 'Personalizza', 'Personalizar', 'Dostosuj'),
-  'Tout accepter': row('Accept all', 'Alle akzeptieren', 'Alles accepteren', 'Aceptar todo', 'Accetta tutto', 'Aceitar tudo', 'Zaakceptuj wszystko'),
-  'Gérer mes cookies': row('Manage my cookies', 'Cookies verwalten', 'Mijn cookies beheren', 'Gestionar mis cookies', 'Gestisci i miei cookie', 'Gerir os meus cookies', 'Zarządzaj plikami cookie'),
-  'Nécessaires': row('Necessary', 'Erforderlich', 'Noodzakelijk', 'Necesarias', 'Necessari', 'Necessários', 'Niezbędne'),
-  'Toujours actifs': row('Always active', 'Immer aktiv', 'Altijd actief', 'Siempre activas', 'Sempre attivi', 'Sempre ativos', 'Zawsze aktywne'),
-  'Mesure d’audience': row('Audience measurement', 'Reichweitenmessung', 'Publieksmeting', 'Medición de audiencia', 'Misurazione del pubblico', 'Medição de audiência', 'Pomiar odbiorców'),
-  'Publicité': row('Advertising', 'Werbung', 'Advertenties', 'Publicidad', 'Pubblicità', 'Publicidade', 'Reklamy'),
-  'Inactif': row('Inactive', 'Inaktiv', 'Inactief', 'Inactivo', 'Inattivo', 'Inativo', 'Nieaktywne'),
-  'Enregistrer mes choix': row('Save my choices', 'Meine Auswahl speichern', 'Mijn keuzes opslaan', 'Guardar mis opciones', 'Salva le mie scelte', 'Guardar as minhas escolhas', 'Zapisz moje wybory'),
-  'Cookies': row('Cookies', 'Cookies', 'Cookies', 'Cookies', 'Cookie', 'Cookies', 'Pliki cookie'),
-})
-
-
-
-// V46 commercial launcher / legal center exact translations.
-// Keep these as full phrases so legal/commercial UI never falls back to mixed lexical output.
+// CLU Métropole — centre juridique.
 Object.assign(EXACT, {
-  'Accès CLU': row('CLU access', 'CLU-Zugang', 'CLU-toegang', 'Acceso CLU', 'Accesso CLU', 'Acesso CLU', 'Dostęp CLU'),
-  'Votre accès est prêt': row('Your access is ready', 'Ihr Zugang ist bereit', 'Uw toegang is klaar', 'Tu acceso está listo', 'Il tuo accesso è pronto', 'O seu acesso está pronto', 'Twój dostęp jest gotowy'),
-  'Récupérer le compte': row('Recover account', 'Konto wiederherstellen', 'Account herstellen', 'Recuperar cuenta', 'Recupera account', 'Recuperar conta', 'Odzyskaj konto'),
-  'Acheter le jeu': row('Buy the game', 'Spiel kaufen', 'Spel kopen', 'Comprar el juego', 'Acquista il gioco', 'Comprar o jogo', 'Kup grę'),
-  'Conservez ce code dans un endroit sûr.': row('Keep this code in a safe place.', 'Bewahren Sie diesen Code an einem sicheren Ort auf.', 'Bewaar deze code op een veilige plaats.', 'Guarda este código en un lugar seguro.', 'Conserva questo codice in un luogo sicuro.', 'Guarde este código num local seguro.', 'Zachowaj ten kod w bezpiecznym miejscu.'),
   'Informations juridiques': row('Legal information', 'Rechtliche Informationen', 'Juridische informatie', 'Información jurídica', 'Informazioni legali', 'Informações legais', 'Informacje prawne'),
   'Document': row('Document', 'Dokument', 'Document', 'Documento', 'Documento', 'Documento', 'Dokument'),
   'La traduction affichée suit la langue du jeu. La version française reste la version rédactionnelle de référence, sans réduire les droits impératifs applicables.': row(
@@ -1691,12 +1656,7 @@ Object.assign(EXACT, {
     'A tradução apresentada segue o idioma do jogo. A versão francesa continua a ser a referência redacional, sem limitar os direitos imperativos aplicáveis.',
     'Wyświetlane tłumaczenie odpowiada językowi gry. Wersja francuska pozostaje redakcyjną wersją referencyjną, bez ograniczania obowiązujących bezwzględnych praw.'
   ),
-  'jusqu’au': row('until', 'bis', 'tot', 'hasta', 'fino al', 'até', 'do'),
-  'Ouverture prochaine': row('Opening soon', 'Baldige Öffnung', 'Binnenkort open', 'Próxima apertura', 'Apertura prossima', 'Abertura em breve', 'Otwarcie wkrótce'),
-  'Accès payant': row('Paid access', 'Kostenpflichtiger Zugang', 'Betaalde toegang', 'Acceso de pago', 'Accesso a pagamento', 'Acesso pago', 'Płatny dostęp'),
-  'Accès': row('Access', 'Zugang', 'Toegang', 'Acceso', 'Accesso', 'Acesso', 'Dostęp'),
-  'Connexion Internet requise': row('Internet connection required', 'Internetverbindung erforderlich', 'Internetverbinding vereist', 'Se requiere conexión a Internet', 'Connessione Internet richiesta', 'Ligação à Internet necessária', 'Wymagane połączenie z Internetem'),
-  'Ouverture': row('Opening', 'Öffnung', 'Opening', 'Apertura', 'Apertura', 'Abertura', 'Otwarcie'),
+  'Mentions légales': row('Legal notice', 'Impressum', 'Juridische informatie', 'Aviso legal', 'Note legali', 'Aviso legal', 'Informacje prawne'),
 })
 
 function translateLexically(text: string, locale: Exclude<GameLocale, 'fr'>) {
@@ -1712,104 +1672,31 @@ function translateLexically(text: string, locale: Exclude<GameLocale, 'fr'>) {
 }
 
 
-// V46 — interface commerciale / launcher : traductions exactes pour éviter tout mélange
-// lexical entre le français et la langue sélectionnée.
+// CLU Métropole — libellés d’accueil encore utilisés hors ancien système de compte.
 Object.assign(FINAL_EXACT_4, {
   'Construisez. Faites circuler.': row('Build. Keep it moving.', 'Bauen. In Bewegung halten.', 'Bouw. Laat het rijden.', 'Construye. Hazlo circular.', 'Costruisci. Fai circolare.', 'Construa. Ponha em circulação.', 'Buduj. Utrzymuj ruch.'),
-  'Connexion…': row('Connecting…', 'Verbindung…', 'Verbinden…', 'Conectando…', 'Connessione…', 'A ligar…', 'Łączenie…'),
-  'Connexion impossible': row('Connection failed', 'Verbindung fehlgeschlagen', 'Verbinding mislukt', 'Conexión fallida', 'Connessione non riuscita', 'Ligação falhou', 'Połączenie nieudane'),
-  'Connexion impossible.': row('Connection failed.', 'Verbindung fehlgeschlagen.', 'Verbinding mislukt.', 'Conexión fallida.', 'Connessione non riuscita.', 'Ligação falhou.', 'Połączenie nieudane.'),
-  'Connexion à CLU impossible.': row('Unable to connect to CLU.', 'Verbindung zu CLU nicht möglich.', 'Kan geen verbinding maken met CLU.', 'No se puede conectar con CLU.', 'Impossibile connettersi a CLU.', 'Não foi possível ligar ao CLU.', 'Nie można połączyć się z CLU.'),
   '← Retour': row('← Back', '← Zurück', '← Terug', '← Volver', '← Indietro', '← Voltar', '← Wstecz'),
-  'J’accepte les': row('I accept the', 'Ich akzeptiere die', 'Ik accepteer de', 'Acepto las', 'Accetto le', 'Aceito os', 'Akceptuję'),
-  'J’ai lu la': row('I have read the', 'Ich habe die', 'Ik heb het', 'He leído la', 'Ho letto la', 'Li a', 'Zapoznałem(-am) się z'),
-  'confidentialité': row('privacy policy', 'Datenschutzerklärung', 'privacybeleid', 'política de privacidad', 'informativa sulla privacy', 'política de privacidade', 'polityką prywatności'),
-  'et les': row('and the', 'und die', 'en de', 'y las', 'e le', 'e as', 'i'),
-  'Mentions légales': row('Legal notice', 'Impressum', 'Juridische informatie', 'Aviso legal', 'Note legali', 'Aviso legal', 'Informacje prawne'),
-  'Création…': row('Creating…', 'Erstellung…', 'Aanmaken…', 'Creando…', 'Creazione…', 'A criar…', 'Tworzenie…'),
-  'Redirection…': row('Redirecting…', 'Weiterleitung…', 'Doorsturen…', 'Redirigiendo…', 'Reindirizzamento…', 'A redirecionar…', 'Przekierowanie…'),
-  'Code de récupération': row('Recovery code', 'Wiederherstellungscode', 'Herstelcode', 'Código de recuperación', 'Codice di recupero', 'Código de recuperação', 'Kod odzyskiwania'),
-  'Copier': row('Copy', 'Kopieren', 'Kopiëren', 'Copiar', 'Copia', 'Copiar', 'Kopiuj'),
-  'Pseudo': row('Username', 'Benutzername', 'Gebruikersnaam', 'Nombre de usuario', 'Nome utente', 'Nome de utilizador', 'Nazwa użytkownika'),
-  'Email du compte': row('Account email', 'E-Mail des Kontos', 'E-mailadres van het account', 'Email de la cuenta', 'Email dell’account', 'Email da conta', 'E-mail konta'),
-  'Confidentialité': row('Privacy', 'Datenschutz', 'Privacy', 'Privacidad', 'Privacy', 'Privacidade', 'Prywatność'),
-  'J’ai lu la confidentialité': row('I have read the privacy policy', 'Ich habe die Datenschutzerklärung gelesen', 'Ik heb het privacybeleid gelezen', 'He leído la política de privacidad', 'Ho letto l’informativa sulla privacy', 'Li a política de privacidade', 'Zapoznałem(-am) się z polityką prywatności'),
-  'Récupérer': row('Recover', 'Wiederherstellen', 'Herstellen', 'Recuperar', 'Recupera', 'Recuperar', 'Odzyskaj'),
-  'Paiement unique · aucun abonnement': row('One-time payment · no subscription', 'Einmalzahlung · kein Abonnement', 'Eenmalige betaling · geen abonnement', 'Pago único · sin suscripción', 'Pagamento una tantum · nessun abbonamento', 'Pagamento único · sem subscrição', 'Płatność jednorazowa · bez abonamentu'),
-  'Paiement unique': row('One-time payment', 'Einmalzahlung', 'Eenmalige betaling', 'Pago único', 'Pagamento una tantum', 'Pagamento único', 'Płatność jednorazowa'),
-  'Je demande l’accès immédiat.': row('I request immediate access.', 'Ich verlange sofortigen Zugang.', 'Ik verzoek om onmiddellijke toegang.', 'Solicito acceso inmediato.', 'Richiedo l’accesso immediato.', 'Solicito acesso imediato.', 'Proszę o natychmiastowy dostęp.'),
-  'Je confirme pouvoir effectuer cet achat.': row('I confirm that I am legally able to make this purchase.', 'Ich bestätige, dass ich diesen Kauf rechtswirksam tätigen darf.', 'Ik bevestig dat ik deze aankoop rechtsgeldig mag doen.', 'Confirmo que tengo capacidad legal para realizar esta compra.', 'Confermo di avere la capacità legale di effettuare questo acquisto.', 'Confirmo que tenho capacidade legal para efetuar esta compra.', 'Potwierdzam, że mam zdolność prawną do dokonania tego zakupu.'),
-  'Continuer vers le paiement': row('Continue to payment', 'Weiter zur Zahlung', 'Doorgaan naar betaling', 'Continuar al pago', 'Continua al pagamento', 'Continuar para o pagamento', 'Przejdź do płatności'),
-  'Voir les conditions': row('View terms', 'Bedingungen anzeigen', 'Voorwaarden bekijken', 'Ver condiciones', 'Vedi condizioni', 'Ver condições', 'Zobacz warunki'),
-  'Accès acheté': row('Access purchased', 'Zugang gekauft', 'Toegang gekocht', 'Acceso comprado', 'Accesso acquistato', 'Acesso comprado', 'Dostęp zakupiony'),
-  'Prêt à jouer.': row('Ready to play.', 'Spielbereit.', 'Klaar om te spelen.', 'Listo para jugar.', 'Pronto per giocare.', 'Pronto para jogar.', 'Gotowe do gry.'),
-  'Entrer dans le jeu': row('Enter the game', 'Spiel starten', 'Het spel openen', 'Entrar al juego', 'Entra nel gioco', 'Entrar no jogo', 'Wejdź do gry'),
-  'SEMAINE DÉCOUVERTE': row('DISCOVERY WEEK', 'ENTDECKERWOCHE', 'ONTDEKKINGSWEEK', 'SEMANA DE DESCUBRIMIENTO', 'SETTIMANA DI PROVA', 'SEMANA DE DESCOBERTA', 'TYDZIEŃ PRÓBNY'),
-  'Acheter le jeu dès maintenant': row('Buy the game now', 'Spiel jetzt kaufen', 'Koop het spel nu', 'Comprar el juego ahora', 'Acquista il gioco ora', 'Comprar o jogo agora', 'Kup grę teraz'),
-  'OU': row('OR', 'ODER', 'OF', 'O', 'OPPURE', 'OU', 'LUB'),
-  'Jouer gratuitement': row('Play for free', 'Kostenlos spielen', 'Gratis spelen', 'Jugar gratis', 'Gioca gratis', 'Jogar grátis', 'Graj za darmo'),
-  'jusqu’au 28 septembre': row('until 28 September', 'bis 28. September', 'tot 28 september', 'hasta el 28 de septiembre', 'fino al 28 settembre', 'até 28 de setembro', 'do 28 września'),
-  'J’accepte les CGU et les règles.': row('I accept the Terms of Use and the rules.', 'Ich akzeptiere die Nutzungsbedingungen und die Regeln.', 'Ik accepteer de gebruiksvoorwaarden en de regels.', 'Acepto las condiciones de uso y las reglas.', 'Accetto le condizioni d’uso e le regole.', 'Aceito os termos de utilização e as regras.', 'Akceptuję warunki użytkowania i zasady.'),
-  'règles': row('rules', 'Regeln', 'regels', 'reglas', 'regole', 'regras', 'zasady'),
   'OUVERTURE PROCHAINE': row('OPENING SOON', 'ERÖFFNUNG DEMNÄCHST', 'BINNENKORT OPEN', 'APERTURA PRÓXIMA', 'APERTURA PROSSIMA', 'ABERTURA EM BREVE', 'OTWARCIE WKRÓTCE'),
   'À très vite.': row('See you soon.', 'Bis bald.', 'Tot snel.', 'Hasta pronto.', 'A presto.', 'Até breve.', 'Do zobaczenia wkrótce.'),
-  'ACCÈS PAYANT': row('PAID ACCESS', 'KOSTENPFLICHTIGER ZUGANG', 'BETAALDE TOEGANG', 'ACCESO DE PAGO', 'ACCESSO A PAGAMENTO', 'ACESSO PAGO', 'PŁATNY DOSTĘP'),
-  'Continuez votre réseau.': row('Keep building your network.', 'Bauen Sie Ihr Netz weiter aus.', 'Bouw verder aan uw netwerk.', 'Sigue ampliando tu red.', 'Continua a sviluppare la tua rete.', 'Continue a desenvolver a sua rede.', 'Rozwijaj dalej swoją sieć.'),
   'Communauté CLU': row('CLU community', 'CLU-Community', 'CLU-community', 'Comunidad CLU', 'Community CLU', 'Comunidade CLU', 'Społeczność CLU'),
   'Langue': row('Language', 'Sprache', 'Taal', 'Idioma', 'Lingua', 'Idioma', 'Język'),
   'Accueil CLU Métropole': row('CLU Métropole home', 'Startseite CLU Métropole', 'CLU Métropole-startpagina', 'Inicio de CLU Métropole', 'Home CLU Métropole', 'Início CLU Métropole', 'Strona główna CLU Métropole'),
-  'Le pseudo doit contenir entre 2 et 24 caractères.': row('The username must be between 2 and 24 characters.', 'Der Benutzername muss zwischen 2 und 24 Zeichen lang sein.', 'De gebruikersnaam moet 2 tot 24 tekens bevatten.', 'El nombre de usuario debe tener entre 2 y 24 caracteres.', 'Il nome utente deve contenere da 2 a 24 caratteri.', 'O nome de utilizador deve ter entre 2 e 24 caracteres.', 'Nazwa użytkownika musi mieć od 2 do 24 znaków.'),
-  'Une adresse email est obligatoire pour créer un compte.': row('An email address is required to create an account.', 'Zum Erstellen eines Kontos ist eine E-Mail-Adresse erforderlich.', 'Een e-mailadres is verplicht om een account aan te maken.', 'Se requiere una dirección de email para crear una cuenta.', 'È necessario un indirizzo email per creare un account.', 'É necessário um endereço de email para criar uma conta.', 'Do utworzenia konta wymagany jest adres e-mail.'),
-  'Le mot de passe doit contenir au moins 8 caractères.': row('The password must contain at least 8 characters.', 'Das Passwort muss mindestens 8 Zeichen enthalten.', 'Het wachtwoord moet minstens 8 tekens bevatten.', 'La contraseña debe contener al menos 8 caracteres.', 'La password deve contenere almeno 8 caratteri.', 'A palavra-passe deve conter pelo menos 8 caracteres.', 'Hasło musi mieć co najmniej 8 znaków.'),
-  'Les deux mots de passe ne correspondent pas.': row('The passwords do not match.', 'Die Passwörter stimmen nicht überein.', 'De wachtwoorden komen niet overeen.', 'Las contraseñas no coinciden.', 'Le password non corrispondono.', 'As palavras-passe não coincidem.', 'Hasła nie są zgodne.'),
-  'Vous devez accepter les CGU et confirmer avoir lu la politique de confidentialité.': row('You must accept the Terms of Use and confirm that you have read the privacy policy.', 'Sie müssen die Nutzungsbedingungen akzeptieren und bestätigen, dass Sie die Datenschutzerklärung gelesen haben.', 'U moet de gebruiksvoorwaarden accepteren en bevestigen dat u het privacybeleid hebt gelezen.', 'Debes aceptar las condiciones de uso y confirmar que has leído la política de privacidad.', 'Devi accettare le condizioni d’uso e confermare di aver letto l’informativa sulla privacy.', 'Tem de aceitar os termos de utilização e confirmar que leu a política de privacidade.', 'Musisz zaakceptować warunki użytkowania i potwierdzić zapoznanie się z polityką prywatności.'),
-  'Création de compte impossible.': row('Unable to create the account.', 'Konto konnte nicht erstellt werden.', 'Account aanmaken is niet mogelijk.', 'No se pudo crear la cuenta.', 'Impossibile creare l’account.', 'Não foi possível criar a conta.', 'Nie można utworzyć konta.'),
-  'L’adresse email du compte est obligatoire pour la récupération.': row('The account email is required for recovery.', 'Für die Wiederherstellung ist die E-Mail-Adresse des Kontos erforderlich.', 'Het e-mailadres van het account is verplicht voor herstel.', 'El email de la cuenta es obligatorio para la recuperación.', 'L’email dell’account è obbligatoria per il recupero.', 'O email da conta é obrigatório para a recuperação.', 'Do odzyskania konta wymagany jest adres e-mail konta.'),
-  'Le nouveau mot de passe doit contenir au moins 8 caractères.': row('The new password must contain at least 8 characters.', 'Das neue Passwort muss mindestens 8 Zeichen enthalten.', 'Het nieuwe wachtwoord moet minstens 8 tekens bevatten.', 'La nueva contraseña debe contener al menos 8 caracteres.', 'La nuova password deve contenere almeno 8 caratteri.', 'A nova palavra-passe deve conter pelo menos 8 caracteres.', 'Nowe hasło musi mieć co najmniej 8 znaków.'),
-  'Récupération impossible.': row('Recovery failed.', 'Wiederherstellung fehlgeschlagen.', 'Herstel mislukt.', 'La recuperación ha fallado.', 'Recupero non riuscito.', 'A recuperação falhou.', 'Odzyskiwanie nie powiodło się.'),
-  'Vous devez accepter les CGU et les règles de la semaine découverte avant de continuer.': row('You must accept the Terms of Use and the discovery-week rules before continuing.', 'Sie müssen die Nutzungsbedingungen und die Regeln der Entdeckerwoche akzeptieren, bevor Sie fortfahren.', 'U moet de gebruiksvoorwaarden en de regels van de ontdekkingsweek accepteren voordat u doorgaat.', 'Debes aceptar las condiciones de uso y las reglas de la semana de descubrimiento antes de continuar.', 'Devi accettare le condizioni d’uso e le regole della settimana di prova prima di continuare.', 'Tem de aceitar os termos de utilização e as regras da semana de descoberta antes de continuar.', 'Musisz zaakceptować warunki użytkowania i zasady tygodnia próbnego przed kontynuowaniem.'),
-  'Confirmez les informations contractuelles avant de passer au paiement.': row('Confirm the contractual information before proceeding to payment.', 'Bestätigen Sie die Vertragsinformationen, bevor Sie zur Zahlung fortfahren.', 'Bevestig de contractuele informatie voordat u doorgaat naar de betaling.', 'Confirma la información contractual antes de proceder al pago.', 'Conferma le informazioni contrattuali prima di procedere al pagamento.', 'Confirme as informações contratuais antes de prosseguir para o pagamento.', 'Potwierdź informacje umowne przed przejściem do płatności.'),
-  'Paiement indisponible.': row('Payment unavailable.', 'Zahlung nicht verfügbar.', 'Betaling niet beschikbaar.', 'Pago no disponible.', 'Pagamento non disponibile.', 'Pagamento indisponível.', 'Płatność niedostępna.'),
-  'Paiement confirmé par Stripe. Synchronisation de votre accès…': row('Payment confirmed by Stripe. Syncing your access…', 'Zahlung von Stripe bestätigt. Ihr Zugang wird synchronisiert…', 'Betaling bevestigd door Stripe. Uw toegang wordt gesynchroniseerd…', 'Pago confirmado por Stripe. Sincronizando tu acceso…', 'Pagamento confermato da Stripe. Sincronizzazione dell’accesso…', 'Pagamento confirmado pela Stripe. A sincronizar o seu acesso…', 'Płatność potwierdzona przez Stripe. Synchronizowanie dostępu…'),
-  'Le paiement est en cours de confirmation. Réessayez dans quelques instants si l’accès n’apparaît pas encore.': row('The payment is still being confirmed. Try again in a moment if access is not available yet.', 'Die Zahlung wird noch bestätigt. Versuchen Sie es in Kürze erneut, falls der Zugang noch nicht verfügbar ist.', 'De betaling wordt nog bevestigd. Probeer het zo opnieuw als de toegang nog niet beschikbaar is.', 'El pago aún se está confirmando. Vuelve a intentarlo en unos instantes si el acceso todavía no aparece.', 'Il pagamento è ancora in fase di conferma. Riprova tra poco se l’accesso non è ancora disponibile.', 'O pagamento ainda está a ser confirmado. Tente novamente dentro de instantes se o acesso ainda não aparecer.', 'Płatność jest nadal potwierdzana. Spróbuj ponownie za chwilę, jeśli dostęp jeszcze się nie pojawi.'),
-  'Paiement annulé. Aucun accès payant n’a été ajouté.': row('Payment cancelled. No paid access was added.', 'Zahlung abgebrochen. Es wurde kein kostenpflichtiger Zugang hinzugefügt.', 'Betaling geannuleerd. Er is geen betaalde toegang toegevoegd.', 'Pago cancelado. No se ha añadido ningún acceso de pago.', 'Pagamento annullato. Non è stato aggiunto alcun accesso a pagamento.', 'Pagamento cancelado. Não foi adicionado nenhum acesso pago.', 'Płatność anulowana. Nie dodano płatnego dostępu.'),
-  'Le serveur de comptes CLU n’est pas lancé.': row('The CLU account server is not running.', 'Der CLU-Kontoserver läuft nicht.', 'De CLU-accountserver is niet actief.', 'El servidor de cuentas CLU no está iniciado.', 'Il server degli account CLU non è avviato.', 'O servidor de contas CLU não está em execução.', 'Serwer kont CLU nie jest uruchomiony.'),
-  'Lien de paiement indisponible.': row('Payment link unavailable.', 'Zahlungslink nicht verfügbar.', 'Betaallink niet beschikbaar.', 'Enlace de pago no disponible.', 'Link di pagamento non disponibile.', 'Ligação de pagamento indisponível.', 'Link do płatności jest niedostępny.'),
+  'Connexion Internet requise': row('Internet connection required', 'Internetverbindung erforderlich', 'Internetverbinding vereist', 'Se requiere conexión a Internet', 'Connessione Internet richiesta', 'Ligação à Internet necessária', 'Wymagane połączenie z Internetem'),
+  'Ouverture prochaine': row('Opening soon', 'Baldige Öffnung', 'Binnenkort open', 'Próxima apertura', 'Apertura prossima', 'Abertura em breve', 'Otwarcie wkrótce'),
+  'Ouverture': row('Opening', 'Öffnung', 'Opening', 'Apertura', 'Apertura', 'Abertura', 'Otwarcie'),
 })
 
-FINAL_DYNAMIC_PATTERNS_2.push(
-  {
-    pattern: /^Ouverture le (.+)$/i,
-    build: (m, l) => ({
-      en: `Opens on ${m[1]}`,
-      de: `Eröffnung am ${m[1]}`,
-      nl: `Opent op ${m[1]}`,
-      es: `Apertura el ${m[1]}`,
-      it: `Apertura il ${m[1]}`,
-      pt: `Abertura em ${m[1]}`,
-      pl: `Otwarcie: ${m[1]}`,
-    })[l],
-  },
-  {
-    pattern: /^Acheter CLU Métropole · (.+)$/i,
-    build: (m, l) => ({
-      en: `Buy CLU Métropole · ${m[1]}`,
-      de: `CLU Métropole kaufen · ${m[1]}`,
-      nl: `CLU Métropole kopen · ${m[1]}`,
-      es: `Comprar CLU Métropole · ${m[1]}`,
-      it: `Acquista CLU Métropole · ${m[1]}`,
-      pt: `Comprar CLU Métropole · ${m[1]}`,
-      pl: `Kup CLU Métropole · ${m[1]}`,
-    })[l],
-  },
-)
-
-
-Object.assign(EXACT, {
-  'Accès au jeu': row('Game access', 'Spielzugang', 'Toegang tot het spel', 'Acceso al juego', 'Accesso al gioco', 'Acesso ao jogo', 'Dostęp do gry'),
-  'Déconnexion': row('Log out', 'Abmelden', 'Uitloggen', 'Cerrar sesión', 'Disconnetti', 'Terminar sessão', 'Wyloguj'),
-  'Jusqu’au': row('Until', 'Bis', 'Tot', 'Hasta', 'Fino al', 'Até', 'Do'),
-  'Accès gratuit indisponible.': row('Free access unavailable.', 'Kostenloser Zugang nicht verfügbar.', 'Gratis toegang niet beschikbaar.', 'Acceso gratuito no disponible.', 'Accesso gratuito non disponibile.', 'Acesso gratuito indisponível.', 'Darmowy dostęp jest niedostępny.'),
+FINAL_DYNAMIC_PATTERNS_2.push({
+  pattern: /^Ouverture le (.+)$/i,
+  build: (m, l) => ({
+    en: `Opens on ${m[1]}`,
+    de: `Eröffnung am ${m[1]}`,
+    nl: `Opent op ${m[1]}`,
+    es: `Apertura el ${m[1]}`,
+    it: `Apertura il ${m[1]}`,
+    pt: `Abertura em ${m[1]}`,
+    pl: `Otwarcie: ${m[1]}`,
+  })[l],
 })
 
 export function translateGameText(input: string, locale: GameLocale): string {
