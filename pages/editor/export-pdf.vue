@@ -4,7 +4,7 @@ import { useElementSize } from '@vueuse/core'
 import * as htmlToImage from 'html-to-image'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, provide, ref } from 'vue'
-import usePreviewMode from '~/composables/usePreviewMode'
+import useCluPreviewMode from '~/composables/useCluPreviewMode'
 import { useProject } from '~/stores/useProject.js'
 import { LineContextKey } from '~/utils/symbols.js'
 
@@ -16,7 +16,7 @@ const el = ref()
 const {
   previewMode,
   restorePreviewMode,
-} = usePreviewMode()
+} = useCluPreviewMode()
 
 const { width, height } = useElementSize(el)
 const pageWidth = computed(() => `${((width.value + 1) / PIXEL_DENSITY).toFixed(7)}in`)
