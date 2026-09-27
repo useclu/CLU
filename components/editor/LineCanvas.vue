@@ -22,6 +22,7 @@ import roissybusIcon from '~/assets/svg/services/roissybus.svg'
 import terIcon from '~/assets/svg/services/ter.svg'
 import tgvIcon from '~/assets/svg/services/tgv.svg'
 import useVersion from '~/composables/useVersion'
+import type { PreviewMode } from '~/composables/useCluPreviewMode'
 import { useCustomLineIndices } from '~/stores/useCustomLineIndices'
 import { useProject } from '~/stores/useProject'
 import { getMapFontCssFamily } from '~/utils/mapFonts'
@@ -38,10 +39,10 @@ import {
 
 const props = withDefaults(
   defineProps<{
-    sncfPreview?: boolean
+    previewMode?: PreviewMode | null
   }>(),
   {
-    sncfPreview: false,
+    previewMode: null,
   },
 )
 
@@ -93,9 +94,41 @@ const transportServiceIcons:
     CDG_EXPRESS: cdgExpressIcon,
   }
 
-const isSncfSignage =
-  computed(() => props.sncfPreview)
+const isPreviewing =
+  computed(() => props.previewMode !== null)
 
+const isSncfSignage =
+  computed(() => props.previewMode === 'SNCF')
+
+const isRatpPreview =
+  computed(() => props.previewMode === 'RATP')
+
+const RATP_BRAND_BLUE =
+  '#2452a3'
+
+const RATP_BODY_BACKGROUND =
+  '#e6dfdc'
+
+const RATP_MAIN_LANE_X = 30
+const RATP_BRANCH_LANE_GAP = 12
+const RATP_CONNECTIONS_WIDTH = 28.5
+const RATP_STOP_BLOCK_WIDTH = 62.5
+
+/*
+ * Géométrie universelle du contenu d'un arrêt RATP.
+ *
+ * Le nombre/type de correspondances ne doit JAMAIS changer leur distance
+ * à l'axe. On ancre le bord droit du bloc juste à gauche du point :
+ * 1.45em depuis le centre, soit environ 0.55em de vide après le bord
+ * d'un point terminus de 1.82em. Tout surplus grandit uniquement vers
+ * la gauche. Le nom reste, lui, à 3.2em à droite du tracé.
+ */
+const RATP_CONNECTION_AXIS_GAP = 1.45
+const RATP_LABEL_AXIS_GAP = 3.2
+const RATP_ADJACENT_LANE_CLEARANCE = 1.6
+const RATP_CONNECTION_LABEL_SPACER =
+  RATP_CONNECTION_AXIS_GAP
+  + RATP_LABEL_AXIS_GAP
 
 const mapFontStyle = computed(() => ({
   '--map-font-family':
@@ -194,6 +227,24 @@ const classicIdentityStyle =
         : undefined,
   }))
 
+
+const tramIdentityStyle =
+  computed(() => {
+    const sidePadding =
+      Math.max(
+        0,
+        Number(line.value.mapSize) - 15,
+      ) / 2
+
+    if (sidePadding <= 0) {
+      return undefined
+    }
+
+    return {
+      marginLeft: `-${sidePadding}em`,
+      marginRight: `${sidePadding}em`,
+    }
+  })
 
 const contentAdaptiveStyle =
   computed(() => {
@@ -386,10 +437,15 @@ onMounted(async () => {
   await nextTick()
 
   reconnectClassicIdentityObservers()
+  scheduleSncfTramZoneMetrics()
 
   window.addEventListener(
     'resize',
     scheduleClassicIdentityCollision,
+  )
+  window.addEventListener(
+    'resize',
+    scheduleSncfTramZoneMetrics,
   )
 })
 
@@ -403,9 +459,17 @@ onUnmounted(() => {
     )
   }
 
+  if (sncfTramZoneFrame !== null) {
+    cancelAnimationFrame(sncfTramZoneFrame)
+  }
+
   window.removeEventListener(
     'resize',
     scheduleClassicIdentityCollision,
+  )
+  window.removeEventListener(
+    'resize',
+    scheduleSncfTramZoneMetrics,
   )
 })
 
@@ -414,6 +478,7 @@ watch(
   async () => {
     await nextTick()
     reconnectClassicIdentityObservers()
+    scheduleSncfTramZoneMetrics()
   },
   {
     deep: true,
@@ -469,6 +534,15 @@ const isTramMode = computed(() =>
   line.value.mode === 'TRAM',
 )
 
+const isSncfRerMode = computed(() =>
+  line.value.mode === 'RER',
+)
+
+const isSncfHeavyRailMode = computed(() =>
+  line.value.mode === 'RER'
+  || line.value.mode === 'TRAIN',
+)
+
 /*
  * Les modes utilisant le bandeau Bus peuvent afficher
  * leur pictogramme juste avant l'indice de ligne.
@@ -515,10 +589,12 @@ function getStopsFromSection(
     const element
     of section.$lineSection.elements
   ) {
-    /*
-     * Branche classique.
-     */
     if (isBranch(element)) {
+      /*
+       * `invertedElements` inverse le rendu du contenu de l'arrêt
+       * (nom / correspondances), PAS l'ordre persistant des éléments.
+       * On conserve donc toujours l'ordre réel du tableau.
+       */
       stops.push(
         ...element
           .$branch
@@ -529,13 +605,6 @@ function getStopsFromSection(
       continue
     }
 
-    /*
-     * Fourche autonome.
-     *
-     * En signalétique SNCF on ne réutilise pas la géométrie
-     * horizontale de Fork.vue, mais ses deux sections de sortie
-     * doivent quand même rester présentes dans la desserte.
-     */
     if (isFork(element)) {
       const forkSections =
         element.$fork.sections
@@ -556,12 +625,6 @@ function getStopsFromSection(
       continue
     }
 
-    /*
-     * Branches parallèles.
-     *
-     * Conservé pour les anciens projets utilisant encore
-     * Fork + ParallelBranches.
-     */
     if (isParallelBranches(element)) {
       for (
         const subSection
@@ -580,76 +643,47 @@ function getStopsFromSection(
     }
 
     /*
-     * Segment vertical.
+     * IMPORTANT : ce bloc avait été écrasé accidentellement par une
+     * copie de `onAnnotationPointerDown()`. Les arrêts placés dans un
+     * VerticalSegment n'étaient donc plus comptés. Une sortie de
+     * fourche pouvait alors être considérée comme "vide", ce qui
+     * supprimait ou retournait toute la branche en prévisualisation.
      */
-    function onAnnotationPointerDown(
-  event: PointerEvent,
-  annotation: Annotation,
-) {
-  if (
-    event.button !== 0
-  ) {
-    return
-  }
+    if (isVerticalSegment(element)) {
+      const data =
+        element.$verticalSegment as
+          VerticalSegment['$verticalSegment'] & {
+            stops?: Stop[]
+          }
 
-  const target =
-    event.target as HTMLElement
-
-  if (
-    target.closest(
-      '.annotation-delete',
-    )
-  ) {
-    return
-  }
-
-  event.preventDefault()
-
-  const element =
-    event.currentTarget as HTMLElement
-
-  element.setPointerCapture(
-    event.pointerId,
-  )
-
-  draggingAnnotationId.value =
-    annotation.id
-
-  startPointerX =
-    event.clientX
-
-  startPointerY =
-    event.clientY
-
-  startOffsetX =
-    annotation
-      .$annotation
-      .offsetX
-
-  startOffsetY =
-    annotation
-      .$annotation
-      .offsetY
-
-  hasMoved = false
-  }
-
-    /*
-     * Boucle avec arrêt.
-     */
-    if (isLoop(element)) {
-      const loopStop =
-        element
-          .$loop
-          .stop
-
-      if (
-        loopStop !== undefined
-      ) {
-        stops.push(
-          loopStop,
+      const segmentStops =
+        data.stops
+        ?? (
+          data.stop
+            ? [data.stop]
+            : []
         )
-      }
+
+      stops.push(...segmentStops)
+      continue
+    }
+
+    if (isLoop(element)) {
+      const data =
+        element.$loop as
+          Loop['$loop'] & {
+            stops?: Stop[]
+          }
+
+      const loopStops =
+        data.stops
+        ?? (
+          data.stop
+            ? [data.stop]
+            : []
+        )
+
+      stops.push(...loopStops)
     }
   }
 
@@ -1467,6 +1501,184 @@ const sncfStops =
     ),
   )
 
+watch(
+  () => sncfStops.value.map(stop => stop.id).join('|'),
+  async () => {
+    await nextTick()
+    scheduleSncfTramZoneMetrics()
+  },
+)
+
+
+function stopHasUrbanBubble(stop: Stop) {
+  return stop.$stop.urbanBubble === true
+}
+
+function sncfUrbanBubbleClass(index: number) {
+  const previous =
+    index > 0
+    && stopHasUrbanBubble(sncfStops.value[index - 1])
+
+  const next =
+    index < sncfStops.value.length - 1
+    && stopHasUrbanBubble(sncfStops.value[index + 1])
+
+  return {
+    'is-bubble-start': !previous,
+    'is-bubble-end': !next,
+  }
+}
+
+function networkUrbanBubbleClass(
+  rowIndex: number,
+  lane: number,
+) {
+  function hasNeighbor(direction: -1 | 1) {
+    for (
+      let index = rowIndex + direction;
+      index >= 0
+      && index < sncfNetwork.value.rows.length;
+      index += direction
+    ) {
+      const row = sncfNetwork.value.rows[index]
+      const sameLaneStop =
+        row.stops.find(entry => entry.lane === lane)
+
+      if (sameLaneStop) {
+        return stopHasUrbanBubble(sameLaneStop.stop)
+      }
+
+      if (row.stops.length > 0) {
+        return false
+      }
+    }
+
+    return false
+  }
+
+  return {
+    'is-bubble-start': !hasNeighbor(-1),
+    'is-bubble-end': !hasNeighbor(1),
+  }
+}
+
+function urbanBubbleLabelForStop(stop: Stop) {
+  const placeName = stop.$stop.placeName?.trim()
+
+  if (placeName) return placeName
+
+  const ratpAreaLabel =
+    ratpAreaLabelByStopId.value.get(stop.id)?.trim()
+
+  if (ratpAreaLabel) return ratpAreaLabel
+
+  const sncfAreaLabel =
+    sncfTramAreaMarkerByStopId.value.get(stop.id)?.city?.trim()
+
+  return sncfAreaLabel || ''
+}
+
+function sncfUrbanBubbleLabel(index: number) {
+  const stop = sncfStops.value[index]
+
+  if (!stopHasUrbanBubble(stop)) {
+    return ''
+  }
+
+  let start = index
+  let end = index
+
+  while (
+    start > 0
+    && stopHasUrbanBubble(sncfStops.value[start - 1])
+  ) {
+    start -= 1
+  }
+
+  while (
+    end < sncfStops.value.length - 1
+    && stopHasUrbanBubble(sncfStops.value[end + 1])
+  ) {
+    end += 1
+  }
+
+  const middleIndex = Math.floor((start + end) / 2)
+
+  if (index != middleIndex) {
+    return ''
+  }
+
+  for (let cursor = start; cursor <= end; cursor += 1) {
+    const label =
+      urbanBubbleLabelForStop(sncfStops.value[cursor])
+
+    if (label.length > 0) {
+      return label
+    }
+  }
+
+  return ''
+}
+
+function networkUrbanBubbleLabel(
+  rowIndex: number,
+  lane: number,
+) {
+  function laneStopAt(index: number) {
+    return sncfNetwork.value.rows[index]?.stops.find(
+      entry => entry.lane === lane,
+    )
+  }
+
+  const entry = laneStopAt(rowIndex)
+
+  if (!entry || !stopHasUrbanBubble(entry.stop)) {
+    return ''
+  }
+
+  let start = rowIndex
+  let end = rowIndex
+
+  while (start > 0) {
+    const previous = laneStopAt(start - 1)
+
+    if (!previous || !stopHasUrbanBubble(previous.stop)) {
+      break
+    }
+
+    start -= 1
+  }
+
+  while (end < sncfNetwork.value.rows.length - 1) {
+    const next = laneStopAt(end + 1)
+
+    if (!next || !stopHasUrbanBubble(next.stop)) {
+      break
+    }
+
+    end += 1
+  }
+
+  const middleIndex = Math.floor((start + end) / 2)
+
+  if (rowIndex != middleIndex) {
+    return ''
+  }
+
+  for (let cursor = start; cursor <= end; cursor += 1) {
+    const candidate = laneStopAt(cursor)
+    const label = candidate
+      ? urbanBubbleLabelForStop(candidate.stop)
+      : ''
+
+    if (label.length > 0) {
+      return label
+    }
+  }
+
+  return ''
+}
+
 /*
  * Identité locale d'un arrêt en signalétique SNCF.
  *
@@ -1561,11 +1773,10 @@ function sncfStopMarkerLineColor(
  * Cette structure ne fait que traduire la topologie persistée vers
  * un réseau vertical lisible.
  *
- * Profondeur volontairement limitée :
- * - première bifurcation ;
- * - une bifurcation supplémentaire dans une branche ;
- * - au-delà, les arrêts restent visibles mais sont aplatis sur la
- *   dernière voie afin d'éviter une récursivité graphique infinie.
+ * La profondeur n'est plus volontairement écrasée après deux niveaux :
+ * les RER / Transilien complexes peuvent réellement imbriquer plusieurs
+ * bifurcations. Une garde haute reste conservée uniquement contre un JSON
+ * pathologique ou une référence cyclique accidentelle.
  */
 type SncfNetworkStop = {
   key: string
@@ -1603,6 +1814,16 @@ type SncfNetworkLocalRange = {
   color: string
 }
 
+type SncfOpenParallelLayout = {
+  sourceLane: number
+  primaryLane: number
+  secondaryLane: number
+  primaryColor: string
+  secondaryColor: string
+  primaryEnd: number
+  secondaryEnd: number
+}
+
 type ForkWithPairId = Fork['$fork'] & {
   parallelBranchesId?: string
 }
@@ -1612,7 +1833,7 @@ type ParallelBranchesWithPairId =
     forkId?: string
   }
 
-const SNCF_MAX_BRANCH_DEPTH = 2
+const SNCF_MAX_BRANCH_DEPTH = 6
 
 /*
  * Une voie SNCF n'est pas seulement un trait : elle possède aussi
@@ -1636,6 +1857,83 @@ const SNCF_NETWORK_SIDE_RESERVE =
 const SNCF_NETWORK_LANE_START =
   SNCF_NETWORK_SIDE_RESERVE
 const SNCF_NETWORK_FORK_HEIGHT = 8.2
+
+/*
+ * Ordre des sorties d'une fourche en aperçu vertical.
+ *
+ * Dans l'éditeur horizontal, un levelOffset positif place la sortie
+ * AU-DESSUS du tronc et un levelOffset négatif EN-DESSOUS. En aperçu
+ * vertical on transpose cette information sans la retourner :
+ *
+ *   niveau le plus haut  -> colonne de gauche
+ *   niveau le plus bas   -> colonne de droite
+ *
+ * Le sens LEFT / RIGHT de la Fork indique si l'on fusionne ou si l'on
+ * sépare ; il ne doit jamais inverser les deux sorties.
+ */
+function sncfSectionLevelOffset(
+  section: LineSection,
+) {
+  const value = Number(
+    section.$lineSection.levelOffset
+    ?? 0,
+  )
+
+  return Number.isFinite(value)
+    ? value
+    : 0
+}
+
+function sncfOutputSectionSides(
+  sections: [LineSection, LineSection],
+): ['LEFT' | 'RIGHT', 'LEFT' | 'RIGHT'] {
+  const first =
+    sncfSectionLevelOffset(sections[0])
+
+  const second =
+    sncfSectionLevelOffset(sections[1])
+
+  if (Math.abs(first - second) > .0001) {
+    return first > second
+      ? ['LEFT', 'RIGHT']
+      : ['RIGHT', 'LEFT']
+  }
+
+  /*
+   * Ancien JSON sans levelOffset exploitable : on garde un ordre stable
+   * par index au lieu de dépendre du sens de la Fork.
+   */
+  return ['LEFT', 'RIGHT']
+}
+
+function sncfSingleOutputSide(
+  sections: [LineSection, LineSection],
+  populatedIndex: number,
+) {
+  return sncfOutputSectionSides(sections)[populatedIndex]
+}
+
+function sncfStraightOutputIndex(
+  sections: [LineSection, LineSection],
+) {
+  const first =
+    sncfSectionLevelOffset(sections[0])
+
+  const second =
+    sncfSectionLevelOffset(sections[1])
+
+  const firstIsStraight =
+    Math.abs(first) < .0001
+
+  const secondIsStraight =
+    Math.abs(second) < .0001
+
+  if (firstIsStraight === secondIsStraight) {
+    return -1
+  }
+
+  return firstIsStraight ? 0 : 1
+}
 
 function sncfBranchColor(
   branch: Branch,
@@ -1790,6 +2088,9 @@ const sncfNetwork = computed(() => {
 
   const handledParallelBranches =
     new Set<string>()
+
+  const openParallelLayouts =
+    new Map<string, SncfOpenParallelLayout>()
 
   const seenStops =
     new Set<string>()
@@ -2115,6 +2416,7 @@ const sncfNetwork = computed(() => {
     toward: 'LEFT' | 'RIGHT',
     key: string,
     startRow: number,
+    layoutId?: string | null,
   ) {
     /*
      * Deux niveaux visuels maximum : fourche principale puis une
@@ -2174,6 +2476,226 @@ const sncfNetwork = computed(() => {
     const populatedSectionCount =
       sectionHasStops.filter(Boolean).length
 
+    /*
+     * Une sortie à levelOffset 0 est la continuation géométrique du
+     * tronc dans l'éditeur. Elle doit donc rester sur la même colonne
+     * dans les aperçus SNCF/RATP. Sinon on fabrique artificiellement un
+     * grand V alors que seule l'autre sortie bifurque (cas Transilien R,
+     * sous-fourches avec [4, 0] ou [0, -4], etc.).
+     */
+    const straightOutputIndex =
+      populatedSectionCount === 2
+        ? sncfStraightOutputIndex(sections)
+        : -1
+
+    if (straightOutputIndex >= 0) {
+      const branchIndex =
+        straightOutputIndex === 0 ? 1 : 0
+
+      const straightSection =
+        sections[straightOutputIndex]
+
+      const branchSection =
+        sections[branchIndex]
+
+      const straightColor =
+        straightOutputIndex === 0
+          ? primaryColor
+          : secondaryColor
+
+      const branchColor =
+        branchIndex === 0
+          ? primaryColor
+          : secondaryColor
+
+      const branchLane =
+        allocateLane(
+          lane,
+          sncfSingleOutputSide(
+            sections,
+            branchIndex,
+          ),
+        )
+
+      if (toward === 'RIGHT') {
+        addForkRow(
+          lane,
+          branchLane,
+          branchColor,
+          `${key}-offset-branch`,
+          startRow,
+          'SPLIT',
+        )
+
+        const branchStartRow =
+          startRow + 1
+
+        const straightEnd =
+          processSection(
+            straightSection,
+            lane,
+            depth + 1,
+            straightColor,
+            branchStartRow,
+          )
+
+        const branchEnd =
+          processSection(
+            branchSection,
+            branchLane,
+            depth + 1,
+            branchColor,
+            branchStartRow,
+          )
+
+        if (layoutId) {
+          const sectionLanes: [number, number] =
+            straightOutputIndex === 0
+              ? [lane, branchLane]
+              : [branchLane, lane]
+
+          const sectionColors: [string, string] =
+            [primaryColor, secondaryColor]
+
+          const sectionEnds: [number, number] =
+            straightOutputIndex === 0
+              ? [straightEnd, branchEnd]
+              : [branchEnd, straightEnd]
+
+          openParallelLayouts.set(
+            layoutId,
+            {
+              sourceLane: lane,
+              primaryLane: sectionLanes[0],
+              secondaryLane: sectionLanes[1],
+              primaryColor: sectionColors[0],
+              secondaryColor: sectionColors[1],
+              primaryEnd: sectionEnds[0],
+              secondaryEnd: sectionEnds[1],
+            },
+          )
+        }
+
+        return Math.max(
+          straightEnd,
+          branchEnd,
+        )
+      }
+
+      const straightEnd =
+        processSection(
+          straightSection,
+          lane,
+          depth + 1,
+          straightColor,
+          startRow,
+        )
+
+      const branchEnd =
+        processSection(
+          branchSection,
+          branchLane,
+          depth + 1,
+          branchColor,
+          startRow,
+        )
+
+      const mergeRow = Math.max(
+        straightEnd,
+        branchEnd,
+      )
+
+      extendLaneTo(
+        lane,
+        mergeRow,
+        straightColor,
+      )
+
+      extendLaneTo(
+        branchLane,
+        mergeRow,
+        branchColor,
+      )
+
+      addForkRow(
+        branchLane,
+        lane,
+        color,
+        `${key}-offset-branch`,
+        mergeRow,
+        'MERGE',
+      )
+
+      return mergeRow + 1
+    }
+
+    if (
+      toward === 'RIGHT'
+      && populatedSectionCount === 1
+    ) {
+      /*
+       * Certaines topologies Transilien (notamment R/P) encodent une
+       * sous-fourche avec une section vide. La section vide signifie
+       * « la voie courante continue » ; elle ne représente pas une
+       * seconde branche graphique.
+       *
+       * L'ancien rendu créait malgré tout deux voies puis retraitait la
+       * même ParallelBranches à la fermeture : d'où les grands rectangles
+       * et traits morts. On ne crée ici que la vraie branche latérale.
+       */
+      const branchIndex =
+        sectionHasStops[0] ? 0 : 1
+
+      const branchSection =
+        sections[branchIndex]
+
+      const branchColor =
+        branchIndex === 0
+          ? primaryColor
+          : secondaryColor
+
+      const branchLane =
+        allocateLane(
+          lane,
+          sncfSingleOutputSide(
+            sections,
+            branchIndex,
+          ),
+        )
+
+      addForkRow(
+        lane,
+        branchLane,
+        branchColor,
+        `${key}-single-branch`,
+        startRow,
+        'SPLIT',
+      )
+
+      const branchEnd =
+        processSection(
+          branchSection,
+          branchLane,
+          depth + 1,
+          branchColor,
+          startRow + 1,
+        )
+
+      /*
+       * La voie principale continue pendant toute la branche latérale.
+       * Les éléments qui suivent reprennent donc sur cette même voie,
+       * sous la branche terminée, sans créer de voie fantôme.
+       */
+      extendLaneTo(
+        lane,
+        branchEnd,
+        lanes.get(lane)?.color
+        ?? color,
+      )
+
+      return branchEnd
+    }
+
     if (
       toward === 'LEFT'
       && populatedSectionCount === 1
@@ -2197,7 +2719,10 @@ const sncfNetwork = computed(() => {
       const branchLane =
         allocateLane(
           lane,
-          'LEFT',
+          sncfSingleOutputSide(
+            sections,
+            branchIndex,
+          ),
         )
 
       const branchEnd =
@@ -2262,18 +2787,29 @@ const sncfNetwork = computed(() => {
        * puis on dessine deux raccords arrondis depuis la voie commune.
        * Cela donne le miroir du cas LEFT validé par l'utilisateur.
        */
+      const [
+        primarySide,
+        secondarySide,
+      ] = sncfOutputSectionSides(
+        sections,
+      )
+
       const primaryLane =
-        lane - 1
+        lane
+        + (primarySide === 'LEFT' ? -1 : 1)
 
       const secondaryLane =
-        lane + 1
+        lane
+        + (secondarySide === 'LEFT' ? -1 : 1)
 
       minLane = Math.min(
         minLane,
         primaryLane,
+        secondaryLane,
       )
       maxLane = Math.max(
         maxLane,
+        primaryLane,
         secondaryLane,
       )
 
@@ -2316,6 +2852,21 @@ const sncfNetwork = computed(() => {
           branchStartRow,
         )
 
+      if (layoutId) {
+        openParallelLayouts.set(
+          layoutId,
+          {
+            sourceLane: lane,
+            primaryLane,
+            secondaryLane,
+            primaryColor,
+            secondaryColor,
+            primaryEnd,
+            secondaryEnd,
+          },
+        )
+      }
+
       return Math.max(
         primaryEnd,
         secondaryEnd,
@@ -2327,16 +2878,35 @@ const sncfNetwork = computed(() => {
      * Les DEUX sections sont donc de vraies branches et aucune d'elles
      * ne doit être confondue avec le tronc commun.
      *
-     * On place la section 0 à droite et la section 1 à gauche du tronc
-     * logique `lane`. Le tronc commun n'existe graphiquement qu'après
-     * la fusion. C'est notamment ce qui fait de Plailly une branche à
-     * part entière, symétrique de la branche Creil.
+     * L'ordre gauche/droite vient désormais des `levelOffset` persistés
+     * dans les deux LineSection. Le sens LEFT signifie seulement que
+     * l'on FUSIONNE vers le tronc ; il ne retourne jamais les sorties.
      */
+    const [
+      primarySide,
+      secondarySide,
+    ] = sncfOutputSectionSides(
+      sections,
+    )
+
     const primaryLane =
-      lane + 1
+      lane
+      + (primarySide === 'LEFT' ? -1 : 1)
 
     const secondaryLane =
-      lane - 1
+      lane
+      + (secondarySide === 'LEFT' ? -1 : 1)
+
+    minLane = Math.min(
+      minLane,
+      primaryLane,
+      secondaryLane,
+    )
+    maxLane = Math.max(
+      maxLane,
+      primaryLane,
+      secondaryLane,
+    )
 
     const primaryEnd =
       processSection(
@@ -2428,10 +2998,14 @@ const sncfNetwork = computed(() => {
             color,
           )
 
+        /*
+         * `invertedElements` ne retourne pas la desserte dans l'éditeur.
+         * Il inverse seulement l'orientation visuelle de l'arrêt.
+         * Inverser le tableau ici retournait des branches entières en
+         * aperçu SNCF/RATP (ex. branche Mantes-la-Jolie du Transilien N).
+         */
         const branchElements =
-          element.$branch.invertedElements
-            ? [...element.$branch.elements].reverse()
-            : element.$branch.elements
+          element.$branch.elements
 
         for (
           const branchElement
@@ -2457,13 +3031,80 @@ const sncfNetwork = computed(() => {
             sectionElements,
           )
 
+        const pairedParallelBranchesId =
+          forkResult.pairedParallelBranchesId
+
         if (
-          forkResult
-            .pairedParallelBranchesId
+          element.$fork.toward === 'LEFT'
+          && pairedParallelBranchesId
+          && handledParallelBranches.has(
+            pairedParallelBranchesId,
+          )
         ) {
+          const openLayout =
+            openParallelLayouts.get(
+              pairedParallelBranchesId,
+            )
+
+          if (openLayout) {
+            const mergeRow = Math.max(
+              row,
+              openLayout.primaryEnd,
+              openLayout.secondaryEnd,
+            )
+
+            extendLaneTo(
+              openLayout.primaryLane,
+              mergeRow,
+              openLayout.primaryColor,
+            )
+
+            extendLaneTo(
+              openLayout.secondaryLane,
+              mergeRow,
+              openLayout.secondaryColor,
+            )
+
+            if (
+              openLayout.primaryLane
+              !== openLayout.sourceLane
+            ) {
+              addForkRow(
+                openLayout.primaryLane,
+                openLayout.sourceLane,
+                color,
+                `${element.id}-close-primary`,
+                mergeRow,
+                'MERGE',
+              )
+            }
+
+            if (
+              openLayout.secondaryLane
+              !== openLayout.sourceLane
+            ) {
+              addForkRow(
+                openLayout.secondaryLane,
+                openLayout.sourceLane,
+                color,
+                `${element.id}-close-secondary`,
+                mergeRow,
+                'MERGE',
+              )
+            }
+
+            openParallelLayouts.delete(
+              pairedParallelBranchesId,
+            )
+
+            row = mergeRow + 1
+            continue
+          }
+        }
+
+        if (pairedParallelBranchesId) {
           handledParallelBranches.add(
-            forkResult
-              .pairedParallelBranchesId,
+            pairedParallelBranchesId,
           )
         }
 
@@ -2479,6 +3120,7 @@ const sncfNetwork = computed(() => {
           element.$fork.toward,
           element.id,
           row,
+          pairedParallelBranchesId,
         )
 
         continue
@@ -2548,6 +3190,7 @@ const sncfNetwork = computed(() => {
           'RIGHT',
           element.id,
           row,
+          element.id,
         )
 
         continue
@@ -2989,8 +3632,8 @@ function sncfNetworkForkPath(
     Math.abs(toX - fromX)
 
   const radius = Math.min(
-    height * .16,
-    horizontalSpace / 4,
+    height * (isSncfHeavyRailMode.value ? .36 : .24),
+    horizontalSpace / (isSncfHeavyRailMode.value ? 2.35 : 3),
   )
 
   const bendY =
@@ -3147,6 +3790,1873 @@ const sncfDestinationText =
       ? sncfDestinations.value.join(' • ')
       : t('ui.map_editor.destination'),
   )
+
+type SncfTramAreaMarker = {
+  city: string | null
+  zone: string | null
+}
+
+type SncfTramZoneRange = {
+  zone: string
+  span: number
+  isStart: boolean
+}
+
+const sncfSignageRoot = ref<HTMLElement | null>(null)
+const sncfTramZoneRangeStyleByStopId = ref(
+  new Map<string, Record<string, string>>(),
+)
+
+let sncfTramZoneFrame: number | null = null
+
+
+function getSncfTramAreaMarkersFromSection(
+  section: LineSection,
+  markers: Map<string, SncfTramAreaMarker>,
+) {
+  for (const element of section.$lineSection.elements) {
+    if (isBranch(element)) {
+      let pendingCity: string | null = null
+      let pendingZone: string | null = null
+      let lastStopSeen: Stop | null = null
+
+      const branchElements =
+        element.$branch.invertedElements
+          ? [...element.$branch.elements].reverse()
+          : element.$branch.elements
+
+      for (const branchElement of branchElements) {
+        if ('$areaSeparator' in branchElement) {
+          const city =
+            branchElement.$areaSeparator.cityName?.trim() ?? ''
+          const zone =
+            branchElement.$areaSeparator.zoneName?.trim() ?? ''
+
+          if (city !== '') pendingCity = city
+          if (zone !== '') pendingZone = zone
+          continue
+        }
+
+        if (isStop(branchElement)) {
+          lastStopSeen = branchElement
+
+          if (pendingCity !== null || pendingZone !== null) {
+            markers.set(branchElement.id, {
+              city: pendingCity,
+              zone: pendingZone,
+            })
+
+            pendingCity = null
+            pendingZone = null
+          }
+        }
+      }
+
+      if (
+        lastStopSeen
+        && (pendingCity !== null || pendingZone !== null)
+      ) {
+        markers.set(lastStopSeen.id, {
+          city: pendingCity,
+          zone: pendingZone,
+        })
+      }
+
+      continue
+    }
+
+    if (isFork(element) && element.$fork.sections) {
+      for (const subSection of element.$fork.sections) {
+        getSncfTramAreaMarkersFromSection(subSection, markers)
+      }
+      continue
+    }
+
+    if (isParallelBranches(element)) {
+      for (const subSection of element.$parallelBranches.sections) {
+        getSncfTramAreaMarkersFromSection(subSection, markers)
+      }
+    }
+  }
+}
+
+const sncfTramAreaMarkerByStopId = computed(() => {
+  const markers = new Map<string, SncfTramAreaMarker>()
+
+  for (const section of line.value.topology) {
+    getSncfTramAreaMarkersFromSection(section, markers)
+  }
+
+  return markers
+})
+
+function sncfTramCommuneLabel(stop: Stop) {
+  if (!isTramMode.value) return null
+
+  const placeName = stop.$stop.placeName?.trim()
+  if (placeName) return placeName
+
+  return sncfTramAreaMarkerByStopId.value.get(stop.id)?.city ?? null
+}
+
+const sncfTramEffectiveZoneByStopId = computed(() => {
+  const zones = new Map<string, string | null>()
+
+  if (!isTramMode.value) return zones
+
+  let currentZone: string | null = null
+
+  for (const stop of sncfStops.value) {
+    const markerZone =
+      sncfTramAreaMarkerByStopId.value.get(stop.id)?.zone?.trim()
+
+    if (markerZone) currentZone = markerZone
+    zones.set(stop.id, currentZone)
+  }
+
+  return zones
+})
+
+const sncfTramZoneRanges = computed(() => {
+  const ranges = new Map<string, SncfTramZoneRange>()
+
+  if (!isTramMode.value) return ranges
+
+  let index = 0
+
+  while (index < sncfStops.value.length) {
+    const stop = sncfStops.value[index]
+    const zone = sncfTramEffectiveZoneByStopId.value.get(stop.id) ?? null
+
+    if (!zone) {
+      index += 1
+      continue
+    }
+
+    let end = index
+
+    while (end + 1 < sncfStops.value.length) {
+      const nextStop = sncfStops.value[end + 1]
+      const nextZone =
+        sncfTramEffectiveZoneByStopId.value.get(nextStop.id) ?? null
+
+      if (nextZone !== zone) break
+      end += 1
+    }
+
+    const span = end - index + 1
+
+    ranges.set(stop.id, {
+      zone,
+      span,
+      isStart: true,
+    })
+
+    for (let inner = index + 1; inner <= end; inner += 1) {
+      ranges.set(sncfStops.value[inner].id, {
+        zone,
+        span: 0,
+        isStart: false,
+      })
+    }
+
+    index = end + 1
+  }
+
+  return ranges
+})
+
+function sncfTramZoneRange(stop: Stop) {
+  return sncfTramZoneRanges.value.get(stop.id) ?? null
+}
+
+function recomputeSncfTramZoneMetrics() {
+  const styles = new Map<string, Record<string, string>>()
+
+  if (!isTramMode.value) {
+    if (sncfTramZoneRangeStyleByStopId.value.size > 0) {
+      sncfTramZoneRangeStyleByStopId.value = styles
+    }
+    return
+  }
+
+  const root = sncfSignageRoot.value
+  if (!root) return
+
+  const rowByStopId = new Map<string, HTMLElement>()
+  const dotByStopId = new Map<string, HTMLElement>()
+
+  root
+    .querySelectorAll<HTMLElement>('[data-sncf-stop-row-id]')
+    .forEach((element) => {
+      const stopId = element.dataset.sncfStopRowId
+      if (stopId) rowByStopId.set(stopId, element)
+    })
+
+  root
+    .querySelectorAll<HTMLElement>('[data-sncf-stop-dot-id]')
+    .forEach((element) => {
+      const stopId = element.dataset.sncfStopDotId
+      if (stopId) dotByStopId.set(stopId, element)
+    })
+
+  for (let index = 0; index < sncfStops.value.length; index += 1) {
+    const stop = sncfStops.value[index]
+    const range = sncfTramZoneRange(stop)
+
+    if (!range?.isStart) continue
+
+    const startRow = rowByStopId.get(stop.id)
+    const startDot = dotByStopId.get(stop.id)
+
+    if (!(startRow && startDot)) continue
+
+    const startRowRect = startRow.getBoundingClientRect()
+    const startDotRect = startDot.getBoundingClientRect()
+    const startCenter = (
+      startDotRect.top
+      + (startDotRect.height / 2)
+      - startRowRect.top
+    )
+
+    let height = 0
+
+    if (range.span > 1) {
+      const endStop = sncfStops.value[index + range.span - 1]
+      const endDot = endStop
+        ? dotByStopId.get(endStop.id)
+        : null
+
+      if (endDot) {
+        const endDotRect = endDot.getBoundingClientRect()
+        height = Math.max(
+          0,
+          (
+            endDotRect.top
+            + (endDotRect.height / 2)
+          ) - (
+            startDotRect.top
+            + (startDotRect.height / 2)
+          ),
+        )
+      }
+    }
+
+    styles.set(stop.id, {
+      '--sncf-zone-range-start': `${startCenter}px`,
+      '--sncf-zone-range-height': `${height}px`,
+      '--sncf-zone-range-mid': `${startCenter + (height / 2)}px`,
+    })
+  }
+
+  const current = sncfTramZoneRangeStyleByStopId.value
+  const currentEntries = JSON.stringify([...current.entries()])
+  const nextEntries = JSON.stringify([...styles.entries()])
+
+  if (currentEntries !== nextEntries) {
+    sncfTramZoneRangeStyleByStopId.value = styles
+  }
+}
+
+function scheduleSncfTramZoneMetrics() {
+  if (typeof window === 'undefined') return
+
+  if (sncfTramZoneFrame !== null) {
+    cancelAnimationFrame(sncfTramZoneFrame)
+  }
+
+  sncfTramZoneFrame = requestAnimationFrame(() => {
+    sncfTramZoneFrame = requestAnimationFrame(() => {
+      sncfTramZoneFrame = null
+      recomputeSncfTramZoneMetrics()
+    })
+  })
+}
+
+function sncfTramZoneRangeStyle(stop: Stop) {
+  return (
+    sncfTramZoneRangeStyleByStopId.value.get(stop.id)
+    ?? {
+      '--sncf-zone-range-start': '50%',
+      '--sncf-zone-range-height': '0px',
+      '--sncf-zone-range-mid': '50%',
+    }
+  )
+}
+
+const sncfDirectionDestination = computed(() => {
+  const firstName = sncfStops.value[0]?.$stop.name.trim() ?? ''
+
+  const destinations = sncfDestinations.value.filter(
+    name => name !== '' && name !== firstName,
+  )
+
+  if (destinations.length > 0) {
+    return destinations.join(' • ')
+  }
+
+  for (let index = sncfStops.value.length - 1; index >= 0; index -= 1) {
+    const name = sncfStops.value[index]?.$stop.name.trim() ?? ''
+
+    if (name !== '' && name !== firstName) return name
+  }
+
+  return t('ui.map_editor.destination')
+})
+
+const ratpPrimaryLineIdentity =
+  computed<DisplayLineIdentity>(() =>
+    planLineIdentities.value[0]
+    ?? {
+      key: lineIdentityKey(
+        line.value.mode,
+        line.value.index,
+        transportService.value,
+      ),
+      mode: line.value.mode,
+      index: line.value.index,
+      transportService:
+        transportService.value,
+    },
+  )
+
+/*
+ * L'en-tête RATP doit aussi refléter les identités ajoutées via
+ * « Changer de ligne sur cet arrêt ».
+ *
+ * Important : on ne lit volontairement PAS les additionalLines
+ * des branches ici. Ce bloc concerne uniquement le changement
+ * local de ligne sur un arrêt, pas le système multi-ligne.
+ */
+const ratpHeaderLineIdentities =
+  computed<DisplayLineIdentity[]>(() => {
+    const identities: DisplayLineIdentity[] = [
+      ratpPrimaryLineIdentity.value,
+    ]
+
+    for (const stop of mapStops.value) {
+      const transition =
+        stop.$stop as StopWithLineTransition
+
+      if (!transition.lineAfterStopMode) {
+        continue
+      }
+
+      identities.push({
+        key: lineIdentityKey(
+          transition.lineAfterStopMode,
+          transition.lineAfterStopIndex
+          ?? null,
+        ),
+        mode: transition.lineAfterStopMode,
+        index:
+          transition.lineAfterStopIndex
+          ?? null,
+        transportService: null,
+      })
+    }
+
+    const seen = new Set<string>()
+
+    return identities.filter((identity) => {
+      if (seen.has(identity.key)) {
+        return false
+      }
+
+      seen.add(identity.key)
+      return true
+    })
+  })
+
+const ratpHeaderLineModeGroups =
+  computed<DisplayLineModeGroup[]>(() => {
+    const groups: DisplayLineModeGroup[] = []
+
+    for (
+      const identity
+      of ratpHeaderLineIdentities.value
+    ) {
+      const identityService =
+        identity.transportService
+
+      let group = groups.find(
+        item =>
+          item.mode === identity.mode
+          && item.transportService
+          === identityService,
+      )
+
+      if (!group) {
+        group = {
+          key:
+            identityService
+              ? `service:${identityService}`
+              : `mode:${identity.mode}`,
+          mode: identity.mode,
+          transportService:
+            identityService,
+          identities: [],
+        }
+
+        groups.push(group)
+      }
+
+      group.identities.push(identity)
+    }
+
+    return groups
+  })
+
+function getRatpAreaNamesFromSection(
+  section: LineSection,
+): string[] {
+  const names: string[] = []
+
+  for (
+    const element
+    of section.$lineSection.elements
+  ) {
+    if (isBranch(element)) {
+      for (
+        const branchElement
+        of element.$branch.elements
+      ) {
+        if (
+          '$areaSeparator' in branchElement
+          && branchElement
+            .$areaSeparator
+            .cityName
+            .trim() !== ''
+        ) {
+          names.push(
+            branchElement
+              .$areaSeparator
+              .cityName
+              .trim(),
+          )
+        }
+      }
+
+      continue
+    }
+
+    if (
+      isFork(element)
+      && element.$fork.sections
+    ) {
+      for (const subSection of element.$fork.sections) {
+        names.push(
+          ...getRatpAreaNamesFromSection(
+            subSection,
+          ),
+        )
+      }
+      continue
+    }
+
+    if (isParallelBranches(element)) {
+      for (
+        const subSection
+        of element.$parallelBranches.sections
+      ) {
+        names.push(
+          ...getRatpAreaNamesFromSection(
+            subSection,
+          ),
+        )
+      }
+    }
+  }
+
+  return names
+}
+
+const ratpAreaNames = computed(() => {
+  const seen = new Set<string>()
+
+  return line.value.topology
+    .flatMap(getRatpAreaNamesFromSection)
+    .filter((name) => {
+      if (seen.has(name)) {
+        return false
+      }
+
+      seen.add(name)
+      return true
+    })
+})
+
+function getRatpAreaLabelsFromSection(
+  section: LineSection,
+  labels: Map<string, string>,
+) {
+  for (
+    const element
+    of section.$lineSection.elements
+  ) {
+    if (isBranch(element)) {
+      const branchElements =
+        element.$branch.invertedElements
+          ? [...element.$branch.elements].reverse()
+          : element.$branch.elements
+
+      for (
+        let index = 0;
+        index < branchElements.length;
+        index += 1
+      ) {
+        const branchElement =
+          branchElements[index]
+
+        if (
+          !('$areaSeparator' in branchElement)
+          || branchElement
+            .$areaSeparator
+            .cityName
+            .trim() === ''
+        ) {
+          continue
+        }
+
+        const cityName =
+          branchElement
+            .$areaSeparator
+            .cityName
+            .trim()
+
+        let previousStop: Stop | null = null
+        let nextStop: Stop | null = null
+
+        for (
+          let previousIndex = index - 1;
+          previousIndex >= 0;
+          previousIndex -= 1
+        ) {
+          const previousElement =
+            branchElements[previousIndex]
+
+          if (isStop(previousElement)) {
+            previousStop = previousElement
+            break
+          }
+        }
+
+        for (
+          let nextIndex = index + 1;
+          nextIndex < branchElements.length;
+          nextIndex += 1
+        ) {
+          const nextElement =
+            branchElements[nextIndex]
+
+          if (isStop(nextElement)) {
+            nextStop = nextElement
+            break
+          }
+        }
+
+        /*
+         * Dans la preview RATP, le trait de commune associé à
+         * un arrêt est dessiné SOUS cet arrêt. Une AreaSeparator
+         * placée entre A et B doit donc être rattachée à A :
+         * visuellement, le trait reste exactement entre A et B.
+         *
+         * Exemple : une séparation « Paris » placée juste avant
+         * Porte de Clichy doit apparaître après Saint-Ouen, et non
+         * après Porte de Clichy.
+         *
+         * Si la séparation précède le tout premier arrêt de la
+         * branche, aucun arrêt précédent n'existe ; on conserve alors
+         * l'arrêt suivant comme solution de repli pour ne pas perdre
+         * l'information dans les anciens projets.
+         */
+        const targetStop =
+          previousStop ?? nextStop
+
+        if (targetStop) {
+          labels.set(
+            targetStop.id,
+            cityName,
+          )
+        }
+      }
+
+      continue
+    }
+
+    if (
+      isFork(element)
+      && element.$fork.sections
+    ) {
+      for (const subSection of element.$fork.sections) {
+        getRatpAreaLabelsFromSection(
+          subSection,
+          labels,
+        )
+      }
+      continue
+    }
+
+    if (isParallelBranches(element)) {
+      for (
+        const subSection
+        of element.$parallelBranches.sections
+      ) {
+        getRatpAreaLabelsFromSection(
+          subSection,
+          labels,
+        )
+      }
+    }
+  }
+}
+
+const ratpAreaLabelByStopId = computed(() => {
+  const labels = new Map<string, string>()
+
+  for (const section of line.value.topology) {
+    getRatpAreaLabelsFromSection(
+      section,
+      labels,
+    )
+  }
+
+  return labels
+})
+
+/*
+ * Le rendu RATP affiche TOUJOURS la topologie complète du projet.
+ * La référence visuelle ne sert qu'au style : elle ne doit jamais
+ * imposer une fenêtre, un nombre d'arrêts ou un sous-parcours.
+ */
+const ratpVisibleRows = computed(() => {
+  const stopRowIndexes =
+    sncfNetwork.value.rows
+      .map((row, rowIndex) => ({
+        row,
+        rowIndex,
+      }))
+      .filter(item => item.row.stops.length > 0)
+      .map(item => item.rowIndex)
+
+  if (stopRowIndexes.length === 0) {
+    return []
+  }
+
+  const firstVisibleStopRow =
+    stopRowIndexes[0]
+
+  const lastVisibleStopRow =
+    stopRowIndexes[
+      stopRowIndexes.length - 1
+    ]
+
+  return sncfNetwork.value.rows
+    .map((row, rowIndex) => ({
+      row,
+      rowIndex,
+    }))
+    .filter(
+      item =>
+        item.rowIndex >= firstVisibleStopRow
+        && item.rowIndex <= lastVisibleStopRow,
+    )
+})
+
+const ratpHasCompactTopology = computed(() =>
+  ratpVisibleRows.value.filter(
+    item => item.row.stops.length > 0,
+  ).length <= 6,
+)
+
+const ratpVisibleStops = computed(() =>
+  ratpVisibleRows.value.flatMap(
+    item => item.row.stops.map(
+      entry => entry.stop,
+    ),
+  ),
+)
+
+const ratpFirstVisibleStop = computed(() =>
+  ratpVisibleStops.value[0]
+  ?? null,
+)
+
+const ratpLastVisibleStop = computed(() =>
+  ratpVisibleStops.value[
+    ratpVisibleStops.value.length - 1
+  ]
+  ?? null,
+)
+
+const ratpFirstVisibleLane = computed(() =>
+  ratpVisibleRows.value[0]
+    ?.row
+    .stops[0]
+    ?.lane
+  ?? 0,
+)
+
+const ratpPlanNamedStops = computed(() =>
+  uniqueStops(mapStops.value).filter(
+    stop => stop.$stop.name.trim() !== '',
+  ),
+)
+
+const ratpTopologyEndpointStops = computed(() => {
+  const stopsByLane =
+    new Map<
+      number,
+      Array<{
+        stop: Stop
+        rowIndex: number
+      }>
+    >()
+
+  for (const item of ratpVisibleRows.value) {
+    for (const entry of item.row.stops) {
+      const laneStops =
+        stopsByLane.get(entry.lane)
+        ?? []
+
+      laneStops.push({
+        stop: entry.stop,
+        rowIndex: item.rowIndex,
+      })
+
+      stopsByLane.set(
+        entry.lane,
+        laneStops,
+      )
+    }
+  }
+
+  const result: Stop[] = []
+  const seen = new Set<string>()
+
+  const pushStop = (stop: Stop) => {
+    if (
+      stop.$stop.name.trim() === ''
+      || seen.has(stop.id)
+    ) {
+      return
+    }
+
+    seen.add(stop.id)
+    result.push(stop)
+  }
+
+  for (const [lane, laneStops] of stopsByLane) {
+    if (laneStops.length === 0) {
+      continue
+    }
+
+    laneStops.sort(
+      (a, b) => a.rowIndex - b.rowIndex,
+    )
+
+    const first = laneStops[0]
+    const last =
+      laneStops[laneStops.length - 1]
+
+    const hasIncomingFork =
+      ratpVisibleRows.value.some(
+        item =>
+          item.rowIndex <= first.rowIndex
+          && item.row.forks.some(
+            fork => fork.toLane === lane,
+          ),
+      )
+
+    const hasOutgoingFork =
+      ratpVisibleRows.value.some(
+        item =>
+          item.rowIndex >= last.rowIndex
+          && item.row.forks.some(
+            fork => fork.fromLane === lane,
+          ),
+      )
+
+    if (!hasIncomingFork) {
+      pushStop(first.stop)
+    }
+
+    if (!hasOutgoingFork) {
+      pushStop(last.stop)
+    }
+  }
+
+  return result
+})
+
+const ratpHeaderTermini = computed(() => {
+  const namedStops = ratpPlanNamedStops.value
+
+  if (namedStops.length === 0) {
+    return []
+  }
+
+  const explicitTermini =
+    namedStops.filter(
+      stop => stop.$stop.terminus,
+    )
+
+  const topologyEndpoints =
+    ratpTopologyEndpointStops.value
+
+  const source =
+    explicitTermini.length >= 3
+      ? explicitTermini
+      : topologyEndpoints.length >= 2
+        ? topologyEndpoints
+        : explicitTermini.length >= 2
+          ? explicitTermini
+          : namedStops.length >= 2
+            ? [
+                namedStops[0],
+                namedStops[namedStops.length - 1],
+              ]
+            : namedStops
+
+  const seen = new Set<string>()
+
+  return source
+    .map(stop => stop.$stop.name.trim())
+    .filter((name) => {
+      if (name === '' || seen.has(name)) {
+        return false
+      }
+
+      seen.add(name)
+      return true
+    })
+})
+
+const ratpHeaderDestination = computed(() => {
+  const headerDestinations =
+    ratpHeaderTermini.value
+
+  const lastDestination =
+    headerDestinations[
+      headerDestinations.length - 1
+    ]
+
+  if (lastDestination) {
+    return lastDestination
+  }
+
+  const stop = ratpLastVisibleStop.value
+
+  if (!stop) {
+    return t('ui.map_editor.destination')
+  }
+
+  return (
+    stop.$stop.name.trim()
+    || stop.$stop.placeName?.trim()
+    || t('ui.map_editor.destination')
+  )
+})
+
+const ratpHeaderOppositeTerminus = computed(() => {
+  const firstDestination =
+    ratpHeaderTermini.value[0]
+
+  if (
+    firstDestination
+    && firstDestination
+      !== ratpHeaderDestination.value
+  ) {
+    return firstDestination
+  }
+
+  const stop = ratpFirstVisibleStop.value
+
+  if (!stop) {
+    return null
+  }
+
+  const label =
+    stop.$stop.name.trim()
+    || stop.$stop.placeName?.trim()
+    || ''
+
+  return label === ''
+    || label === ratpHeaderDestination.value
+    ? null
+    : label
+})
+
+const ratpHeaderTerminiLabel = computed(() => {
+  const termini = ratpHeaderTermini.value
+
+  if (termini.length >= 3) {
+    const [origin, ...destinations] = termini
+
+    if (destinations.length === 0) {
+      return origin
+    }
+
+    return `${origin} ↔ ${destinations.join(' / ')}`
+  }
+
+  const opposite = ratpHeaderOppositeTerminus.value
+  const destination = ratpHeaderDestination.value
+
+  if (!opposite) {
+    return destination
+  }
+
+  return `${opposite} ↔ ${destination}`
+})
+
+const ratpHeaderDirectionLength = computed(() =>
+  ratpHeaderTerminiLabel.value.length,
+)
+
+function ratpSectionHasLoop(
+  section: LineSection,
+): boolean {
+  for (const element of section.$lineSection.elements) {
+    if (isLoop(element)) {
+      return true
+    }
+
+    if (
+      isFork(element)
+      && element.$fork.sections
+      && element.$fork.sections.some(
+        ratpSectionHasLoop,
+      )
+    ) {
+      return true
+    }
+
+    if (
+      isParallelBranches(element)
+      && element.$parallelBranches.sections.some(
+        ratpSectionHasLoop,
+      )
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+const ratpTopologyHasLoop = computed(() =>
+  line.value.topology.some(
+    ratpSectionHasLoop,
+  ),
+)
+
+const ratpFirstMultiStopRow = computed(() =>
+  ratpVisibleRows.value.find(
+    item => item.row.stops.length >= 2,
+  )
+  ?? null,
+)
+
+const ratpHasMergeFork = computed(() =>
+  ratpVisibleRows.value.some(
+    item => item.row.forks.some(
+      fork => fork.kind === 'MERGE',
+    ),
+  ),
+)
+
+const ratpIsMetro15 = computed(() => {
+  const index = line.value.index
+
+  return (
+    line.value.mode === 'METRO'
+    && index !== null
+    && isBuiltin(index)
+    && index.$builtinLineIndex.index === '15'
+  )
+})
+
+const ratpShouldCloseCircularNetwork = computed(() => {
+  /*
+   * Un élément `Loop` de l'éditeur représente un demi-tour local :
+   * il ne faut surtout pas l'interpréter comme une ligne circulaire.
+   * C'était la cause de la grande barre horizontale parasite visible
+   * notamment sur le RER D et le métro 7 bis.
+   *
+   * Pour l'instant, la fermeture circulaire est réservée à la ligne 15,
+   * dont le plan utilisateur est réellement pensé comme une boucle.
+   */
+  if (!ratpIsMetro15.value) {
+    return false
+  }
+
+  return (
+    ratpVisibleLaneStats.value.lanes.length > 1
+    && ratpHasMergeFork.value
+  )
+})
+
+const ratpVisibleLaneStats = computed(() => {
+  const counts = new Map<number, number>()
+  const lanes = new Set<number>()
+  let hasFork = false
+
+  for (const item of ratpVisibleRows.value) {
+    if (item.row.forks.length > 0) {
+      hasFork = true
+    }
+
+    for (const entry of item.row.stops) {
+      lanes.add(entry.lane)
+      counts.set(
+        entry.lane,
+        (counts.get(entry.lane) ?? 0) + 1,
+      )
+    }
+
+    for (const fork of item.row.forks) {
+      lanes.add(fork.fromLane)
+      lanes.add(fork.toLane)
+    }
+  }
+
+  const sortedLanes = [...lanes].sort(
+    (a, b) => a - b,
+  )
+
+  const dominantLane = sortedLanes
+    .slice()
+    .sort((a, b) => {
+      const countDifference =
+        (counts.get(b) ?? 0)
+        - (counts.get(a) ?? 0)
+
+      if (countDifference !== 0) {
+        return countDifference
+      }
+
+      return Math.abs(a) - Math.abs(b)
+    })[0] ?? 0
+
+  return {
+    lanes: sortedLanes,
+    minLane: sortedLanes[0] ?? dominantLane,
+    maxLane:
+      sortedLanes[sortedLanes.length - 1]
+      ?? dominantLane,
+    dominantLane,
+    hasFork,
+  }
+})
+
+const ratpUsesExpandedForkColumns = computed(() =>
+  ratpVisibleLaneStats.value.hasFork
+  && ratpVisibleLaneStats.value.lanes.length > 1,
+)
+
+const ratpMaxConcurrentLaneCount = computed(() => {
+  let maxCount = 1
+
+  for (const item of ratpVisibleRows.value) {
+    maxCount = Math.max(
+      maxCount,
+      sncfNetworkLanesAtRow(item.rowIndex).length,
+    )
+  }
+
+  return maxCount
+})
+
+const ratpHasNestedBranchDensity = computed(() => {
+  let denseRows = 0
+
+  for (const item of ratpVisibleRows.value) {
+    const laneCount =
+      sncfNetworkLanesAtRow(item.rowIndex).length
+
+    if (laneCount >= 3) {
+      denseRows += 1
+    }
+  }
+
+  return (
+    ratpVisibleLaneStats.value.lanes.length >= 4
+    || denseRows >= 2
+  )
+})
+
+function ratpEstimatedTextWidth(
+  value: string,
+) {
+  let width = 0
+
+  for (const char of value.trim()) {
+    if (" ilIjtfr'’.,:;".includes(char)) {
+      width += .48
+      continue
+    }
+
+    if ('MWmw'.includes(char)) {
+      width += 1.32
+      continue
+    }
+
+    if ('-–—'.includes(char)) {
+      width += .65
+      continue
+    }
+
+    width += char === char.toUpperCase()
+      && char !== char.toLowerCase()
+      ? 1.06
+      : .92
+  }
+
+  return width * 1.08
+}
+
+function ratpEstimatedOrnamentWidth(
+  ornament: Ornament | null | undefined,
+) {
+  if (!ornament) {
+    return 0
+  }
+
+  if ('$textOrnament' in ornament) {
+    return Math.min(
+      12,
+      1
+      + ratpEstimatedTextWidth(
+        ornament.$textOrnament.text,
+      ) * .48,
+    )
+  }
+
+  if ('$airportNameOrnament' in ornament) {
+    return Math.min(
+      14,
+      1.3
+      + ratpEstimatedTextWidth(
+        ornament.$airportNameOrnament.name,
+      ) * .52,
+    )
+  }
+
+  if ('$airportOrnament' in ornament) {
+    return 1.4
+  }
+
+  return 0
+}
+
+function ratpEstimatedConnectionWidth(
+  stop: Stop,
+) {
+  let width = 0
+  let groups = 0
+
+  for (const connection of stop.$stop.connections) {
+    groups += 1
+
+    if ('$modeConnection' in connection) {
+      const data = connection.$modeConnection
+      let groupWidth = 1.25
+
+      if (data.walk || data.transfer) {
+        groupWidth += 1.15
+      }
+
+      for (const element of data.elements) {
+        const elementData =
+          element.$modeConnectionElement
+
+        groupWidth += 1.12
+
+        if (elementData.walk || elementData.transfer) {
+          groupWidth += 1.05
+        }
+
+        groupWidth +=
+          ratpEstimatedOrnamentWidth(
+            elementData.ornament,
+          )
+      }
+
+      width += groupWidth
+      continue
+    }
+
+    if ('$serviceConnection' in connection) {
+      const data = connection.$serviceConnection
+      let groupWidth = 0
+
+      if (data.walk) {
+        groupWidth += 1.1
+      }
+
+      for (const element of data.elements) {
+        const elementData =
+          element.$serviceConnectionElement
+
+        groupWidth += 1.2
+
+        groupWidth +=
+          ratpEstimatedOrnamentWidth(
+            elementData.ornament,
+          )
+      }
+
+      width += Math.max(1.2, groupWidth)
+    }
+  }
+
+  width += (
+    stop.$stop.customConnections
+    ?? []
+  ).filter(
+    connection => connection.image !== '',
+  ).length * 1.4
+
+  if (groups > 1) {
+    width += (groups - 1) * .78
+  }
+
+  return Math.min(
+    28,
+    Math.max(
+      ratpStopHasConnections(stop)
+        ? 1.4
+        : 0,
+      width,
+    ),
+  )
+}
+
+function ratpEstimatedLabelWidth(
+  stop: Stop,
+) {
+  const base =
+    ratpEstimatedTextWidth(
+      stop.$stop.name.trim(),
+    )
+
+  return Math.min(
+    34,
+    Math.max(
+      7,
+      base
+      + (stop.$stop.terminus ? .8 : 0),
+    ),
+  )
+}
+
+const ratpLaneContentMetrics = computed(() => {
+  const metrics = new Map<
+    number,
+    {
+      maxLabelWidth: number
+      maxConnectionWidth: number
+      stops: Array<{
+        rowIndex: number
+        stop: Stop
+      }>
+    }
+  >()
+
+  for (const item of ratpVisibleRows.value) {
+    for (const entry of item.row.stops) {
+      const current =
+        metrics.get(entry.lane)
+        ?? {
+          maxLabelWidth: 0,
+          maxConnectionWidth: 0,
+          stops: [],
+        }
+
+      current.maxLabelWidth = Math.max(
+        current.maxLabelWidth,
+        ratpEstimatedLabelWidth(entry.stop),
+      )
+
+      current.maxConnectionWidth = Math.max(
+        current.maxConnectionWidth,
+        ratpEstimatedConnectionWidth(entry.stop),
+      )
+
+      current.stops.push({
+        rowIndex: item.rowIndex,
+        stop: entry.stop,
+      })
+
+      metrics.set(
+        entry.lane,
+        current,
+      )
+    }
+  }
+
+  return metrics
+})
+
+const ratpBaseParallelLaneGap = computed(() => {
+  if (ratpHasNestedBranchDensity.value) {
+    return 28
+  }
+
+  return ratpMaxConcurrentLaneCount.value >= 3
+    ? 26
+    : 22
+})
+
+function ratpPairKey(
+  leftLane: number,
+  rightLane: number,
+) {
+  return `${leftLane}:${rightLane}`
+}
+
+const ratpPairLaneGaps = computed(() => {
+  const gaps = new Map<string, number>()
+  const lanes = ratpVisibleLaneStats.value.lanes
+  const baseGap = ratpBaseParallelLaneGap.value
+
+  for (let index = 0; index < lanes.length - 1; index++) {
+    const leftLane = lanes[index]
+    const rightLane = lanes[index + 1]
+
+    const leftMetrics =
+      ratpLaneContentMetrics.value.get(leftLane)
+
+    const rightMetrics =
+      ratpLaneContentMetrics.value.get(rightLane)
+
+    let requiredGap = baseGap
+
+    if (leftMetrics && rightMetrics) {
+      /*
+       * Collision réelle entre deux colonnes adjacentes :
+       *
+       *   axe gauche -> nom à droite
+       *   axe droit  -> correspondances à gauche
+       *
+       * On ne réserve de largeur supplémentaire que lorsque deux arrêts
+       * sont réellement proches verticalement. Un nom long situé tout en
+       * bas d'une branche ne doit donc plus écarter toute la ligne.
+       */
+      for (const left of leftMetrics.stops) {
+        for (const right of rightMetrics.stops) {
+          if (
+            Math.abs(
+              left.rowIndex - right.rowIndex,
+            ) > 1
+          ) {
+            continue
+          }
+
+          requiredGap = Math.max(
+            requiredGap,
+            RATP_LABEL_AXIS_GAP
+            + ratpEstimatedLabelWidth(left.stop)
+            + RATP_ADJACENT_LANE_CLEARANCE
+            + ratpEstimatedConnectionWidth(right.stop)
+            + RATP_CONNECTION_AXIS_GAP,
+          )
+        }
+      }
+    }
+
+    gaps.set(
+      ratpPairKey(leftLane, rightLane),
+      Math.min(44, requiredGap),
+    )
+  }
+
+  return gaps
+})
+
+const ratpShouldCenterBranchedTram = computed(() =>
+  line.value.mode === 'TRAM'
+  && ratpUsesExpandedForkColumns.value,
+)
+
+function ratpCenterLanePositionsForBranchedTram(
+  positions: Map<number, number>,
+  lanes: number[],
+) {
+  if (
+    !ratpShouldCenterBranchedTram.value
+    || lanes.length < 2
+  ) {
+    return positions
+  }
+
+  let minContentX = Number.POSITIVE_INFINITY
+  let maxContentX = Number.NEGATIVE_INFINITY
+
+  for (const lane of lanes) {
+    const x = positions.get(lane)
+
+    if (x === undefined) {
+      continue
+    }
+
+    const metrics =
+      ratpLaneContentMetrics.value.get(lane)
+
+    const connectionReach =
+      (metrics?.maxConnectionWidth ?? 0)
+      + RATP_CONNECTION_AXIS_GAP
+
+    const labelReach =
+      RATP_LABEL_AXIS_GAP
+      + (metrics?.maxLabelWidth ?? 7)
+
+    minContentX = Math.min(
+      minContentX,
+      x - connectionReach,
+    )
+
+    maxContentX = Math.max(
+      maxContentX,
+      x + labelReach,
+    )
+  }
+
+  if (
+    !Number.isFinite(minContentX)
+    || !Number.isFinite(maxContentX)
+  ) {
+    return positions
+  }
+
+  /*
+   * Le réseau tramway à branches est centré d'après son enveloppe
+   * réellement visible (correspondances à gauche + noms à droite),
+   * pas seulement d'après les axes. Une ligne droite comme T9 garde
+   * donc exactement son placement actuel.
+   */
+  const contentWidth =
+    maxContentX - minContentX
+
+  const targetWidth = Math.max(
+    80,
+    contentWidth + 10,
+  )
+
+  const currentCenter =
+    (minContentX + maxContentX) / 2
+
+  const targetCenter =
+    targetWidth / 2
+
+  const shift =
+    targetCenter - currentCenter
+
+  if (Math.abs(shift) < .01) {
+    return positions
+  }
+
+  for (const lane of lanes) {
+    const x = positions.get(lane)
+
+    if (x !== undefined) {
+      positions.set(
+        lane,
+        x + shift,
+      )
+    }
+  }
+
+  return positions
+}
+
+const ratpLanePositions = computed(() => {
+  const positions = new Map<number, number>()
+  const lanes = ratpVisibleLaneStats.value.lanes
+
+  if (lanes.length === 0) {
+    positions.set(0, RATP_MAIN_LANE_X)
+    return positions
+  }
+
+  if (!ratpUsesExpandedForkColumns.value) {
+    for (const lane of lanes) {
+      positions.set(
+        lane,
+        RATP_MAIN_LANE_X
+        + lane * RATP_BRANCH_LANE_GAP,
+      )
+    }
+
+    return positions
+  }
+
+  const firstLane = lanes[0]
+  const firstMetrics =
+    ratpLaneContentMetrics.value.get(firstLane)
+
+  let x = Math.max(
+    30,
+    (firstMetrics?.maxConnectionWidth ?? 0)
+    + RATP_CONNECTION_AXIS_GAP
+    + 5,
+  )
+
+  positions.set(firstLane, x)
+
+  for (let index = 1; index < lanes.length; index++) {
+    const previousLane = lanes[index - 1]
+    const lane = lanes[index]
+
+    x += ratpPairLaneGaps.value.get(
+      ratpPairKey(previousLane, lane),
+    ) ?? ratpBaseParallelLaneGap.value
+
+    positions.set(lane, x)
+  }
+
+  return ratpCenterLanePositionsForBranchedTram(
+    positions,
+    lanes,
+  )
+})
+
+const ratpHeaderRequiredWidthEm = computed(() => {
+  const modeGroupCount =
+    ratpHeaderLineModeGroups.value.length
+
+  const indexCount =
+    ratpHeaderLineModeGroups.value.reduce(
+      (total, group) =>
+        total + group.identities.length,
+      0,
+    )
+
+  /*
+   * L'en-tête RATP est en nowrap : sa largeur doit donc
+   * inclure l'identité de ligne ET le libellé complet.
+   *
+   * Estimation volontairement conservatrice en em :
+   * - pictogramme de mode / service ;
+   * - indices de ligne ;
+   * - gaps + paddings ;
+   * - largeur moyenne du texte selon sa classe de taille.
+   *
+   * Le but n'est pas de modifier la typographie mais
+   * d'agrandir la feuille lorsque l'en-tête l'exige.
+   */
+  const identityWidth =
+    (modeGroupCount * 8.2)
+    + (indexCount * 8.2)
+    + Math.max(0, indexCount - modeGroupCount) * .55
+    + Math.max(0, modeGroupCount - 1) * 1.5
+
+  const length = ratpHeaderDirectionLength.value
+
+  const directionFontSize =
+    length >= 64
+      ? 2.08
+      : length >= 40
+        ? 2.55
+        : length >= 28
+          ? 2.95
+          : 3.55
+
+  const directionWidth =
+    length * directionFontSize * .56
+
+  return (
+    10.6 // padding horizontal de l'en-tête
+    + identityWidth
+    + 2.9 // gap identité ↔ direction
+    + directionWidth
+    + 2 // petite marge de sécurité
+  )
+})
+
+const ratpPreviewWidthEm = computed(() => {
+  let networkRequiredWidth = 80
+
+  if (ratpUsesExpandedForkColumns.value) {
+    const lanes = ratpVisibleLaneStats.value.lanes
+    const lastLane = lanes[lanes.length - 1]
+    const lastX =
+      ratpLanePositions.value.get(lastLane)
+      ?? RATP_MAIN_LANE_X
+
+    const lastMetrics =
+      ratpLaneContentMetrics.value.get(lastLane)
+
+    networkRequiredWidth = Math.max(
+      80,
+      lastX
+      + RATP_LABEL_AXIS_GAP
+      + (lastMetrics?.maxLabelWidth ?? 12)
+      + 7,
+    )
+  }
+
+  return Math.max(
+    networkRequiredWidth,
+    ratpHeaderRequiredWidthEm.value,
+  )
+})
+
+const ratpLineMaxConnectionCount = computed(() => {
+  let maxCount = 0
+
+  for (const stop of ratpVisibleStops.value) {
+    maxCount = Math.max(
+      maxCount,
+      ratpStopConnectionCount(stop),
+    )
+  }
+
+  return maxCount
+})
+
+const ratpAdaptiveConnectionsWidth = computed(() => {
+  if (ratpHasNestedBranchDensity.value) {
+    return RATP_CONNECTIONS_WIDTH
+  }
+
+  if (ratpUsesExpandedForkColumns.value) {
+    return ratpLineMaxConnectionCount.value >= 8
+      ? 26.5
+      : 24.5
+  }
+
+  return ratpLineMaxConnectionCount.value >= 8
+    ? 26
+    : 24
+})
+
+const ratpAdaptiveStopBlockWidth = computed(() =>
+  RATP_STOP_BLOCK_WIDTH
+  + Math.max(
+    0,
+    RATP_CONNECTIONS_WIDTH
+    - ratpAdaptiveConnectionsWidth.value,
+  ),
+)
+
+function ratpLaneX(
+  lane: number,
+) {
+  return (
+    ratpLanePositions.value.get(lane)
+    ?? (
+      RATP_MAIN_LANE_X
+      + lane * RATP_BRANCH_LANE_GAP
+    )
+  )
+}
+
+const ratpCircularClosurePath = computed(() => {
+  if (!ratpShouldCloseCircularNetwork.value) {
+    return ''
+  }
+
+  const leftX = ratpLaneX(
+    ratpVisibleLaneStats.value.minLane,
+  )
+  const rightX = ratpLaneX(
+    ratpVisibleLaneStats.value.maxLane,
+  )
+
+  const height = SNCF_NETWORK_FORK_HEIGHT
+  const bendY = height * .48
+  const radius = Math.min(
+    1.8,
+    Math.abs(rightX - leftX) / 6,
+  )
+
+  return (
+    `M ${leftX} ${height} `
+    + `L ${leftX} ${bendY + radius} `
+    + `Q ${leftX} ${bendY} ${leftX + radius} ${bendY} `
+    + `L ${rightX - radius} ${bendY} `
+    + `Q ${rightX} ${bendY} ${rightX} ${bendY + radius} `
+    + `L ${rightX} ${height}`
+  )
+})
+
+function ratpLaneStyle(
+  lane: SncfNetworkLane,
+  rowIndex: number,
+) {
+  const style =
+    sncfNetworkLaneStyle(
+      lane,
+      rowIndex,
+    )
+
+  return {
+    ...style,
+    left:
+      `${ratpLaneX(lane.lane)}em`,
+  }
+}
+
+function ratpLocalRangeStyle(
+  range: SncfNetworkLocalRange,
+  rowIndex: number,
+) {
+  const style =
+    sncfNetworkLocalRangeStyle(
+      range,
+      rowIndex,
+    )
+
+  return {
+    ...style,
+    left:
+      `${ratpLaneX(range.lane)}em`,
+  }
+}
+
+function ratpForkPath(
+  fork: SncfNetworkFork,
+) {
+  const fromX = ratpLaneX(fork.fromLane)
+  const toX = ratpLaneX(fork.toLane)
+  const height = SNCF_NETWORK_FORK_HEIGHT
+  const direction = Math.sign(toX - fromX) || 1
+  const horizontalSpace = Math.abs(toX - fromX)
+  const radius = Math.min(
+    height * .16,
+    horizontalSpace / 4,
+  )
+  const bendY = height * .5
+  const firstHorizontalX =
+    fromX + direction * radius
+  const lastHorizontalX =
+    toX - direction * radius
+  const beforeBendY = bendY - radius
+  const afterBendY = bendY + radius
+
+  return (
+    `M ${fromX} 0 `
+    + `L ${fromX} ${beforeBendY} `
+    + `Q ${fromX} ${bendY} `
+    + `${firstHorizontalX} ${bendY} `
+    + `L ${lastHorizontalX} ${bendY} `
+    + `Q ${toX} ${bendY} `
+    + `${toX} ${afterBendY} `
+    + `L ${toX} ${height}`
+  )
+}
+
+function ratpStopPlaceLabel(
+  stop: Stop,
+) {
+  const areaLabel =
+    ratpAreaLabelByStopId.value.get(
+      stop.id,
+    )
+
+  if (areaLabel) {
+    return areaLabel
+  }
+
+  const label =
+    stop.$stop.placeName?.trim()
+
+  if (label === undefined || label === '') {
+    return null
+  }
+
+  return label
+}
+
+function ratpNetworkStopBlockX(
+  lane: number,
+) {
+  return (
+    ratpLaneX(lane)
+    - ratpAdaptiveConnectionsWidth.value
+    - RATP_CONNECTION_AXIS_GAP
+  )
+}
+
+function ratpNetworkStopBlockStyle(
+  lane: number,
+) {
+  return {
+    left:
+      `${ratpLaneX(lane) - ratpAdaptiveConnectionsWidth.value - RATP_CONNECTION_AXIS_GAP}em`,
+    width:
+      `${ratpAdaptiveStopBlockWidth.value}em`,
+  }
+}
+
+function isRatpHighlightedStop(
+  stop: Stop,
+) {
+  return (
+    stop.id === ratpFirstVisibleStop.value?.id
+    || stop.id === ratpLastVisibleStop.value?.id
+    || stop.$stop.terminus
+  )
+}
+
+function ratpStopHasConnections(
+  stop: Stop,
+) {
+  return (
+    stop.$stop.connections.length > 0
+    || (
+      stop.$stop.customConnections
+      ?? []
+    ).length > 0
+  )
+}
+
+function ratpStopConnectionCount(
+  stop: Stop,
+) {
+  return (
+    stop.$stop.connections.length
+    + (
+      stop.$stop.customConnections
+      ?? []
+    ).length
+  )
+}
+
+function ratpStopHasDenseConnections(
+  stop: Stop,
+) {
+  return ratpStopConnectionCount(stop) >= 5
+}
+
+function ratpStopHasVeryDenseConnections(
+  stop: Stop,
+) {
+  return ratpStopConnectionCount(stop) >= 8
+}
+
+function ratpStopHasUltraDenseConnections(
+  stop: Stop,
+) {
+  return ratpStopConnectionCount(stop) >= 11
+}
+
+function ratpStopUsesWhiteMarker(
+  stop: Stop,
+) {
+  return (
+    ratpStopHasConnections(stop)
+    || stop.$stop.terminus
+  )
+}
+
+function ratpStopUsesPlainMarker(
+  stop: Stop,
+) {
+  return !ratpStopUsesWhiteMarker(stop)
+}
 
 function isSncfFirstStop(
   index: number,
@@ -3602,8 +6112,312 @@ function deleteAnnotation(
 
 <template>
   <div
-    v-if="isSncfSignage"
+    v-if="isRatpPreview"
+    v-bind="$attrs"
+    class="ratp-preview"
+    :class="{
+      'is-compact-height':
+        ratpHasCompactTopology,
+    }"
+    :style="[
+      {
+        '--ratp-line-color':
+          line.color ?? '#ffcd00',
+        '--ratp-brand-blue':
+          RATP_BRAND_BLUE,
+        '--ratp-body-background':
+          RATP_BODY_BACKGROUND,
+        '--ratp-preview-width':
+          `${ratpPreviewWidthEm}em`,
+        '--ratp-network-width':
+          `${ratpPreviewWidthEm}em`,
+        '--ratp-stop-block-width':
+          `${ratpAdaptiveStopBlockWidth}em`,
+        '--ratp-connections-width':
+          `${ratpAdaptiveConnectionsWidth}em`,
+        '--ratp-connection-label-spacer':
+          `${RATP_CONNECTION_LABEL_SPACER}em`,
+      },
+      mapFontStyle,
+    ]"
+  >
+    <div class="ratp-preview-top-stripe" />
+
+    <div class="ratp-preview-header">
+      <div class="ratp-preview-header-identity">
+        <div
+          v-for="group in ratpHeaderLineModeGroups"
+          :key="group.key"
+          class="ratp-preview-header-line-group"
+        >
+          <img
+            v-if="getTransportServiceIcon(group.transportService)"
+            :src="getTransportServiceIcon(group.transportService) ?? undefined"
+            class="ratp-preview-service-icon"
+            alt=""
+            aria-hidden="true"
+          >
+
+          <template v-else>
+            <Mode
+              plain
+              :mode="group.mode"
+              class="ratp-preview-mode"
+            />
+
+            <div class="ratp-preview-header-indices">
+              <LineIndex
+                v-for="identity in group.identities"
+                :key="identity.key"
+                :mode="identity.mode"
+                :index="identity.index"
+                class="ratp-preview-index"
+              />
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="ratp-preview-header-text">
+        <div
+          class="ratp-preview-header-direction"
+          :class="{
+            'is-long':
+              ratpHeaderDirectionLength >= 28,
+            'is-very-long':
+              ratpHeaderDirectionLength >= 40,
+            'is-ultra-long':
+              ratpHeaderDirectionLength >= 64,
+          }"
+        >
+          {{ ratpHeaderTerminiLabel }}
+        </div>
+      </div>
+    </div>
+
+    <div class="ratp-preview-body">
+      <div class="ratp-preview-network">
+        <div
+          v-if="ratpShouldCloseCircularNetwork"
+          class="ratp-network-row ratp-network-row-circular-closure"
+        >
+          <svg
+            class="ratp-network-fork"
+            :viewBox="`0 0 ${ratpPreviewWidthEm} ${SNCF_NETWORK_FORK_HEIGHT}`"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              :d="ratpCircularClosurePath"
+              :stroke="line.color ?? '#ffffff'"
+            />
+          </svg>
+        </div>
+
+        <div
+          v-for="item in ratpVisibleRows"
+          :key="item.row.key"
+          class="ratp-network-row"
+          :class="{
+            'is-fork-row':
+              item.row.forks.length > 0
+              && item.row.stops.length === 0,
+            'is-crowded-branch-row':
+              sncfNetworkLanesAtRow(
+                item.rowIndex,
+              ).length >= 2,
+            'is-ultra-crowded-branch-row':
+              sncfNetworkLanesAtRow(
+                item.rowIndex,
+              ).length >= 3,
+          }"
+        >
+          <div
+            class="ratp-network-lanes"
+            :style="{
+              width:
+                `${ratpPreviewWidthEm}em`,
+            }"
+          >
+            <template
+              v-for="entry in item.row.stops"
+              :key="`ratp-urban-bubble-${entry.key}`"
+            >
+              <div
+                v-if="stopHasUrbanBubble(entry.stop)"
+                class="ratp-network-urban-bubble"
+                :class="networkUrbanBubbleClass(item.rowIndex, entry.lane)"
+                :style="{
+                  left: `${ratpLaneX(entry.lane)}em`,
+                }"
+                aria-hidden="true"
+              >
+                <span
+                  v-if="networkUrbanBubbleLabel(item.rowIndex, entry.lane)"
+                  class="ratp-urban-bubble-label"
+                >
+                  {{ networkUrbanBubbleLabel(item.rowIndex, entry.lane) }}
+                </span>
+              </div>
+            </template>
+
+            <div
+              v-for="lane in sncfNetworkLanesAtRow(item.rowIndex)"
+              :key="`ratp-lane-${lane.lane}-${item.rowIndex}`"
+              class="ratp-network-lane-line"
+              :style="ratpLaneStyle(lane, item.rowIndex)"
+            />
+
+            <div
+              v-for="range in sncfNetworkLocalRangesAtRow(item.rowIndex)"
+              :key="`${range.key}-${item.rowIndex}`"
+              class="ratp-network-local-line"
+              :style="ratpLocalRangeStyle(range, item.rowIndex)"
+            />
+
+            <svg
+              v-if="item.row.forks.length > 0"
+              class="ratp-network-fork"
+              :viewBox="`0 0 ${ratpPreviewWidthEm} ${SNCF_NETWORK_FORK_HEIGHT}`"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <path
+                v-for="fork in item.row.forks"
+                :key="fork.key"
+                :d="ratpForkPath(fork)"
+                :stroke="fork.color"
+              />
+            </svg>
+
+            <template
+              v-for="entry in item.row.stops"
+              :key="`ratp-marker-${entry.key}`"
+            >
+              <div
+                v-if="ratpStopUsesPlainMarker(entry.stop)"
+                class="ratp-network-stop-dot ratp-network-stop-dot-plain"
+                :style="{
+                  left:
+                    `${ratpLaneX(entry.lane)}em`,
+                }"
+              />
+
+              <div
+                v-else
+                class="ratp-network-stop-dot"
+                :class="{
+                  'is-terminus':
+                    entry.stop.$stop.terminus,
+                  'is-first':
+                    entry.stop.id
+                    === ratpFirstVisibleStop?.id,
+                }"
+                :style="{
+                  left:
+                    `${ratpLaneX(entry.lane)}em`,
+                  '--ratp-stop-line-color':
+                    sncfNetworkStopMarkerColor(
+                      item.rowIndex,
+                      entry.lane,
+                    ),
+                }"
+              />
+            </template>
+          </div>
+
+          <div
+            v-for="entry in item.row.stops"
+            :key="`ratp-content-${entry.key}`"
+            class="ratp-stop-block"
+            :style="ratpNetworkStopBlockStyle(
+              entry.lane,
+            )"
+          >
+            <div
+              class="ratp-stop-connections"
+              :class="{
+                'is-dense':
+                  ratpStopHasDenseConnections(
+                    entry.stop,
+                  ),
+                'is-very-dense':
+                  ratpStopHasVeryDenseConnections(
+                    entry.stop,
+                  ),
+                'is-ultra-dense':
+                  ratpStopHasUltraDenseConnections(
+                    entry.stop,
+                  ),
+              }"
+              @click.stop
+            >
+              <Connections
+                :connections="entry.stop.$stop.connections"
+                :custom-connections="entry.stop.$stop.customConnections ?? []"
+                :reverse="false"
+              />
+            </div>
+
+            <div class="ratp-stop-main">
+              <div class="ratp-stop-header">
+
+                <div
+                  class="ratp-stop-name"
+                  :class="{
+                    'is-highlighted':
+                      isRatpHighlightedStop(
+                        entry.stop,
+                      ),
+                    'is-closed':
+                      entry.stop.$stop.closed,
+                    'is-future':
+                      entry.stop.$stop.future,
+                  }"
+                >
+                  {{
+                    entry.stop.$stop.name
+                    || $t('ui.map_editor.toolbox.untitled_stop')
+                  }}
+                </div>
+              </div>
+
+              <div
+                v-if="entry.stop.$stop.subtitle"
+                class="ratp-stop-subtitle"
+              >
+                {{ entry.stop.$stop.subtitle }}
+              </div>
+
+              <div
+                v-if="ratpStopPlaceLabel(entry.stop)"
+                class="ratp-stop-place"
+              >
+                <span class="ratp-stop-place-line" />
+
+                <span class="ratp-stop-place-label">
+                  {{ ratpStopPlaceLabel(entry.stop) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ratp-preview-bottom-stripe" />
+  </div>
+
+  <div
+    v-else-if="isSncfSignage"
+    ref="sncfSignageRoot"
+    v-bind="$attrs"
     class="sncf-signage"
+    :class="{
+      'is-tram-reference': isTramMode,
+      'is-rer-reference': isSncfRerMode,
+      'is-heavy-rail-reference': isSncfHeavyRailMode,
+    }"
     :style="[
       {
         '--sncf-line-color':
@@ -3655,16 +6469,24 @@ function deleteAnnotation(
       <div class="sncf-signage-direction">
         <div class="sncf-signage-direction-line">
           <span class="sncf-signage-direction-label">
-            {{ $t('ui.map_editor.towards') }}
+            {{
+              isSncfRerMode
+                ? $t('ui.map_editor.towards')
+                : $t('ui.map_editor.direction')
+            }}
           </span>
 
           <span class="sncf-signage-direction-main">
-            {{ sncfDestinations[0] || $t('ui.map_editor.destination') }}
+            {{
+              isSncfRerMode
+                ? sncfDestinations[0] || $t('ui.map_editor.destination')
+                : sncfDirectionDestination
+            }}
           </span>
         </div>
 
         <div
-          v-if="sncfDestinations.length > 1"
+          v-if="isSncfRerMode && sncfDestinations.length > 1"
           class="sncf-signage-destinations"
         >
           {{ sncfDestinationText }}
@@ -3708,6 +6530,28 @@ function deleteAnnotation(
                 `${sncfNetworkLaneAreaWidth}em`,
             }"
           >
+            <template
+              v-for="entry in row.stops"
+              :key="`sncf-urban-bubble-${entry.key}`"
+            >
+              <div
+                v-if="stopHasUrbanBubble(entry.stop)"
+                class="sncf-network-urban-bubble"
+                :class="networkUrbanBubbleClass(rowIndex, entry.lane)"
+                :style="{
+                  left: `${sncfNetworkLaneX(entry.lane)}em`,
+                }"
+                aria-hidden="true"
+              >
+                <span
+                  v-if="networkUrbanBubbleLabel(rowIndex, entry.lane)"
+                  class="sncf-urban-bubble-label"
+                >
+                  {{ networkUrbanBubbleLabel(rowIndex, entry.lane) }}
+                </span>
+              </div>
+            </template>
+
             <div
               v-for="lane in sncfNetworkLanesAtRow(rowIndex)"
               :key="`lane-${lane.lane}-${rowIndex}`"
@@ -3757,7 +6601,13 @@ function deleteAnnotation(
                     entry.lane,
                   ),
               }"
-            />
+            >
+              <span
+                v-if="!isSncfRerMode && entry.stop.id === sncfNetworkFirstStopId()"
+                class="sncf-first-direction-arrow"
+                aria-hidden="true"
+              />
+            </div>
           </div>
 
           <!--
@@ -3802,13 +6652,20 @@ function deleteAnnotation(
                 <div
                   v-if="
                     entry.stop.$stop.subtitle
-                    || entry.stop.$stop.placeName
+                    || (
+                      !isTramMode
+                      && entry.stop.$stop.placeName
+                    )
                   "
                   class="sncf-signage-stop-subtitle"
                 >
                   {{
                     entry.stop.$stop.subtitle
-                    || entry.stop.$stop.placeName
+                    || (
+                      !isTramMode
+                        ? entry.stop.$stop.placeName
+                        : ''
+                    )
                   }}
                 </div>
               </div>
@@ -3828,6 +6685,14 @@ function deleteAnnotation(
                 :reverse="false"
               />
             </div>
+        
+
+            <div
+              v-if="sncfTramCommuneLabel(entry.stop)"
+              class="sncf-tram-commune sncf-tram-network-commune"
+            >
+              {{ sncfTramCommuneLabel(entry.stop) }}
+            </div>
           </div>
         </div>
       </div>
@@ -3839,6 +6704,7 @@ function deleteAnnotation(
         <div
           v-for="(stop, index) in sncfStops"
           :key="stop.id"
+          :data-sncf-stop-row-id="stop.id"
           class="sncf-signage-stop"
           :class="{
             'is-first':
@@ -3849,6 +6715,36 @@ function deleteAnnotation(
               stop.$stop.terminus,
           }"
         >
+          <div
+            v-if="stopHasUrbanBubble(stop)"
+            class="sncf-route-urban-bubble"
+            :class="sncfUrbanBubbleClass(index)"
+            aria-hidden="true"
+          >
+            <span
+              v-if="sncfUrbanBubbleLabel(index)"
+              class="sncf-urban-bubble-label"
+            >
+              {{ sncfUrbanBubbleLabel(index) }}
+            </span>
+          </div>
+
+          <div
+            v-if="sncfTramZoneRange(stop)?.isStart"
+            class="sncf-tram-zone"
+            :style="sncfTramZoneRangeStyle(stop)"
+          >
+            <span class="sncf-tram-zone-label">
+              {{ sncfTramZoneRange(stop)?.zone }}
+            </span>
+
+            <span
+              v-if="(sncfTramZoneRange(stop)?.span ?? 1) > 1"
+              class="sncf-tram-zone-range-line"
+              aria-hidden="true"
+            />
+          </div>
+
           <div class="sncf-signage-rail-column">
             <div
               v-if="sncfIncomingLineIdentity(index)"
@@ -3881,6 +6777,7 @@ function deleteAnnotation(
             />
 
             <div
+              :data-sncf-stop-dot-id="stop.id"
               class="sncf-signage-dot"
               :class="{
                 'is-terminus':
@@ -3897,7 +6794,13 @@ function deleteAnnotation(
                     index,
                   ),
               }"
-            />
+            >
+              <span
+                v-if="!isSncfRerMode && isSncfFirstStop(index)"
+                class="sncf-first-direction-arrow"
+                aria-hidden="true"
+              />
+            </div>
 
             <div
               v-if="
@@ -3938,13 +6841,20 @@ function deleteAnnotation(
                 <div
                   v-if="
                     stop.$stop.subtitle
-                    || stop.$stop.placeName
+                    || (
+                      !isTramMode
+                      && stop.$stop.placeName
+                    )
                   "
                   class="sncf-signage-stop-subtitle"
                 >
                   {{
                     stop.$stop.subtitle
-                    || stop.$stop.placeName
+                    || (
+                      !isTramMode
+                        ? stop.$stop.placeName
+                        : ''
+                    )
                   }}
                 </div>
               </div>
@@ -3969,6 +6879,13 @@ function deleteAnnotation(
             </div>
 
           </div>
+
+          <div
+            v-if="sncfTramCommuneLabel(stop)"
+            class="sncf-tram-commune"
+          >
+            {{ sncfTramCommuneLabel(stop) }}
+          </div>
         </div>
       </div>
     </div>
@@ -3982,6 +6899,8 @@ function deleteAnnotation(
     class="relative content bg-white flex gap-10 flex-row"
     :class="{
       'bus-map': isBusMode,
+      'tram-map': isTramMode,
+      'preview-readonly': isPreviewing,
     }"
     :style="[contentAdaptiveStyle, mapFontStyle]"
   >
@@ -4130,6 +7049,7 @@ function deleteAnnotation(
     <div
       v-if="isTramMode"
       class="tram-identity-panel"
+      :style="tramIdentityStyle"
     >
       <!--
         ====================================================
@@ -4503,6 +7423,859 @@ function deleteAnnotation(
 </template>
 
 <style scoped lang="scss">
+.preview-engine-pending {
+  box-sizing: border-box;
+
+  width: max(32rem, 58vw);
+  min-height: 24rem;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+
+  padding: 3rem;
+
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 1rem;
+
+  background: var(--p-content-background);
+  color: var(--p-text-color);
+
+  font-family: var(--map-font-family);
+  text-align: center;
+}
+
+.preview-engine-pending-icon {
+  font-size: 3rem;
+}
+
+.preview-engine-pending-title {
+  font-size: 1.4rem;
+}
+
+.preview-engine-pending-description {
+  max-width: 34rem;
+
+  color: var(--p-text-muted-color);
+
+  line-height: 1.5;
+}
+
+.content.preview-readonly {
+  pointer-events: none;
+}
+
+.content.preview-readonly :deep(.export-hide) {
+  display: none !important;
+}
+
+/*
+ * =========================================================
+ * PRÉVISUALISATION RATP
+ * =========================================================
+ *
+ * Le moteur RATP possède sa propre feuille et sa propre échelle.
+ * Il ne dépend pas de mapSize : un grand projet ne doit jamais
+ * miniaturiser la signalétique à l'intérieur d'une feuille immense.
+ *
+ * Les points, le trait et les blocs d'arrêts restent cependant
+ * ancrés aux mêmes lignes logiques que le réseau SNCF, ce qui
+ * garantit l'alignement point <-> arrêt, y compris sur les fourches.
+ */
+
+.ratp-preview {
+  width: var(--ratp-preview-width, 80em);
+  min-width: var(--ratp-preview-width, 80em);
+  max-width: var(--ratp-preview-width, 80em);
+  min-height: 72.25em;
+
+  display: flex;
+  flex-direction: column;
+
+  box-sizing: border-box;
+
+  font-family: var(--map-font-family);
+  font-size: 16px;
+
+  background: white;
+  color: var(--ratp-brand-blue);
+
+  overflow: hidden;
+}
+
+.ratp-preview.is-compact-height {
+  min-height: auto;
+}
+
+.ratp-preview.is-compact-height .ratp-preview-body {
+  padding-bottom: 1.4em;
+}
+
+.ratp-preview.is-compact-height .ratp-preview-bottom-stripe {
+  margin-top: 0;
+}
+
+.ratp-preview-top-stripe,
+.ratp-preview-bottom-stripe {
+  width: 100%;
+  height: .65em;
+
+  flex: 0 0 auto;
+
+  background: var(--ratp-brand-blue);
+}
+
+.ratp-preview-bottom-stripe {
+  margin-top: auto;
+  height: 4.6em;
+}
+
+.ratp-preview-header {
+  height: 11.8em;
+
+  flex: 0 0 auto;
+
+  display: flex;
+  align-items: center;
+  gap: 2.9em;
+
+  box-sizing: border-box;
+  padding: 1.35em 5.3em 1.45em;
+
+  background: #fbfbfb;
+}
+
+.ratp-preview-header-identity {
+  display: flex;
+  align-items: center;
+  gap: 1.5em;
+
+  flex: 0 0 auto;
+}
+
+.ratp-preview-header-line-group {
+  display: flex;
+  align-items: center;
+  gap: 1.5em;
+
+  flex: 0 0 auto;
+}
+
+.ratp-preview-header-indices {
+  display: flex;
+  align-items: center;
+  gap: .55em;
+
+  flex: 0 0 auto;
+}
+
+.ratp-preview-service-icon {
+  width: auto;
+  max-width: 8em;
+  height: 6.7em;
+  max-height: 6.7em;
+
+  object-fit: contain;
+}
+
+.ratp-preview-mode,
+.ratp-preview-index {
+  display: block;
+
+  flex: 0 0 auto;
+
+  font-size: 8.2em;
+  line-height: 1;
+}
+
+.ratp-preview-header-text {
+  min-width: 0;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: .35em;
+}
+
+.ratp-preview-header-direction {
+  color: var(--ratp-brand-blue);
+
+  font-size: 3.55em;
+  font-weight: 700;
+  line-height: .96;
+  letter-spacing: -.035em;
+
+  white-space: nowrap;
+}
+
+.ratp-preview-header-direction.is-long {
+  font-size: 2.95em;
+}
+
+.ratp-preview-header-direction.is-very-long {
+  font-size: 2.55em;
+  letter-spacing: -.045em;
+}
+
+
+.ratp-preview-header-direction.is-ultra-long {
+  font-size: 2.08em;
+  letter-spacing: -.05em;
+}
+
+
+.ratp-preview-body {
+  position: relative;
+
+  flex: 1 0 auto;
+
+  box-sizing: border-box;
+  padding: 4.45em 0 3em;
+
+  background: var(--ratp-body-background);
+}
+
+.ratp-preview-network {
+  position: relative;
+
+  width: var(--ratp-network-width, 80em);
+  min-width: var(--ratp-network-width, 80em);
+}
+
+
+.ratp-network-row {
+  position: relative;
+
+  width: var(--ratp-network-width, 80em);
+  height: 3.9em;
+  min-height: 3.9em;
+
+  flex: 0 0 auto;
+}
+
+.ratp-network-row.is-fork-row {
+  height: 8.2em;
+  min-height: 8.2em;
+}
+
+
+.ratp-network-row-circular-closure {
+  height: 8.2em;
+  min-height: 8.2em;
+}
+
+.ratp-network-row.is-crowded-branch-row .ratp-stop-name {
+  font-size: 2em;
+}
+
+.ratp-network-row.is-ultra-crowded-branch-row .ratp-stop-name {
+  font-size: 1.84em;
+}
+
+.ratp-network-row.is-ultra-crowded-branch-row .ratp-stop-subtitle,
+.ratp-network-row.is-ultra-crowded-branch-row .ratp-stop-place-label {
+  font-size: .92em;
+}
+
+.ratp-network-row.is-ultra-crowded-branch-row .ratp-stop-connections {
+  font-size: 1.02em;
+}
+
+.ratp-network-lanes {
+  position: absolute;
+  inset: 0;
+
+  width: var(--ratp-network-width, 80em);
+  min-height: inherit;
+
+  pointer-events: none;
+  isolation: isolate;
+}
+
+.ratp-network-urban-bubble {
+  position: absolute;
+  top: 0;
+
+  width: 9.4em;
+  height: 100%;
+
+  transform: translateX(-50%);
+
+  background: rgb(44 146 135 / 14%);
+  border-radius: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ratp-network-urban-bubble.is-bubble-start {
+  border-top-left-radius: 4.7em;
+  border-top-right-radius: 4.7em;
+}
+
+.ratp-network-urban-bubble.is-bubble-end {
+  border-bottom-left-radius: 4.7em;
+  border-bottom-right-radius: 4.7em;
+}
+
+.ratp-network-urban-bubble.is-bubble-start.is-bubble-end {
+  border-radius: 4.7em;
+}
+
+.ratp-urban-bubble-label {
+  width: 100%;
+  padding: 0 .65em;
+
+  color: rgb(22 74 99 / 72%);
+  font-size: 1.65em;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ratp-network-lane-line,
+.ratp-network-local-line {
+  position: absolute;
+
+  width: 1em;
+
+  transform: translateX(-50%);
+
+  border-radius: 0;
+
+  pointer-events: none;
+}
+
+.ratp-network-lane-line {
+  z-index: 1;
+}
+
+.ratp-network-local-line {
+  /*
+   * Un changement de ligne local doit remplacer visuellement
+   * toute l'épaisseur du tracé RATP entre les deux arrêts.
+   *
+   * Avec .46em, la couleur principale restait visible de part
+   * et d'autre du segment, donnant un faux effet multi-ligne.
+   */
+  width: 1em;
+  z-index: 3;
+}
+
+.ratp-network-fork {
+  position: absolute;
+  inset: 0;
+
+  width: var(--ratp-network-width, 80em);
+  height: 100%;
+
+  overflow: visible;
+
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ratp-network-fork path {
+  fill: none;
+
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ratp-network-stop-dot {
+  position: absolute;
+  top: 50%;
+
+  width: 1.75em;
+  height: 1.75em;
+
+  box-sizing: border-box;
+
+  transform: translate(-50%, -50%);
+
+  border: .16em solid #111;
+  border-radius: 50%;
+
+  background: white;
+
+  z-index: 7;
+}
+
+.ratp-network-stop-dot-plain {
+  width: 1.32em;
+  height: 1.32em;
+
+  border: none;
+
+  background: var(--ratp-line-color);
+
+  box-shadow:
+    0 0 0 .12em var(--ratp-line-color);
+}
+
+.ratp-network-stop-dot.is-first,
+.ratp-network-stop-dot.is-terminus {
+  width: 1.82em;
+  height: 1.82em;
+}
+
+.ratp-stop-block {
+  position: absolute;
+  top: 50%;
+
+  height: 100%;
+
+  display: grid;
+  grid-template-columns:
+    var(--ratp-connections-width)
+    var(--ratp-connection-label-spacer)
+    minmax(0, 1fr);
+  column-gap: 0;
+  align-items: center;
+
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+
+  transform: translateY(-50%);
+
+  z-index: 6;
+}
+
+.ratp-stop-connections {
+  position: relative;
+  grid-column: 1;
+
+  /*
+   * IMPORTANT : la largeur de cette cellule est déjà définie par
+   * grid-template-columns sur .ratp-stop-block.
+   *
+   * Ne jamais réutiliser ici --ratp-connections-width en `em` :
+   * ce bloc change de font-size selon la densité des correspondances,
+   * ce qui redimensionnait la cellule elle-même et déplaçait son bord
+   * droit. C'était la cause des correspondances tantôt collées / à
+   * droite du point, tantôt beaucoup trop éloignées.
+   *
+   * 100% remplit exactement la colonne du parent, indépendamment du
+   * font-size local. Le bord droit reste donc invariant pour TOUS les
+   * arrêts et TOUS les niveaux de densité.
+   */
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 100%;
+
+  box-sizing: border-box;
+
+  font-size: 1.16em;
+  text-align: right;
+
+  overflow: visible;
+}
+
+.ratp-stop-connections :deep(.connections-box > .flex) {
+  display: none;
+}
+
+.ratp-stop-connections :deep(.connections-box),
+.ratp-stop-connections :deep(.connection-groups),
+.ratp-stop-connections :deep(.connection-group),
+.ratp-stop-connections :deep(.connection-group-lines),
+.ratp-stop-connections :deep(.container) {
+  overflow: visible;
+}
+
+/*
+ * RATP: ancrage géométrique unique des correspondances.
+ *
+ * La largeur réelle des pictogrammes et la topologie de la ligne
+ * n'influencent jamais leur distance au tracé. Le bord droit du groupe
+ * est ancré à RATP_CONNECTION_AXIS_GAP de l'axe ; tout surplus de largeur
+ * part uniquement vers la gauche.
+ */
+.ratp-stop-connections :deep(.connections-box) {
+  position: absolute;
+  top: 50%;
+  right: 0;
+
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+
+  transform: translateY(-50%);
+}
+
+.ratp-stop-connections :deep(.connection-groups) {
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: .18em .42em;
+}
+
+.ratp-stop-connections :deep(.connection-group) {
+  width: max-content;
+  min-width: max-content;
+
+  display: grid;
+  grid-template-columns: max-content max-content;
+  gap: .18em;
+  align-items: center;
+  justify-items: end;
+
+  flex: 0 0 auto;
+
+  margin: 0;
+}
+
+.ratp-stop-connections :deep(.connection-group-mode) {
+  min-width: 1.25em;
+  width: max-content;
+  justify-items: center;
+}
+
+.ratp-stop-connections :deep(.mode-wrapper.transfer),
+.ratp-stop-connections :deep(.mode-wrapper.pedestrian) {
+  margin-left: 0;
+  gap: .14em;
+}
+
+.ratp-stop-connections :deep(.transfer-indicator) {
+  gap: .08em;
+  margin-right: .05em;
+}
+
+.ratp-stop-connections :deep(.transfer-duration) {
+  font-size: .48em;
+}
+
+.ratp-stop-connections :deep(.text-ornament) {
+  font-size: .46em;
+  line-height: 1.05;
+}
+
+.ratp-stop-connections :deep(.ornament-right) {
+  min-width: max-content;
+}
+
+.ratp-stop-connections.is-dense {
+  font-size: .98em;
+}
+
+.ratp-stop-connections.is-dense :deep(.connection-groups) {
+  gap: .1em .32em;
+}
+
+.ratp-stop-connections.is-dense :deep(.connection-group) {
+  grid-template-columns: max-content max-content;
+}
+
+.ratp-stop-connections.is-very-dense {
+  font-size: .86em;
+}
+
+.ratp-stop-connections.is-very-dense :deep(.connection-groups) {
+  gap: .06em .24em;
+}
+
+.ratp-stop-connections.is-very-dense :deep(.connection-group) {
+  grid-template-columns: max-content max-content;
+}
+
+.ratp-stop-connections.is-ultra-dense {
+  font-size: .76em;
+}
+
+.ratp-stop-connections.is-ultra-dense :deep(.connection-groups) {
+  gap: .05em .18em;
+}
+
+.ratp-stop-connections.is-ultra-dense :deep(.connection-group) {
+  grid-template-columns: max-content max-content;
+}
+
+
+
+
+
+
+.ratp-stop-connections :deep(.connection-group-lines) {
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+}
+
+.ratp-stop-connections :deep(.mode-wrapper),
+.ratp-stop-connections :deep(.transfer-indicator),
+.ratp-stop-connections :deep(.container),
+.ratp-stop-connections :deep(.ornament-right),
+.ratp-stop-connections :deep(.ornament-bottom),
+.ratp-stop-connections :deep(.airport-name),
+.ratp-stop-connections :deep(.airport-name-label),
+.ratp-stop-connections :deep(.text-ornament) {
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+}
+
+.ratp-stop-connections :deep(.mode-wrapper.transfer),
+.ratp-stop-connections :deep(.mode-wrapper.pedestrian) {
+  margin-left: 0;
+}
+
+.ratp-stop-connections :deep(.text-ornament),
+.ratp-stop-connections :deep(.airport-name-label) {
+  white-space: nowrap;
+}
+
+.ratp-stop-connections :deep(.connection-group-mode .sep-line) {
+  display: none;
+}
+
+.ratp-stop-connections :deep(.connection-group-lines) {
+  width: max-content;
+  align-items: center;
+  justify-content: end;
+  margin-bottom: 0;
+}
+
+/*
+ * RATP : un mode = une rangée horizontale stable.
+ * Les RER A/B/D, métros multiples, etc. restent tous
+ * sur le même axe au lieu d'hériter de la grille IDFM.
+ */
+.ratp-stop-connections :deep(.connection-group-lines:not(.condensed)) {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  flex-wrap: nowrap !important;
+
+  gap: .2em !important;
+  margin: 0 !important;
+}
+
+.ratp-stop-connections :deep(.connection-group-lines:not(.condensed) > *) {
+  flex: 0 0 auto !important;
+  align-self: center !important;
+
+  min-width: max-content !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/*
+ * Les ornements placés sous un indice (ex. avion sous RER B)
+ * ne doivent pas modifier l'axe vertical de l'indice lui-même.
+ * L'indice reste aligné avec A/D ; l'ornement flotte en dessous.
+ */
+.ratp-stop-connections
+:deep(.connection-group-lines:not(.condensed) > .container.ornament-bottom) {
+  position: relative !important;
+
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+
+  height: 1em !important;
+  min-height: 1em !important;
+
+  margin-inline: .08em !important;
+
+  grid-row: auto !important;
+
+  overflow: visible !important;
+}
+
+.ratp-stop-connections
+:deep(.connection-group-lines:not(.condensed) > .container.ornament-bottom > .relative) {
+  position: absolute !important;
+  top: 1.06em !important;
+  left: 50% !important;
+
+  width: max-content !important;
+  min-width: max-content !important;
+
+  transform: translateX(-50%) !important;
+
+  z-index: 2;
+}
+
+/*
+ * Le petit séparateur vertical interne d'IDFM n'appartient pas
+ * au rendu RATP. On garde uniquement le pictogramme du mode.
+ */
+.ratp-stop-connections :deep(.connection-group-mode) {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  height: auto !important;
+}
+
+.ratp-stop-connections :deep(.connection-group-mode > :last-child:not(.mode-wrapper)) {
+  display: none !important;
+}
+
+/*
+ * Séparation visuelle entre modes distincts :
+ * Métro | RER | Transilien | Tram | services.
+ * On conserve un blanc perceptible même sur les gros pôles.
+ */
+.ratp-stop-connections :deep(.connection-groups) {
+  column-gap: .78em !important;
+  row-gap: .18em !important;
+}
+
+.ratp-stop-connections.is-dense :deep(.connection-groups) {
+  column-gap: .72em !important;
+}
+
+.ratp-stop-connections.is-very-dense :deep(.connection-groups) {
+  column-gap: .66em !important;
+}
+
+.ratp-stop-connections.is-ultra-dense :deep(.connection-groups) {
+  column-gap: .6em !important;
+}
+
+.ratp-stop-connections :deep(.connection-group > *) {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ratp-stop-connections :deep(.connection-group > * > *),
+.ratp-stop-connections :deep(.connection-group > * > * > *) {
+  align-self: center;
+  vertical-align: middle;
+
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.ratp-stop-main {
+  grid-column: 3;
+
+  min-width: 0;
+  height: 100%;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+
+  box-sizing: border-box;
+}
+
+.ratp-stop-header {
+  min-width: 0;
+
+  display: flex;
+  align-items: center;
+  gap: .2em;
+}
+
+.ratp-stop-name {
+  display: inline-block;
+
+  width: max-content;
+  max-width: 25em;
+
+  padding: 0;
+
+  color: var(--ratp-brand-blue);
+
+  font-size: 2.18em;
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -.025em;
+
+  white-space: nowrap;
+}
+
+.ratp-stop-name.is-highlighted {
+  padding: .13em .32em .1em;
+
+  background: var(--ratp-brand-blue);
+  color: white;
+}
+
+.ratp-stop-name.is-closed {
+  text-decoration: line-through;
+}
+
+.ratp-stop-name.is-future {
+  opacity: .68;
+}
+
+.ratp-stop-subtitle {
+  margin-top: .14em;
+  margin-left: 0;
+
+  color: rgb(36 82 163 / 72%);
+
+  font-size: .92em;
+  line-height: 1.08;
+}
+
+.ratp-stop-place {
+  position: absolute;
+  left: calc(var(--ratp-connections-width) + 22em);
+  right: -7em;
+  bottom: -.1em;
+
+  display: flex;
+  align-items: center;
+  gap: .55em;
+}
+
+.ratp-stop-place-line {
+  height: .08em;
+
+  flex: 1 1 auto;
+
+  background: rgb(0 0 0 / 40%);
+}
+
+.ratp-stop-place-label {
+  flex: 0 0 auto;
+
+  color: rgb(0 0 0 / 50%);
+
+  font-size: .9em;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1;
+
+  white-space: nowrap;
+}
+
 /*
  * =========================================================
  * SIGNALÉTIQUE SNCF — RENDU DESSERTE V12
@@ -4522,6 +8295,10 @@ function deleteAnnotation(
  */
 
 .sncf-signage {
+  --sncf-rail-width: 1.25em;
+  --sncf-fork-stroke-width: 1.25;
+  --sncf-rail-center-x: 1.825em;
+
   font-size:
     calc(var(--font-size) * .26);
 
@@ -4557,6 +8334,20 @@ function deleteAnnotation(
     1px
     solid
     var(--p-gray-200);
+}
+
+.sncf-signage.is-tram-reference {
+  --sncf-rail-width: 1.62em;
+  --sncf-fork-stroke-width: 1.62;
+  --sncf-rail-center-x: 1.92em;
+}
+
+.sncf-signage.is-heavy-rail-reference {
+  --sncf-rail-width: 2.18em;
+  --sncf-fork-stroke-width: 2.18;
+  --sncf-rail-center-x: 2.18em;
+
+  font-size: calc(var(--font-size) * .285);
 }
 
 .sncf-signage-header {
@@ -4650,9 +8441,10 @@ function deleteAnnotation(
 }
 
 .sncf-signage-direction-line {
-  display: flex;
-  align-items: baseline;
-  gap: .72em;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .18em;
 
   min-width: 0;
 }
@@ -4660,7 +8452,7 @@ function deleteAnnotation(
 .sncf-signage-direction-label {
   flex-shrink: 0;
 
-  font-size: 2.9em;
+  font-size: 2.35em;
   font-weight: 700;
 
   line-height: 1;
@@ -4669,10 +8461,10 @@ function deleteAnnotation(
 .sncf-signage-direction-main {
   min-width: 0;
 
-  font-size: 4.3em;
+  font-size: 3.35em;
   font-weight: 400;
 
-  line-height: .98;
+  line-height: 1;
 
   letter-spacing: -.014em;
 
@@ -4762,13 +8554,48 @@ function deleteAnnotation(
   min-height: inherit;
 
   pointer-events: none;
+  isolation: isolate;
+}
+
+.sncf-network-urban-bubble {
+  position: absolute;
+  top: 0;
+
+  width: 8.8em;
+  height: 100%;
+
+  transform: translateX(-50%);
+
+  background: rgb(0 112 91 / 24%);
+  border-radius: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sncf-network-urban-bubble.is-bubble-start {
+  border-top-left-radius: 4.4em;
+  border-top-right-radius: 4.4em;
+}
+
+.sncf-network-urban-bubble.is-bubble-end {
+  border-bottom-left-radius: 4.4em;
+  border-bottom-right-radius: 4.4em;
+}
+
+.sncf-network-urban-bubble.is-bubble-start.is-bubble-end {
+  border-radius: 4.4em;
 }
 
 .sncf-network-lane-line,
 .sncf-network-local-line {
   position: absolute;
 
-  width: 1.25em;
+  width: var(--sncf-rail-width);
 
   transform: translateX(-50%);
 
@@ -4806,7 +8633,7 @@ function deleteAnnotation(
 .sncf-network-fork path {
   fill: none;
 
-  stroke-width: 1.25;
+  stroke-width: var(--sncf-fork-stroke-width);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -4879,9 +8706,13 @@ function deleteAnnotation(
   top: 1.05em;
   bottom: 1.05em;
 
-  left: 1.2em;
+  left:
+    calc(
+      var(--sncf-rail-center-x)
+      - var(--sncf-rail-width) / 2
+    );
 
-  width: 1.25em;
+  width: var(--sncf-rail-width);
 
   background:
     var(--sncf-line-color);
@@ -4893,6 +8724,7 @@ function deleteAnnotation(
 
 .sncf-signage-stop {
   position: relative;
+  isolation: isolate;
 
   width: max-content;
   min-width: 100%;
@@ -4909,6 +8741,63 @@ function deleteAnnotation(
 
   transition:
     background-color .12s ease;
+}
+
+.sncf-route-urban-bubble {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+
+  left:
+    calc(
+      var(--sncf-rail-center-x)
+      - 3.9em
+    );
+
+  width: 8.8em;
+
+  background: rgb(0 112 91 / 24%);
+  border-radius: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sncf-route-urban-bubble.is-bubble-start {
+  border-top-left-radius: 4.4em;
+  border-top-right-radius: 4.4em;
+}
+
+.sncf-route-urban-bubble.is-bubble-end {
+  border-bottom-left-radius: 4.4em;
+  border-bottom-right-radius: 4.4em;
+}
+
+.sncf-route-urban-bubble.is-bubble-start.is-bubble-end {
+  border-radius: 4.4em;
+}
+
+
+.sncf-urban-bubble-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+  padding: 0 .55em;
+
+  color: rgb(205 225 227 / 74%);
+  font-size: 1.75em;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: .01em;
+  text-align: center;
+
+  white-space: nowrap;
 }
 
 .sncf-signage-rail-column {
@@ -4941,8 +8830,12 @@ function deleteAnnotation(
 .sncf-signage-local-segment {
   position: absolute;
 
-  left: 1.2em;
-  width: 1.25em;
+  left:
+    calc(
+      var(--sncf-rail-center-x)
+      - var(--sncf-rail-width) / 2
+    );
+  width: var(--sncf-rail-width);
 
   z-index: 1;
 
@@ -5135,6 +9028,335 @@ function deleteAnnotation(
 .sncf-signage-stop-subtitle {
   color: #1f2f3d;
   opacity: .72;
+}
+
+
+.sncf-signage.is-heavy-rail-reference .sncf-network-row {
+  height: 4.55em;
+  min-height: 4.55em;
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-network-row.is-fork-row {
+  height: 8.8em;
+  min-height: 8.8em;
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-signage-route::before {
+  top: .95em;
+  bottom: .95em;
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-signage-dot {
+  width: .42em;
+  height: .42em;
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-signage-dot.is-terminus {
+  width: 1.82em;
+  height: 1.82em;
+  border-width: .31em;
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-signage-dot.is-first {
+  width: 2.2em;
+  height: 2.2em;
+  border-width: .36em;
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-signage-dot.is-last {
+  width: 1.88em;
+  height: 1.88em;
+  border-width: .31em;
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-route-urban-bubble,
+.sncf-signage.is-heavy-rail-reference .sncf-network-urban-bubble {
+  background: rgb(12 91 86 / 34%);
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-route-urban-bubble {
+  left: calc(var(--sncf-rail-center-x) - 4.65em);
+  width: 10.4em;
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-network-urban-bubble {
+  width: 10.4em;
+}
+
+.sncf-signage.is-heavy-rail-reference .sncf-urban-bubble-label {
+  color: rgb(210 226 228 / 72%);
+  font-size: 1.82em;
+}
+
+/*
+ * RER — exception SNCF : pas de départ officiel forcé.
+ * On conserve la présentation historique du bandeau et
+ * aucune flèche n'est ajoutée sur le premier arrêt.
+ */
+.sncf-signage.is-rer-reference
+.sncf-signage-direction-line {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: .72em;
+}
+
+.sncf-signage.is-rer-reference
+.sncf-signage-direction-label {
+  font-size: 2.9em;
+  line-height: 1;
+}
+
+.sncf-signage.is-rer-reference
+.sncf-signage-direction-main {
+  font-size: 4.3em;
+  line-height: .98;
+}
+
+/*
+ * =========================================================
+ * TRAMWAY / SNCF — FICHE VERTICALE
+ * =========================================================
+ */
+.sncf-signage.is-tram-reference
+.sncf-signage-route {
+  min-width: 68em;
+}
+
+.sncf-signage.is-tram-reference
+.sncf-signage-direction-line {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .18em;
+}
+
+.sncf-signage.is-tram-reference
+.sncf-signage-direction-label {
+  font-size: 2.35em;
+  line-height: 1;
+}
+
+.sncf-signage.is-tram-reference
+.sncf-signage-direction-main {
+  font-size: 3.35em;
+  line-height: 1;
+}
+
+.sncf-signage.is-tram-reference
+.sncf-signage-stop {
+  display: grid;
+  grid-template-columns: 12.8em 3.85em max-content 11.5em;
+  align-items: center;
+  column-gap: 0;
+}
+
+.sncf-signage.is-tram-reference
+.sncf-signage-rail-column {
+  grid-column: 2;
+
+  width: 3.85em;
+}
+
+/*
+ * Le rail de fond doit suivre exactement le centre de la colonne
+ * qui contient les points. La première colonne est réservée aux zones.
+ */
+.sncf-signage.is-tram-reference
+.sncf-signage-route::before {
+  left:
+    calc(
+      12.8em
+      + var(--sncf-rail-center-x)
+      - var(--sncf-rail-width) / 2
+    );
+}
+
+.sncf-signage.is-tram-reference
+.sncf-signage-stop {
+  min-height: 3.15em;
+}
+
+.sncf-signage.is-tram-reference
+.sncf-signage-dot:not(.is-terminus):not(.is-first):not(.is-last),
+.sncf-signage.is-tram-reference
+.sncf-network-stop-dot:not(.is-terminus):not(.is-first) {
+  width: .92em;
+  height: .92em;
+
+  border:
+    .18em
+    solid
+    var(--sncf-stop-line-color, var(--sncf-line-color));
+
+  background: white;
+  box-sizing: border-box;
+}
+
+.sncf-first-direction-arrow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+
+  width: .55em;
+  height: .55em;
+
+  border-right: .16em solid white;
+  border-bottom: .16em solid white;
+
+  transform:
+    translate(-50%, -62%)
+    rotate(45deg);
+
+  pointer-events: none;
+}
+
+.sncf-tram-zone {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + .8em);
+
+  width: 14em;
+
+  color: rgb(255 255 255 / 72%);
+
+  font-size: .82em;
+  font-weight: 700;
+  line-height: 1.05;
+  text-transform: uppercase;
+
+  pointer-events: none;
+  overflow: visible;
+}
+
+.sncf-signage.is-tram-reference
+.sncf-tram-zone:not(.sncf-tram-network-zone) {
+  position: absolute;
+  inset: 0 auto 0 0;
+
+  width: 12.8em;
+  margin: 0;
+
+  color: rgb(255 255 255 / 78%);
+
+  z-index: 3;
+}
+
+.sncf-tram-zone-label {
+  position: absolute;
+  top: var(--sncf-zone-range-mid, 50%);
+  right: 1.35em;
+
+  width: 11.5em;
+
+  text-align: right;
+
+  transform: translateY(-50%);
+
+  white-space: nowrap;
+}
+
+.sncf-signage.is-tram-reference
+.sncf-tram-zone:not(.sncf-tram-network-zone)
+.sncf-tram-zone-label {
+  right: 1.05em;
+  width: 10.6em;
+}
+
+.sncf-tram-zone-range-line {
+  position: absolute;
+  top: var(--sncf-zone-range-start, 50%);
+  right: .25em;
+
+  width: 0;
+  height: var(--sncf-zone-range-height, 0px);
+
+  border-right: 1px solid rgb(255 255 255 / 46%);
+}
+
+.sncf-signage.is-tram-reference
+.sncf-tram-zone:not(.sncf-tram-network-zone)
+.sncf-tram-zone-range-line {
+  right: .18em;
+  border-right: 1px solid rgb(255 255 255 / 46%);
+}
+
+.sncf-tram-zone-range-line::before,
+.sncf-tram-zone-range-line::after {
+  content: '';
+
+  position: absolute;
+  right: 0;
+
+  width: .9em;
+
+  border-top: 1px solid rgb(255 255 255 / 46%);
+}
+
+.sncf-signage.is-tram-reference
+.sncf-tram-zone:not(.sncf-tram-network-zone)
+.sncf-tram-zone-range-line::before,
+.sncf-signage.is-tram-reference
+.sncf-tram-zone:not(.sncf-tram-network-zone)
+.sncf-tram-zone-range-line::after {
+  border-top: 1px solid rgb(255 255 255 / 46%);
+}
+
+.sncf-tram-zone-range-line::before {
+  top: 0;
+}
+
+.sncf-tram-zone-range-line::after {
+  bottom: 0;
+}
+
+.sncf-tram-commune {
+  position: absolute;
+  top: 50%;
+  left: 49em;
+
+  width: 16em;
+
+  color: rgb(255 255 255 / 58%);
+
+  font-size: .82em;
+  font-weight: 700;
+  line-height: 1;
+  text-align: left;
+  text-transform: uppercase;
+
+  transform: translateY(-50%);
+
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.sncf-signage.is-tram-reference
+.sncf-tram-commune:not(.sncf-tram-network-commune) {
+  position: static;
+  top: auto;
+  left: auto;
+
+  grid-column: 4;
+  justify-self: start;
+  align-self: center;
+
+  width: 10.8em;
+  margin-left: 1.05em;
+
+  color: rgb(255 255 255 / 64%);
+
+  transform: none;
+}
+
+.sncf-tram-network-commune {
+  left: calc(100% + 1.25em);
+}
+
+.sncf-signage.is-tram-reference
+.sncf-signage-route
+.sncf-signage-stop-main {
+  grid-column: 3;
 }
 
 /*
@@ -5534,7 +9756,7 @@ function deleteAnnotation(
 
   border-radius: .32em;
 
-  font-size: 1.15em;
+  font-size: 1.25em;
 
   overflow: hidden;
 }
@@ -5768,6 +9990,29 @@ function deleteAnnotation(
 
 /*
  * =========================================================
+ * TOPOLOGIE EN MODE TRAMWAY
+ * =========================================================
+ *
+ * Le blanc restant à gauche ne venait pas du panneau
+ * d'identité lui-même, mais de l'espacement global entre
+ * le panneau et la topologie, plus le padding gauche du
+ * SectionsGroup.
+ *
+ * On compacte uniquement le layout Tram pour rapprocher
+ * la ligne du panneau, sans toucher aux autres modes.
+ */
+
+.content.tram-map {
+  gap: 0;
+}
+
+.tram-map .sections-group {
+  margin-left: .2em;
+  padding-left: .2em !important;
+}
+
+/*
+ * =========================================================
  * TOPOLOGIE EN MODE BUS
  * =========================================================
  */
@@ -5955,8 +10200,8 @@ function deleteAnnotation(
  */
 
 .tram-identity-panel {
-  width: 8.5em;
-  min-width: 8.5em;
+  width: 11.5em;
+  min-width: 11.5em;
   min-height: inherit;
 
   flex-shrink: 0;
@@ -5997,7 +10242,9 @@ function deleteAnnotation(
 
   padding:
     .48em
-    .48em;
+    .4em
+    .48em
+    .34em;
 
   background-color: #1d3142;
 
@@ -6081,7 +10328,7 @@ function deleteAnnotation(
   display: flex;
   flex-direction: column;
 
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
 
   width: 100%;
@@ -6090,21 +10337,24 @@ function deleteAnnotation(
 
   padding:
     1em
-    .72em;
+    .9em
+    1em
+    1.35em;
 
   box-sizing: border-box;
 }
 
 .tram-mode-index {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
 
   display: flex;
   flex-direction: row;
 
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
 
-  gap: .7em;
+  gap: .65em;
 }
 
 .tram-mode {
@@ -6112,7 +10362,7 @@ function deleteAnnotation(
   align-items: center;
   justify-content: center;
 
-  font-size: 2.2em;
+  font-size: 3.6em;
 
   line-height: 1;
 
@@ -6138,17 +10388,19 @@ function deleteAnnotation(
 }
 
 .tram-native-index {
-  width: 100%;
+  width: auto;
 
   display: flex;
   align-items: center;
   justify-content: center;
 
+  flex: 0 0 auto;
+
   font-size: 1em;
 
   line-height: 1;
 
-  margin-left: -2.45em;
+  margin-left: 0;
 }
 
 .tram-native-index :deep(> div) {
@@ -6157,15 +10409,28 @@ function deleteAnnotation(
   align-items: center;
   justify-content: center;
 
-  width: 100%;
+  width: auto;
+
+  /*
+   * Même grande échelle pour les indices officiels
+   * et pour les CustomLineIndex.
+   * La largeur intrinsèque évite tout chevauchement
+   * avec le pictogramme de mode.
+   */
+  font-size: 3.6em;
 }
 
 .tram-native-index :deep(img),
 .tram-native-index :deep(svg) {
   display: block;
 
-  width: 2.2em;
-  height: 2.2em;
+  /*
+   * 1em relatif au LineIndex ci-dessus = 2.2em visuels.
+   * Les indices Tram natifs conservent donc leur taille
+   * historique, sans double agrandissement.
+   */
+  width: 1em;
+  height: 1em;
 
   max-width: none;
   max-height: none;

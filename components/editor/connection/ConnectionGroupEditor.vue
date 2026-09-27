@@ -3,12 +3,18 @@ import { isMode, isService } from '~/utils/types'
 
 const {
   index,
+  canMoveUp = false,
+  canMoveDown = false,
 } = defineProps<{
   index: number
+  canMoveUp?: boolean
+  canMoveDown?: boolean
 }>()
 
 const emit = defineEmits<{
   delete: [number]
+  'move-up': [number]
+  'move-down': [number]
 }>()
 
 const connection = defineModel<Connection>(
@@ -51,7 +57,10 @@ const connection = defineModel<Connection>(
           />
         </div>
 
-        <div class="connection-heading">
+        <div
+          class="connection-heading connection-order-handle"
+          :title="$t('ui.dialogs.warp_add.drag_hint')"
+        >
           <div class="connection-title">
             {{
               $t(
@@ -87,38 +96,70 @@ const connection = defineModel<Connection>(
         </div>
       </div>
 
-      <div
-        class="connection-type-badge"
-        :class="{
-          mode: isMode(connection),
-          service: isService(connection),
-        }"
-      >
-        <i
-          v-if="isMode(connection)"
-          class="i-tabler-bus"
-        />
+      <div class="connection-header-actions">
+        <div class="connection-order-actions">
+          <button
+            type="button"
+            class="connection-order-button"
+            :disabled="!canMoveUp"
+            :title="
+              $t(
+                'ui.dialogs.vertical_segment_properties.up',
+              )
+            "
+            @click.stop="emit('move-up', index)"
+          >
+            <i class="i-tabler-arrow-up" />
+          </button>
 
-        <i
-          v-else-if="isService(connection)"
-          class="i-tabler-building-community"
-        />
+          <button
+            type="button"
+            class="connection-order-button"
+            :disabled="!canMoveDown"
+            :title="
+              $t(
+                'ui.dialogs.vertical_segment_properties.down',
+              )
+            "
+            @click.stop="emit('move-down', index)"
+          >
+            <i class="i-tabler-arrow-down" />
+          </button>
+        </div>
 
-        <span v-if="isMode(connection)">
-          {{
-            $t(
-              'ui.dialogs.connections_editor.mode',
-            )
-          }}
-        </span>
+        <div
+          class="connection-type-badge"
+          :class="{
+            mode: isMode(connection),
+            service: isService(connection),
+          }"
+        >
+          <i
+            v-if="isMode(connection)"
+            class="i-tabler-bus"
+          />
 
-        <span v-else-if="isService(connection)">
-          {{
-            $t(
-              'ui.dialogs.connections_editor.service',
-            )
-          }}
-        </span>
+          <i
+            v-else-if="isService(connection)"
+            class="i-tabler-building-community"
+          />
+
+          <span v-if="isMode(connection)">
+            {{
+              $t(
+                'ui.dialogs.connections_editor.mode',
+              )
+            }}
+          </span>
+
+          <span v-else-if="isService(connection)">
+            {{
+              $t(
+                'ui.dialogs.connections_editor.service',
+              )
+            }}
+          </span>
+        </div>
       </div>
     </div>
 
@@ -303,6 +344,64 @@ const connection = defineModel<Connection>(
   flex-direction: column;
 
   min-width: 0;
+}
+
+.connection-order-handle {
+  cursor: grab;
+  user-select: none;
+}
+
+.connection-order-handle:active {
+  cursor: grabbing;
+}
+
+.connection-header-actions {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+
+  flex-shrink: 0;
+}
+
+.connection-order-actions {
+  display: flex;
+  align-items: center;
+  gap: .15rem;
+}
+
+.connection-order-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 1.7rem;
+  height: 1.7rem;
+
+  padding: 0;
+
+  border: 0;
+  border-radius: .45rem;
+
+  background: transparent;
+
+  color: var(--p-text-muted-color);
+
+  cursor: pointer;
+
+  transition:
+    background-color .15s ease,
+    color .15s ease,
+    opacity .15s ease;
+}
+
+.connection-order-button:hover:not(:disabled) {
+  background: var(--p-content-hover-background);
+  color: var(--p-text-color);
+}
+
+.connection-order-button:disabled {
+  opacity: .25;
+  cursor: default;
 }
 
 .connection-title {

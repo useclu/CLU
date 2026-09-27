@@ -278,7 +278,9 @@
           "title": "Tipo di fermata"
         },
         "subtitle": "Sottotitolo",
-        "terminus": "Capolinea"
+        "terminus": "Capolinea",
+        "urban_bubble": "Bolla urbana",
+        "urban_bubble_summary": "Aggiunge questa fermata a un’area grafica. Le fermate adiacenti attivate si uniscono automaticamente nella stessa bolla."
       },
       "troubleshooting": {
         "github": "aprire un ticket su GitHub",

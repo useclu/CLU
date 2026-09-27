@@ -515,7 +515,18 @@
         "personal_source": "Personal",
         "delete_catalog_confirmation": "Remove “{name}” from your personal catalog?",
         "catalog_load_error": "Unable to load the personal CLU catalog.",
-        "catalog_save_error": "Unable to save the personal CLU catalog."
+        "catalog_save_error": "Unable to save the personal CLU catalog.",
+        "urban_bubble": "Urban bubble",
+        "urban_bubble_summary": "Adds this stop to a visual area. Adjacent enabled stops automatically merge into the same bubble.",
+        "spacing_after": "Gap to next stop",
+        "spacing_after_with": "Gap to {name}",
+        "spacing_after_summary": "Locally adjusts the distance to the next stop without changing the branch’s overall spacing.",
+        "spacing_decrease": "Decrease gap",
+        "spacing_increase": "Increase gap",
+        "spacing_next_stop_fallback": "the next stop",
+        "bold_short": "B",
+        "italic_short": "I",
+        "underline_short": "U"
       },
       "troubleshooting": {
         "header": "Troubleshooting",
@@ -695,12 +706,12 @@
         "width": "Loop width",
         "width_hint": "Like a spacer: increase or reduce the room reserved on the line.",
         "stops_title": "Stops on the loop",
-        "stops_hint": "Add one or more stops on the diverted track. The loop automatically reserves extra clearance when a stop has connections so they never touch the main line.",
+        "stops_hint": "Add stops independently on either side of the loop. Extra clearance is reserved automatically when a stop has connections.",
         "add_stop": "Add a stop",
         "stop_name_placeholder": "Stop name",
         "edit_stop": "Edit stop",
         "delete_stop": "Delete stop",
-        "empty_stops": "No stops on this loop.",
+        "empty_stops": "No stops on this side of the loop.",
         "close": "Close"
       }
     },
@@ -784,6 +795,14 @@
       "delete_stop": "Delete stop",
       "free_move": "Move freely",
       "visual_separator": "Visual separator |",
+      "preview": "Preview",
+      "preview_current": "Preview: {mode}",
+      "preview_title": "Preview",
+      "preview_subtitle": "Choose the project rendering engine",
+      "preview_mode_sncf": "SNCF",
+      "preview_ratp": "RATP",
+      "preview_cartographic": "Cartographic",
+      "preview_engine_pending": "The {mode} rendering engine will be built in its dedicated step. The CLU project and its topology remain unchanged.",
       "preview_sncf": "Preview in SNCF mode",
       "back_to_editing": "Return to map editing",
       "towards": "towards",
@@ -795,7 +814,8 @@
       "defaults": {
         "city": "City",
         "zone": "Zone {number}"
-      }
+      },
+      "direction": "Direction"
     },
     "menu": {
       "custom_indices": "Custom indices",
@@ -882,9 +902,13 @@
       "file_subtitle": "Project and export",
       "tools_subtitle": "General map settings",
       "menu": "Menu",
-      "bulb_official": "BULB Official",
-      "bulb_open": "Open the official BULB website",
-      "discord_join": "Join the CLU Discord"
+      "discord_join": "Join the CLU Discord",
+      "metropole": "CLU Métropole",
+      "utility_menu": "Networks and preferences",
+      "twitter": "X / Twitter",
+      "discord": "Discord",
+      "theme": "Theme",
+      "language": "Language"
     },
     "common": {
       "cancel": "Cancel",

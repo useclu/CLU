@@ -19,6 +19,8 @@ const loop = defineModel<OneWayLoop>({
 
 const lineContext = inject<LineContext>(LineContextKey)
 
+type LoopStopSide = 'DETOUR' | 'MAIN'
+
 const directions = [
   {
     label: '←',
@@ -37,14 +39,7 @@ const position = computed<'TOP' | 'BOTTOM'>({
   },
 })
 
-/*
- * Compatibilité avec le premier prototype de boucle à sens unique :
- * il ne savait enregistrer qu'un seul arrêt dans `$oneWayLoop.stop`.
- *
- * Dès que l'utilisateur ouvre les propriétés de cette boucle, on
- * normalise silencieusement vers le nouveau tableau `stops`.
- */
-function ensureStops() {
+function ensureDetourStops() {
   const data = loop.value.$oneWayLoop
 
   if (!Array.isArray(data.stops)) {
@@ -58,9 +53,24 @@ function ensureStops() {
   return data.stops
 }
 
-const loopStops = computed(() =>
-  ensureStops(),
-)
+function ensureMainStops() {
+  const data = loop.value.$oneWayLoop
+
+  if (!Array.isArray(data.mainStops)) {
+    data.mainStops = []
+  }
+
+  return data.mainStops
+}
+
+const detourStops = computed(() => ensureDetourStops())
+const mainStops = computed(() => ensureMainStops())
+
+function stopsForSide(side: LoopStopSide) {
+  return side === 'DETOUR'
+    ? ensureDetourStops()
+    : ensureMainStops()
+}
 
 function createStop(): Stop {
   return {
@@ -76,6 +86,7 @@ function createStop(): Stop {
       terminus: false,
       closed: false,
       future: false,
+      spacingAfter: 0,
       outOfFareZone: false,
       connections: [],
       nameStyle: {
@@ -90,56 +101,72 @@ function createStop(): Stop {
   }
 }
 
-function addStop() {
-  const stops = ensureStops()
+const activeStopSide = ref<LoopStopSide | null>(null)
+const activeStopIndex = ref<number | null>(null)
+const showStopProperties = ref(false)
+const showConnectionsEditor = ref(false)
+
+function addStop(side: LoopStopSide) {
+  const stops = stopsForSide(side)
   stops.push(createStop())
 
+  activeStopSide.value = side
   activeStopIndex.value = stops.length - 1
   showStopProperties.value = true
 }
 
-function deleteStop(index: number) {
-  const stops = ensureStops()
-
+function deleteStop(side: LoopStopSide, index: number) {
+  const stops = stopsForSide(side)
   stops.splice(index, 1)
 
-  if (activeStopIndex.value === index) {
+  if (
+    activeStopSide.value === side
+    && activeStopIndex.value === index
+  ) {
     showStopProperties.value = false
     showConnectionsEditor.value = false
+    activeStopSide.value = null
     activeStopIndex.value = null
   }
   else if (
-    activeStopIndex.value !== null
+    activeStopSide.value === side
+    && activeStopIndex.value !== null
     && activeStopIndex.value > index
   ) {
     activeStopIndex.value -= 1
   }
 }
 
-const activeStopIndex = ref<number | null>(null)
-const showStopProperties = ref(false)
-const showConnectionsEditor = ref(false)
-
 const activeStop = computed<Stop | null>(() => {
-  if (activeStopIndex.value === null) {
+  if (
+    activeStopSide.value === null
+    || activeStopIndex.value === null
+  ) {
     return null
   }
 
-  return loopStops.value[activeStopIndex.value] ?? null
+  return (
+    stopsForSide(activeStopSide.value)[activeStopIndex.value]
+    ?? null
+  )
 })
 
 const activeStopModel = computed<Stop>({
   get: () => activeStop.value!,
   set: (value) => {
-    if (activeStopIndex.value === null) {
+    if (
+      activeStopSide.value === null
+      || activeStopIndex.value === null
+    ) {
       return
     }
 
-    ensureStops()[activeStopIndex.value] = value
+    stopsForSide(activeStopSide.value)[activeStopIndex.value] = value
   },
 })
 
-function editStop(index: number) {
+function editStop(side: LoopStopSide, index: number) {
+  activeStopSide.value = side
   activeStopIndex.value = index
   showStopProperties.value = true
 }
@@ -284,54 +311,129 @@ const allowCity = computed(() =>
           </div>
         </div>
 
-        <div
-          v-if="loopStops.length > 0"
-          class="loop-stops-list"
-        >
-          <div
-            v-for="(stop, index) in loopStops"
-            :key="stop.id"
-            class="loop-stop-row"
-          >
-            <InputText
-              v-model="stop.$stop.name"
-              class="loop-stop-name"
-              :placeholder="$t('ui.dialogs.one_way_loop_properties.stop_name_placeholder')"
-              @click.stop
-            />
-
-            <Button
-              icon="i-tabler-settings"
-              severity="secondary"
-              outlined
-              :aria-label="$t('ui.dialogs.one_way_loop_properties.edit_stop')"
-              :title="$t('ui.dialogs.one_way_loop_properties.edit_stop')"
-              @click.stop="editStop(index)"
-            />
-
-            <Button
-              icon="i-tabler-trash"
-              severity="danger"
-              text
-              :aria-label="$t('ui.dialogs.one_way_loop_properties.delete_stop')"
-              :title="$t('ui.dialogs.one_way_loop_properties.delete_stop')"
-              @click.stop="deleteStop(index)"
-            />
+        <div class="loop-side-block">
+          <div class="loop-side-heading">
+            <i class="i-tabler-route-alt-left" />
+            <strong>
+              {{
+                position === 'TOP'
+                  ? $t('ui.dialogs.one_way_loop_properties.position_top')
+                  : $t('ui.dialogs.one_way_loop_properties.position_bottom')
+              }}
+            </strong>
           </div>
+
+          <div
+            v-if="detourStops.length > 0"
+            class="loop-stops-list"
+          >
+            <div
+              v-for="(stop, index) in detourStops"
+              :key="stop.id"
+              class="loop-stop-row"
+            >
+              <InputText
+                v-model="stop.$stop.name"
+                class="loop-stop-name"
+                :placeholder="$t('ui.dialogs.one_way_loop_properties.stop_name_placeholder')"
+                @click.stop
+              />
+
+              <Button
+                icon="i-tabler-settings"
+                severity="secondary"
+                outlined
+                :aria-label="$t('ui.dialogs.one_way_loop_properties.edit_stop')"
+                :title="$t('ui.dialogs.one_way_loop_properties.edit_stop')"
+                @click.stop="editStop('DETOUR', index)"
+              />
+
+              <Button
+                icon="i-tabler-trash"
+                severity="danger"
+                text
+                :aria-label="$t('ui.dialogs.one_way_loop_properties.delete_stop')"
+                :title="$t('ui.dialogs.one_way_loop_properties.delete_stop')"
+                @click.stop="deleteStop('DETOUR', index)"
+              />
+            </div>
+          </div>
+
+          <div
+            v-else
+            class="loop-stops-empty"
+          >
+            {{ $t('ui.dialogs.one_way_loop_properties.empty_stops') }}
+          </div>
+
+          <Button
+            icon="i-tabler-plus"
+            :label="$t('ui.dialogs.one_way_loop_properties.add_stop')"
+            @click="addStop('DETOUR')"
+          />
         </div>
 
-        <div
-          v-else
-          class="loop-stops-empty"
-        >
-          {{ $t('ui.dialogs.one_way_loop_properties.empty_stops') }}
-        </div>
+        <div class="loop-side-block">
+          <div class="loop-side-heading">
+            <i class="i-tabler-route" />
+            <strong>
+              {{
+                position === 'TOP'
+                  ? $t('ui.dialogs.one_way_loop_properties.position_bottom')
+                  : $t('ui.dialogs.one_way_loop_properties.position_top')
+              }}
+            </strong>
+          </div>
 
-        <Button
-          icon="i-tabler-plus"
-          :label="$t('ui.dialogs.one_way_loop_properties.add_stop')"
-          @click="addStop"
-        />
+          <div
+            v-if="mainStops.length > 0"
+            class="loop-stops-list"
+          >
+            <div
+              v-for="(stop, index) in mainStops"
+              :key="stop.id"
+              class="loop-stop-row"
+            >
+              <InputText
+                v-model="stop.$stop.name"
+                class="loop-stop-name"
+                :placeholder="$t('ui.dialogs.one_way_loop_properties.stop_name_placeholder')"
+                @click.stop
+              />
+
+              <Button
+                icon="i-tabler-settings"
+                severity="secondary"
+                outlined
+                :aria-label="$t('ui.dialogs.one_way_loop_properties.edit_stop')"
+                :title="$t('ui.dialogs.one_way_loop_properties.edit_stop')"
+                @click.stop="editStop('MAIN', index)"
+              />
+
+              <Button
+                icon="i-tabler-trash"
+                severity="danger"
+                text
+                :aria-label="$t('ui.dialogs.one_way_loop_properties.delete_stop')"
+                :title="$t('ui.dialogs.one_way_loop_properties.delete_stop')"
+                @click.stop="deleteStop('MAIN', index)"
+              />
+            </div>
+          </div>
+
+          <div
+            v-else
+            class="loop-stops-empty"
+          >
+            {{ $t('ui.dialogs.one_way_loop_properties.empty_stops') }}
+          </div>
+
+          <Button
+            icon="i-tabler-plus"
+            :label="$t('ui.dialogs.one_way_loop_properties.add_stop')"
+            @click="addStop('MAIN')"
+          />
+        </div>
       </section>
     </div>
 
@@ -475,6 +577,25 @@ const allowCity = computed(() =>
   color: var(--p-text-muted-color);
   font-size: .82rem;
   text-align: center;
+}
+
+.loop-side-block {
+  display: grid;
+  gap: .55rem;
+
+  padding: .7rem;
+
+  border: 1px solid var(--p-content-border-color);
+  border-radius: .65rem;
+}
+
+.loop-side-heading {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+
+  color: var(--p-text-color);
+  font-size: .86rem;
 }
 
 @media (max-width: 480px) {

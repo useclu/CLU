@@ -6,6 +6,15 @@ import OpenPresetButton from '~/components/navigation/menu/OpenPresetButton.vue'
 import useLoadProject from '~/composables/useLoadProject'
 import { useProject } from '~/stores/useProject'
 
+const props = withDefaults(
+  defineProps<{
+    previewLimited?: boolean
+  }>(),
+  {
+    previewLimited: false,
+  },
+)
+
 const emit = defineEmits<{
   openCustomIndices: []
   openModePictograms: []
@@ -442,62 +451,64 @@ function newProject() {
 
 <template>
   <div class="flex flex-col items-stretch flex-grow">
-    <Button
-      pt:root:class="important-justify-start"
-      :label="$t('ui.menu.custom_indices')"
-      severity="secondary"
-      icon="i-tabler-route"
-      text
-      @click="emit('openCustomIndices')"
-    />
+    <template v-if="!props.previewLimited">
+      <Button
+        pt:root:class="important-justify-start"
+        :label="$t('ui.menu.custom_indices')"
+        severity="secondary"
+        icon="i-tabler-route"
+        text
+        @click="emit('openCustomIndices')"
+      />
 
-    <Button
-      pt:root:class="important-justify-start"
-      :label="$t('ui.menu.custom_mode_pictograms')"
-      severity="secondary"
-      icon="i-tabler-photo-edit"
-      text
-      @click="emit('openModePictograms')"
-    />
+      <Button
+        pt:root:class="important-justify-start"
+        :label="$t('ui.menu.custom_mode_pictograms')"
+        severity="secondary"
+        icon="i-tabler-photo-edit"
+        text
+        @click="emit('openModePictograms')"
+      />
 
-    <Divider />
+      <Divider />
 
-    <input
-      ref="profileImportInput"
-      type="file"
-      accept=".json,application/json"
-      class="hidden"
-      @change="onProfileSelected"
-    >
+      <input
+        ref="profileImportInput"
+        type="file"
+        accept=".json,application/json"
+        class="hidden"
+        @change="onProfileSelected"
+      >
 
-    <Button
-      pt:root:class="important-justify-start"
-      :label="$t('ui.menu.import_profile')"
-      severity="secondary"
-      icon="i-tabler-user-down"
-      text
-      @click="openProfileImport()"
-    />
+      <Button
+        pt:root:class="important-justify-start"
+        :label="$t('ui.menu.import_profile')"
+        severity="secondary"
+        icon="i-tabler-user-down"
+        text
+        @click="openProfileImport()"
+      />
 
-    <Button
-      pt:root:class="important-justify-start"
-      :label="$t('ui.menu.export_profile')"
-      severity="secondary"
-      icon="i-tabler-user-up"
-      text
-      @click="exportProfile()"
-    />
+      <Button
+        pt:root:class="important-justify-start"
+        :label="$t('ui.menu.export_profile')"
+        severity="secondary"
+        icon="i-tabler-user-up"
+        text
+        @click="exportProfile()"
+      />
 
-    <Divider />
+      <Divider />
 
-    <Button
-      pt:root:class="important-justify-start"
-      :label="$t('ui.menu.new_project')"
-      severity="secondary"
-      icon="i-tabler-file-spark"
-      text
-      @click="newProject()"
-    />
+      <Button
+        pt:root:class="important-justify-start"
+        :label="$t('ui.menu.new_project')"
+        severity="secondary"
+        icon="i-tabler-file-spark"
+        text
+        @click="newProject()"
+      />
+    </template>
 
     <Button
       pt:root:class="important-justify-start"

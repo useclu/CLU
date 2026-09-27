@@ -83,6 +83,10 @@ const isMultiline = computed(() =>
   valueParts.value.length > 1,
 )
 
+const hasSubtitle = computed(() =>
+  Boolean(subtitle?.trim()),
+)
+
 /*
  * =========================================================
  * TRAMWAY
@@ -145,11 +149,28 @@ const tramWrapperStyle = computed(() => {
   }
 
   if (isTramAngled.value) {
+    const baseShift =
+      isMultiline.value
+        ? -2.85
+        : -1.65
+
+    /*
+     * Un sous-titre de terminus incliné est le contenu le plus proche
+     * du point. On éloigne donc directement l'ANCRE complète du cartouche.
+     * C'est plus fiable qu'un padding dans le bloc déjà tourné.
+     */
+    const subtitleClearance =
+      hasSubtitle.value
+        ? .32
+        : 0
+
+    const shift = reverse
+      ? baseShift + subtitleClearance
+      : baseShift - subtitleClearance
+
     return {
       transform:
-        isMultiline.value
-          ? 'translateY(-2.85em)'
-          : 'translateY(-1.65em)',
+        `translateY(${shift}em)`,
     }
   }
 
@@ -266,6 +287,7 @@ onUnmounted(() => {
       'tram-horizontal': isTramHorizontal,
       'tram-angled': isTramAngled,
       'tram-multiline': isMultiline,
+      'tram-has-subtitle': isTramMode && hasSubtitle,
     }"
     :style="tramWrapperStyle"
   >
@@ -625,6 +647,40 @@ onUnmounted(() => {
     align-self: flex-start;
 
     line-height: 1;
+  }
+}
+
+/*
+ * =========================================================
+ * TRAMWAY INCLINÉ — DÉGAGEMENT DU SOUS-TITRE TERMINUS
+ * =========================================================
+ *
+ * Le terminus est ancré par le bas dans TiltedText. Avec un
+ * sous-titre, c'est donc ce dernier qui se retrouvait au plus près
+ * du point. On ajoute une zone de respiration sous le contenu afin
+ * de garder le sous-titre clairement séparé du cercle de station,
+ * y compris avec un cartouche long.
+ */
+.terminus-label.tram-angled.tram-has-subtitle {
+  .tram-terminus-subtitle {
+    /*
+     * Le terminus ne remonte plus tout le cartouche pour créer le dégagement.
+     * Le sous-titre reste près du point, mais avec une respiration nette sous
+     * le nom du terminus.
+     */
+    margin-top: -.10em;
+
+    opacity: .72;
+  }
+
+  :deep(.tram-terminus-subtitle.subtitle) {
+    /*
+     * Un sous-titre Tram doit être clairement secondaire : plus petit et
+     * moins massif que le nom de station, tout en conservant l'italique.
+     */
+    font-size: .43em;
+    font-weight: 600;
+    letter-spacing: .012em;
   }
 }
 

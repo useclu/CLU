@@ -428,6 +428,25 @@ declare global {
       reverse: boolean
 
       /*
+       * Ajustement local de l'écart après cet arrêt.
+       *
+       * 0 / undefined = espacement automatique historique.
+       * valeur positive = éloigne l'arrêt suivant.
+       * valeur négative = rapproche l'arrêt suivant.
+       *
+       * Optionnel afin de conserver tous les anciens projets.
+       */
+      spacingAfter?: number
+
+      /*
+       * Bulle urbaine purement graphique.
+       * Plusieurs arrêts consécutifs activés se rejoignent
+       * automatiquement dans les différents moteurs de rendu.
+       * Optionnel pour préserver les anciens projets JSON.
+       */
+      urbanBubble?: boolean
+
+      /*
        * Affichage vertical spécifique de l'arrêt.
        *
        * Lorsqu'il est activé, le symbole classique
@@ -521,6 +540,13 @@ declare global {
        * créés avant le retour des arrêts sur les boucles.
        */
       stops?: Stop[]
+
+      /*
+       * Arrêts placés sur l'autre côté de la boucle, c'est-à-dire
+       * sur le rail principal entre les deux raccords.
+       * Optionnel afin de conserver les anciens projets inchangés.
+       */
+      mainStops?: Stop[]
 
       /**
        * Ancien format mono-arrêt.

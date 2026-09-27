@@ -2759,6 +2759,72 @@ type Action =
   | 'REMOVE'
   | 'UPDATE'
 
+/*
+ * Un BranchElement n'a jamais le droit de devenir un enfant direct
+ * de LineSection.elements. Lors de certains drops imbriqués, Sortable
+ * pouvait pourtant y laisser un clone de Stop / Spacer / AreaSeparator
+ * / OneWayLoop. SectionElement ne l'affiche pas, mais son wrapper garde
+ * une largeur : on obtient alors un élément invisible, un décalage des
+ * arrêts et un rail qui semble dépasser.
+ *
+ * On retire uniquement ces formes impossibles au niveau Section.
+ * `$loop` n'est volontairement PAS filtré : Loop est aussi un vrai
+ * LineElement et reste donc légal ici.
+ */
+function removeInvalidBranchChildrenFromSection() {
+  const current =
+    section.value.$lineSection.elements as Array<
+      LineElement | BranchElement
+    >
+
+  let removed = false
+
+  for (let index = current.length - 1; index >= 0; index -= 1) {
+    const candidate =
+      current[index] as unknown as Record<string, unknown>
+
+    if (
+      '$stop' in candidate
+      || '$spacer' in candidate
+      || '$areaSeparator' in candidate
+      || '$oneWayLoop' in candidate
+    ) {
+      current.splice(index, 1)
+      removed = true
+    }
+  }
+
+  return removed
+}
+
+const invalidSectionChildrenSignature =
+  computed(() =>
+    section.value.$lineSection.elements
+      .map((element) => {
+        const candidate =
+          element as unknown as Record<string, unknown>
+
+        if ('$stop' in candidate) return `${element.id}:STOP`
+        if ('$spacer' in candidate) return `${element.id}:SPACER`
+        if ('$areaSeparator' in candidate) return `${element.id}:AREA_SEPARATOR`
+        if ('$oneWayLoop' in candidate) return `${element.id}:ONE_WAY_LOOP`
+
+        return `${element.id}:OK`
+      })
+      .join('|'),
+  )
+
+watch(
+  invalidSectionChildrenSignature,
+  () => {
+    removeInvalidBranchChildrenFromSection()
+  },
+  {
+    immediate: true,
+    flush: 'post',
+  },
+)
+
 function mergeAdjacentBranches() {
   const elements = section.value.$lineSection.elements
   let hasMerged = false
@@ -2787,6 +2853,8 @@ function onAction(
   action: Action,
   event: SortableEvent,
 ) {
+  removeInvalidBranchChildrenFromSection()
+
   if (mergeAdjacentBranches()) {
     if (
       action === 'ADD'

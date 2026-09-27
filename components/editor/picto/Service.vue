@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import bulletTrain from 'assets/svg/services/bullet_train.svg'
-import funicular from 'assets/svg/services/funicular.svg'
-import longDistanceBus from 'assets/svg/services/long_distance_bus.svg'
-import mainStation from 'assets/svg/services/main_station.svg'
-import suburbanTrain from 'assets/svg/services/suburban_train.svg'
-import ter from 'assets/svg/services/ter.svg'
-import tgv from 'assets/svg/services/tgv.svg'
-import { computed } from 'vue'
+import bulletTrain from '~/assets/svg/services/bullet_train.svg'
+import funicular from '~/assets/svg/services/funicular.svg'
+import longDistanceBus from '~/assets/svg/services/long_distance_bus.svg'
+import mainStation from '~/assets/svg/services/main_station.svg'
+import suburbanTrain from '~/assets/svg/services/suburban_train.svg'
+import ter from '~/assets/svg/services/ter.svg'
+import tgv from '~/assets/svg/services/tgv.svg'
+import { computed, ref, watch } from 'vue'
 import airport from '~/assets/svg/airport/airport-generic.svg'
 import cdgExpress from '~/assets/svg/services/cdg_express.svg'
 import cdgval from '~/assets/svg/services/cdgval.svg'
@@ -21,6 +21,8 @@ const {
 } = defineProps<{
   service: Service | null
 }>()
+
+const iconLoadFailed = ref(false)
 
 const icon = computed(() => {
   switch (service) {
@@ -57,10 +59,24 @@ const icon = computed(() => {
   }
   return null
 })
+
+watch(
+  icon,
+  () => {
+    iconLoadFailed.value = false
+  },
+)
 </script>
 
 <template>
-  <img v-if="icon" :src="icon" :alt="$t('ui.general_settings.transport_service')" class="picto">
+  <img
+    v-if="icon && !iconLoadFailed"
+    :src="icon"
+    alt=""
+    aria-hidden="true"
+    class="picto"
+    @error="iconLoadFailed = true"
+  >
 </template>
 
 <style scoped lang="scss">

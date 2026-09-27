@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VueDraggable } from 'vue-draggable-plus'
 import { v4 as uuidv4 } from 'uuid'
 
 const visible = defineModel<boolean>('visible')
@@ -48,6 +49,29 @@ function deleteConnection(
     index,
     1,
   )
+}
+
+function moveConnection(
+  index: number,
+  direction: -1 | 1,
+) {
+  const connections = stop.value.$stop.connections
+  const targetIndex = index + direction
+
+  if (
+    targetIndex < 0
+    || targetIndex >= connections.length
+  ) {
+    return
+  }
+
+  const [connection] = connections.splice(index, 1)
+
+  if (!connection) {
+    return
+  }
+
+  connections.splice(targetIndex, 0, connection)
 }
 </script>
 
@@ -129,7 +153,15 @@ function deleteConnection(
           </div>
         </div>
 
-        <div class="connections">
+        <VueDraggable
+          v-model="stop.$stop.connections"
+          :animation="150"
+          class="connections"
+          handle=".connection-order-handle"
+          ghost-class="connection-card-ghost"
+          chosen-class="connection-card-chosen"
+          drag-class="connection-card-drag"
+        >
           <ConnectionGroupEditor
             v-for="(
               _,
@@ -146,9 +178,20 @@ function deleteConnection(
               ]
             "
             :index="index"
+            :can-move-up="index > 0"
+            :can-move-down="
+              index
+              < stop.$stop.connections.length - 1
+            "
+            @move-up="
+              moveConnection(index, -1)
+            "
+            @move-down="
+              moveConnection(index, 1)
+            "
             @delete="deleteConnection"
           />
-        </div>
+        </VueDraggable>
       </section>
 
       <!--
@@ -446,6 +489,26 @@ function deleteConnection(
   gap: .65rem;
 
   padding: .65rem;
+}
+
+:deep(.connection-card-ghost) {
+  opacity: .35;
+}
+
+:deep(.connection-card-chosen) {
+  outline:
+    2px solid
+    color-mix(
+      in srgb,
+      var(--p-primary-color) 45%,
+      transparent
+    );
+
+  outline-offset: 2px;
+}
+
+:deep(.connection-card-drag) {
+  cursor: grabbing;
 }
 
 /*

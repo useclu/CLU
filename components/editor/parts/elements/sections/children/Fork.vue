@@ -27,7 +27,6 @@ const emit = defineEmits<{
 const el = ref()
 
 const baseSizeCss = useCssVar('--base-size', el)
-const fontSizeCss = useCssVar('--font-size', el)
 
 const sizeFactor = computed(() => {
   const value = Number.parseFloat(baseSizeCss.value ?? '1')
@@ -43,22 +42,28 @@ const size = computed(() => 16 * sizeFactor.value)
 const slopeWidth = computed(() => size.value * 4.75)
 
 /*
- * Les LineSection déplacent leurs niveaux avec 2.75em.
- * Il faut donc utiliser ici la taille réelle du "em" du plan
- * pour la géométrie verticale de la fourche.
+ * IMPORTANT — même unité verticale que LineSection.
  *
- * --base-size reste utilisé pour la géométrie horizontale
- * historique de la fourche.
+ * Les sections sont déplacées avec 2.75em et le plan définit
+ * son em par :
+ *
+ *   --font-size = --base-size * 16px
+ *
+ * Lire directement --font-size avec useCssVar n'est pas fiable ici :
+ * le navigateur peut renvoyer la chaîne CSS "calc(...)".
+ * Number.parseFloat('calc(...)') donne alors NaN et l'ancien code
+ * retombait silencieusement sur 16px.
+ *
+ * Conséquence : sur les anciens RER / Transilien avec mapSize 30, 42,
+ * etc., les ParallelBranches étaient espacés avec le vrai em du plan
+ * tandis que la Fork restait calculée comme si le plan faisait 16px.
+ * Elle paraissait donc beaucoup trop petite.
+ *
+ * On dérive désormais directement l'em depuis --base-size, exactement
+ * comme MapEditor : 16 * baseSize. La fourche et les branches parallèles
+ * partagent ainsi la même échelle à tous les mapSize.
  */
-const emSize = computed(() => {
-  const value = Number.parseFloat(
-    fontSizeCss.value ?? '',
-  )
-
-  return Number.isFinite(value) && value > 0
-    ? value
-    : 16
-})
+const emSize = computed(() => 16 * sizeFactor.value)
 
 const lineContext = inject<LineContext>(LineContextKey)!
 const project = useProject()

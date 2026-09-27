@@ -198,6 +198,40 @@ const isOffLine = computed(() =>
   stop.value.$stop.offLine === true,
 )
 
+
+/*
+ * Bulle urbaine : état uniquement graphique.
+ * Les voisins activés ne modifient pas la topologie ; ils servent
+ * seulement à arrondir les extrémités du groupe visuel.
+ */
+const isUrbanBubble = computed(() =>
+  stop.value.$stop.urbanBubble === true,
+)
+
+const urbanBubbleNeighbors = computed(() => {
+  const stops =
+    (branch?.$branch.elements ?? [])
+      .filter(
+        (element): element is Stop =>
+          '$stop' in element,
+      )
+
+  const index =
+    stops.findIndex(
+      candidate => candidate.id === stop.value.id,
+    )
+
+  return {
+    previous:
+      index > 0
+      && stops[index - 1]?.$stop.urbanBubble === true,
+    next:
+      index >= 0
+      && index < stops.length - 1
+      && stops[index + 1]?.$stop.urbanBubble === true,
+  }
+})
+
 /*
  * =========================================================
  * APPARTENANCE MULTI-LIGNES DE L'ARRÊT
@@ -603,6 +637,11 @@ provide<StopContext>(
       'tram-horizontal': isTramHorizontal,
       'multi-line-stop': branchLines.length > 1,
       'shared-line-stop': isSharedStop,
+      'urban-bubble': isUrbanBubble,
+      'urban-bubble-start':
+        isUrbanBubble && !urbanBubbleNeighbors.previous,
+      'urban-bubble-end':
+        isUrbanBubble && !urbanBubbleNeighbors.next,
     }"
     :data-line-ids="stopLineIdsAttribute"
     :data-shared-lines="
@@ -611,8 +650,9 @@ provide<StopContext>(
         : 'false'
     "
   >
+
     <div
-      class="flex items-start"
+      class="flex items-start relative z-1"
       :class="{
         'flex-col-reverse': inverted,
         'flex-col': !inverted,
@@ -837,6 +877,43 @@ provide<StopContext>(
   .debug & {
     outline: 1px solid cyan;
   }
+}
+
+
+/*
+ * =========================================================
+ * BULLE URBAINE — RENDU STANDARD / IDFM
+ * =========================================================
+ */
+.urban-bubble-background {
+  position: absolute;
+  top: 50%;
+  left: -.95em;
+  right: -.95em;
+
+  height: 4.15em;
+
+  transform: translateY(-50%);
+
+  background: rgb(0 122 105 / 15%);
+  border-radius: 2.15em;
+
+  pointer-events: none;
+  z-index: 0;
+}
+
+.stop-wrapper.urban-bubble:not(.urban-bubble-start)
+.urban-bubble-background {
+  left: -1.3em;
+  border-top-left-radius: .8em;
+  border-bottom-left-radius: .8em;
+}
+
+.stop-wrapper.urban-bubble:not(.urban-bubble-end)
+.urban-bubble-background {
+  right: -1.3em;
+  border-top-right-radius: .8em;
+  border-bottom-right-radius: .8em;
 }
 
 .names {

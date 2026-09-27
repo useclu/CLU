@@ -2,6 +2,10 @@
 import { computed, ref } from 'vue'
 import { useProject } from '~/stores/useProject'
 
+type TramStyle =
+  | 'ANGLED'
+  | 'HORIZONTAL'
+
 const areaSeparator = defineModel<AreaSeparator>({ required: true })
 
 const showPropertiesDialog = ref(false)
@@ -11,6 +15,23 @@ const isBusAreaMode = computed(() =>
   project.line.mode === 'BUS'
   || project.line.mode === 'BRT'
   || project.line.mode === 'NOCTILIEN',
+)
+
+const tramStyle = computed<TramStyle>(() =>
+  (
+    project.line as Line & {
+      tramStyle?: TramStyle
+    }
+  ).tramStyle
+  ?? 'ANGLED',
+)
+
+const isAngledSeparatorStyle = computed(() =>
+  !isBusAreaMode.value
+  && (
+    project.line.mode !== 'TRAM'
+    || tramStyle.value === 'ANGLED'
+  ),
 )
 
 const autoSpacing = computed(() => {
@@ -57,6 +78,19 @@ const separatorHeight = computed(() => {
   return `${height.value}em`
 })
 
+/*
+ * La partie haute est volontairement plus longue que la hauteur
+ * configurée afin de dégager les noms d'arrêts inclinés et de
+ * laisser de la place au libellé de ville au-dessus.
+ */
+const angledUpperLength = computed(() =>
+  `${Math.max(0, height.value + 4)}em`,
+)
+
+const angledUpperOffset = computed(() =>
+  `${Math.max(0, (height.value + 4) * Math.sin(Math.PI / 3))}em`,
+)
+
 function openProperties(event: Event) {
   event.stopPropagation()
   showPropertiesDialog.value = true
@@ -69,12 +103,14 @@ function openProperties(event: Event) {
     class="area-separator-wrapper"
     :class="{
       'bus-area-boundary': isBusAreaMode,
+      'angled-area-separator': isAngledSeparatorStyle,
     }"
   >
     <div
       class="dynamic-part branch-element-handle area-separator"
       :class="{
         'bus-area-boundary-handle': isBusAreaMode,
+        'angled-area-separator-handle': isAngledSeparatorStyle,
       }"
       :title="
         isBusAreaMode
@@ -104,7 +140,15 @@ function openProperties(event: Event) {
           </div>
         </div>
 
-        <div class="area-separator-line" />
+        <template v-if="isAngledSeparatorStyle">
+          <div class="area-separator-line area-separator-line-upper" />
+          <div class="area-separator-line area-separator-line-lower" />
+        </template>
+
+        <div
+          v-else
+          class="area-separator-line"
+        />
       </template>
     </div>
   </div>
@@ -136,6 +180,134 @@ function openProperties(event: Event) {
   min-height: calc(v-bind(separatorHeight) + 3em);
 
   z-index: 3;
+}
+
+/*
+ * =========================================================
+ * STYLE INCLINÉ : SÉPARATION VILLE / ZONE
+ * =========================================================
+ */
+.area-separator-wrapper.angled-area-separator {
+  align-items: center;
+
+  /*
+   * Plus de réserve verticale pour placer Ville au-dessus
+   * et Zone sous la ligne sans les rapprocher de l'arrêt.
+   */
+  min-height: calc(v-bind(separatorHeight) + 8em);
+}
+
+.angled-area-separator-handle {
+  position: relative;
+
+  justify-content: center;
+
+  height: calc(v-bind(separatorHeight) + 8em);
+  min-height: calc(v-bind(separatorHeight) + 8em);
+
+  padding: 0;
+}
+
+.angled-area-separator-handle
+.area-separator-labels {
+  position: absolute;
+  inset: 0;
+
+  display: block;
+
+  margin: 0;
+}
+
+.angled-area-separator-handle
+.area-separator-city,
+.angled-area-separator-handle
+.area-separator-zone {
+  position: absolute;
+
+  width: max-content;
+  max-width: calc(v-bind(separatorWidth) + 12em);
+
+  white-space: nowrap;
+}
+
+/*
+ * Ville reste au-dessus du pointillé incliné. L'ancrage est fait
+ * sur son bord droit : un nom plus long grandit vers la gauche
+ * et ne revient pas se poser sur l'arrêt voisin.
+ */
+.angled-area-separator-handle
+.area-separator-city {
+  top: .2em;
+  left: calc(50% + v-bind(angledUpperOffset));
+
+  font-size: .7em;
+  font-weight: 650;
+  line-height: 1.05;
+
+  text-align: right;
+
+  transform: translateX(-100%);
+}
+
+/*
+ * La zone est toujours sous le tracé, centrée sur la partie
+ * verticale basse du séparateur.
+ */
+.angled-area-separator-handle
+.area-separator-zone {
+  bottom: .2em;
+  left: 50%;
+
+  margin-top: 0;
+
+  font-size: .58em;
+  font-weight: 500;
+  line-height: 1.05;
+
+  opacity: .72;
+
+  text-align: center;
+
+  transform: translateX(-50%);
+}
+
+.angled-area-separator-handle
+.area-separator-line {
+  position: absolute;
+  left: 50%;
+
+  width: 0;
+  min-height: 0;
+
+  border-left:
+    1px
+    dotted
+    var(--p-slate-500);
+}
+
+/*
+ * Le point de cassure reste exactement au niveau du tracé :
+ * - sous le tracé : vertical ;
+ * - au-dessus : même inclinaison qu'avant, mais plus longue.
+ */
+.angled-area-separator-handle
+.area-separator-line-lower {
+  top: 50%;
+  bottom: 1.8em;
+
+  height: auto;
+
+  transform: translateX(-50%);
+}
+
+.angled-area-separator-handle
+.area-separator-line-upper {
+  bottom: 50%;
+
+  height: v-bind(angledUpperLength);
+
+  transform: rotate(60deg);
+  transform-origin: bottom center;
 }
 
 .area-separator-wrapper.bus-area-boundary {

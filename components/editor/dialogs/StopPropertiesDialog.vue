@@ -70,6 +70,108 @@ const stopTypeOptions = [
 const breakpoints = useBreakpoints(breakpointsTailwind)
 const horizontal = breakpoints.greaterOrEqual('lg')
 
+/*
+ * Sur téléphone/tablette, ne jamais ouvrir le clavier automatiquement
+ * à l'ouverture des propriétés. Le comportement desktop reste inchangé.
+ */
+const shouldAutofocusStopName = breakpoints.greaterOrEqual('xl')
+
+/*
+ * =========================================================
+ * ÉCART LOCAL AVEC L'ARRÊT SUIVANT
+ * =========================================================
+ *
+ * Le réglage est stocké sur l'arrêt courant afin de ne pas créer
+ * un nouvel élément Spacer dans la branche.
+ *
+ * - 0 : espacement automatique historique ;
+ * - négatif : rapproche l'arrêt suivant ;
+ * - positif : éloigne l'arrêt suivant.
+ */
+const nextStop = computed<Stop | null>(() => {
+  const elements =
+    branch.$branch.elements ?? []
+
+  const currentIndex =
+    elements.findIndex(
+      element => element.id === stop.value.id,
+    )
+
+  if (currentIndex < 0) {
+    return null
+  }
+
+  for (
+    let index = currentIndex + 1;
+    index < elements.length;
+    index += 1
+  ) {
+    const element = elements[index]
+
+    if ('$stop' in element) {
+      return element
+    }
+  }
+
+  return null
+})
+
+const nextStopDisplayName = computed(() => {
+  const name =
+    nextStop.value?.$stop.name?.trim()
+
+  return name || t(
+    'ui.dialogs.stop_properties.spacing_next_stop_fallback',
+  )
+})
+
+const spacingAfter = computed({
+  get: () => {
+    const value =
+      Number(stop.value.$stop.spacingAfter ?? 0)
+
+    return Number.isFinite(value)
+      ? Math.max(-12, Math.min(30, value))
+      : 0
+  },
+
+  set: (value: number | string | null | undefined) => {
+    const parsed = Number(value ?? 0)
+
+    stop.value.$stop.spacingAfter =
+      Number.isFinite(parsed)
+        ? Math.max(-12, Math.min(30, parsed))
+        : 0
+  },
+})
+
+function onSpacingAfterInput(value: string | undefined) {
+  const parsed = Number.parseFloat(
+    String(value ?? '')
+      .replace(',', '.'),
+  )
+
+  if (Number.isFinite(parsed)) {
+    spacingAfter.value = parsed
+    return
+  }
+
+  if (!value) {
+    spacingAfter.value = 0
+  }
+}
+
+function adjustSpacingAfter(delta: number) {
+  spacingAfter.value =
+    Math.round(
+      (spacingAfter.value + delta) * 2,
+    ) / 2
+}
+
+function resetSpacingAfter() {
+  spacingAfter.value = 0
+}
+
 function ensureNameStyle() {
   if (!stop.value.$stop.nameStyle) {
     stop.value.$stop.nameStyle = {
@@ -2690,7 +2792,7 @@ function openConnectionsEditor() {
                 pt:root:class="important-h-auto"
                 :spellcheck="false"
                 auto-resize
-                autofocus
+                :autofocus="shouldAutofocusStopName"
                 autocomplete="off"
                 @focus="onStopNameFocus"
                 @input="onStopNameInput"
@@ -2941,7 +3043,7 @@ function openConnectionsEditor() {
                   class="hidden-control"
                 />
 
-                <strong>G</strong>
+                <strong>{{ $t('ui.dialogs.stop_properties.bold_short') }}</strong>
 
                 <span>{{ $t('ui.dialogs.stop_properties.bold') }}</span>
               </label>
@@ -2959,7 +3061,7 @@ function openConnectionsEditor() {
                   class="hidden-control"
                 />
 
-                <em>I</em>
+                <em>{{ $t('ui.dialogs.stop_properties.italic_short') }}</em>
 
                 <span>{{ $t('ui.dialogs.stop_properties.italic') }}</span>
               </label>
@@ -2977,7 +3079,7 @@ function openConnectionsEditor() {
                   class="hidden-control"
                 />
 
-                <u>S</u>
+                <u>{{ $t('ui.dialogs.stop_properties.underline_short') }}</u>
 
                 <span>{{ $t('ui.dialogs.stop_properties.underline') }}</span>
               </label>
@@ -3337,6 +3439,33 @@ function openConnectionsEditor() {
             </label>
 
             <label
+              :for="`${stop.id}_urbanBubble`"
+              class="option-row"
+            >
+              <div class="option-content">
+                <div class="option-icon">
+                  <i class="i-tabler-map-pin" />
+                </div>
+
+                <div>
+                  <div class="option-title">
+                    {{ $t('ui.dialogs.stop_properties.urban_bubble') }}
+                  </div>
+
+                  <div class="option-description">
+                    {{ $t('ui.dialogs.stop_properties.urban_bubble_summary') }}
+                  </div>
+                </div>
+              </div>
+
+              <Checkbox
+                v-model="stop.$stop.urbanBubble"
+                binary
+                :input-id="`${stop.id}_urbanBubble`"
+              />
+            </label>
+
+            <label
               :for="`${stop.id}_future`"
               class="option-row"
             >
@@ -3501,6 +3630,75 @@ function openConnectionsEditor() {
                 :input-id="`${stop.id}_offLine`"
               />
             </label>
+          </div>
+
+          <div
+            v-if="nextStop"
+            class="stop-spacing-section"
+          >
+            <div class="option-content stop-spacing-heading">
+              <div class="option-icon">
+                <i class="i-tabler-arrows-horizontal" />
+              </div>
+
+              <div>
+                <div class="option-title">
+                  {{ $t('ui.dialogs.stop_properties.spacing_after') }}
+                </div>
+
+                <div class="option-description">
+                  {{
+                    $t(
+                      'ui.dialogs.stop_properties.spacing_after_with',
+                      { name: nextStopDisplayName },
+                    )
+                  }}
+                </div>
+              </div>
+            </div>
+
+            <div class="stop-spacing-controls">
+              <Button
+                icon="i-tabler-minus"
+                severity="secondary"
+                text
+                rounded
+                :aria-label="$t('ui.dialogs.stop_properties.spacing_decrease')"
+                @click="adjustSpacingAfter(-0.5)"
+              />
+
+              <InputText
+                :model-value="String(spacingAfter)"
+                class="stop-spacing-input"
+                inputmode="decimal"
+                :aria-label="$t('ui.dialogs.stop_properties.spacing_after')"
+                @update:model-value="onSpacingAfterInput"
+              />
+
+              <span class="stop-spacing-unit">cm</span>
+
+              <Button
+                icon="i-tabler-plus"
+                severity="secondary"
+                text
+                rounded
+                :aria-label="$t('ui.dialogs.stop_properties.spacing_increase')"
+                @click="adjustSpacingAfter(0.5)"
+              />
+
+              <Button
+                icon="i-tabler-restore"
+                severity="secondary"
+                text
+                rounded
+                :aria-label="$t('ui.dialogs.stop_properties.reset')"
+                @click="resetSpacingAfter()"
+              />
+            </div>
+
+            <div class="stop-spacing-help">
+              {{ $t('ui.dialogs.stop_properties.spacing_after_summary') }}
+            </div>
           </div>
         </div>
       </section>
@@ -4805,6 +5003,70 @@ function openConnectionsEditor() {
   font-weight: 500;
 }
 
+.stop-spacing-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .4rem .75rem;
+
+  min-height: 4.2rem;
+  margin-top: .75rem;
+  padding: .7rem .75rem;
+
+  border:
+    1px solid
+    color-mix(
+      in srgb,
+      var(--p-content-border-color) 80%,
+      transparent
+    );
+  border-radius: .7rem;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--p-content-hover-background) 55%,
+      transparent
+    );
+}
+
+.stop-spacing-heading {
+  align-self: start;
+}
+
+.stop-spacing-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .2rem;
+}
+
+.stop-spacing-input {
+  width: 4.6rem;
+}
+
+.stop-spacing-input :deep(.p-inputtext) {
+  width: 100%;
+  text-align: right;
+}
+
+.stop-spacing-unit {
+  margin-left: -.1rem;
+
+  color: var(--p-text-muted-color);
+  font-size: .72rem;
+}
+
+.stop-spacing-help {
+  grid-column: 1 / -1;
+
+  padding-left: 2.3rem;
+
+  color: var(--p-text-muted-color);
+  font-size: .68rem;
+  line-height: 1.35;
+}
+
 /*
  * =========================================================
  * CORRESPONDANCES
@@ -4979,4 +5241,53 @@ function openConnectionsEditor() {
     align-items: flex-start;
   }
 }
+
+/* =========================================================
+ * MOBILE / TABLETTE — propriétés réellement utilisables au tactile
+ * ========================================================= */
+@media (max-width: 1100px) {
+  /*
+   * Correspondances reste toujours accessible pendant le scroll du dialog.
+   * Le bouton est ancré au bas de la zone de contenu, sans masquer le formulaire.
+   */
+  .connections-section {
+    position: sticky;
+    bottom: -.65rem;
+    z-index: 20;
+
+    margin: .65rem -.2rem -.6rem;
+    padding: .5rem .2rem .15rem;
+
+    background:
+      linear-gradient(
+        to top,
+        var(--p-content-background) 78%,
+        transparent
+      );
+  }
+
+  .connections-button {
+    min-height: 3rem;
+    padding: .55rem .65rem;
+
+    box-shadow:
+      0 -.2rem .75rem rgb(0 0 0 / 10%);
+  }
+}
+
+@media (max-width: 520px) {
+  .connections-button-description {
+    display: none;
+  }
+
+  .connections-button {
+    gap: .5rem;
+  }
+
+  .connections-button-icon {
+    width: 2rem;
+    height: 2rem;
+  }
+}
+
 </style>

@@ -68,6 +68,10 @@ const isMultiline = computed(() =>
   valueParts.value.length > 1,
 )
 
+const hasSubtitle = computed(() =>
+  Boolean(subtitle?.trim()),
+)
+
 const shift = computed(() => {
   if (valueParts.value.length === 0) {
     return false
@@ -132,6 +136,7 @@ watch(
       'tram-horizontal': isTramHorizontal,
       'tram-angled': isTramAngled,
       'tram-multiline': isMultiline,
+      'tram-has-subtitle': isTramMode && hasSubtitle,
       'opacity-50 export-hide': valueParts.length === 0,
     }"
   >
@@ -495,6 +500,14 @@ watch(
     justify-content: flex-start;
 
     margin-top: .13em;
+
+    opacity: .72;
+
+    :deep(.subtitle) {
+      font-size: .43em;
+      font-weight: 600;
+      letter-spacing: .012em;
+    }
   }
 
   /*
@@ -502,6 +515,44 @@ watch(
    */
   .tram-wheelchair {
     top: -.06em;
+  }
+}
+
+/*
+ * =========================================================
+ * TRAMWAY INCLINÉ — DÉGAGEMENT DU SOUS-TITRE
+ * =========================================================
+ *
+ * TiltedText ancre le bloc par son bord inférieur. Quand le
+ * sous-titre fait partie du même bloc, il devient donc l'élément
+ * le plus proche du point d'arrêt. Sur un nom long comme
+ * « Crécy-la-Chapelle », le sous-titre pouvait pratiquement toucher
+ * le cercle de station.
+ *
+ * On réserve ici un espace transparent ENTRE le sous-titre et
+ * l'ancre du point. Le cartouche entier est ainsi repoussé sans
+ * modifier l'angle, la largeur du nom ni la géométrie de la ligne.
+ */
+.regular-label.tram-angled.tram-has-subtitle {
+  /*
+   * Le wrapper est la vraie ancre de TiltedText. Le déplacer produit
+   * donc un écart VISUEL réel avec le point, contrairement au simple
+   * padding interne qui pouvait rester presque invisible après rotation.
+   */
+  .tram-label-wrapper {
+    transform:
+      translateY(-.38em);
+  }
+
+  .tram-subtitle {
+    margin-top: .16em;
+  }
+
+  &.reverse {
+    .tram-label-wrapper {
+      transform:
+        translateY(.30em);
+    }
   }
 }
 

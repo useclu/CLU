@@ -4,6 +4,7 @@ import { useElementSize } from '@vueuse/core'
 import * as htmlToImage from 'html-to-image'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, provide, ref } from 'vue'
+import usePreviewMode from '~/composables/usePreviewMode'
 import { useProject } from '~/stores/useProject.js'
 import { LineContextKey } from '~/utils/symbols.js'
 
@@ -12,7 +13,10 @@ const CHARSET_DECLARATION = encodeURIComponent('<?xml version="1.0" encoding="UT
 
 const { line } = storeToRefs(useProject())
 const el = ref()
-const sncfPreview = ref(false)
+const {
+  previewMode,
+  restorePreviewMode,
+} = usePreviewMode()
 
 const { width, height } = useElementSize(el)
 const pageWidth = computed(() => `${((width.value + 1) / PIXEL_DENSITY).toFixed(7)}in`)
@@ -66,10 +70,7 @@ async function generateSvg() {
 }
 
 onMounted(() => {
-  sncfPreview.value =
-    window.localStorage.getItem(
-      'clu-sncf-preview',
-    ) === '1'
+  restorePreviewMode()
 
   setTimeout(generateSvg, 100)
 })
@@ -80,7 +81,7 @@ onMounted(() => {
     <LineCanvas
       id="canvas"
       ref="el"
-      :sncf-preview="sncfPreview"
+      :preview-mode="previewMode"
     />
   </div>
 </template>

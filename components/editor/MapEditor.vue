@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { useState } from '#app'
-import { useEventBus } from '@vueuse/core'
+import { useEventBus, useWindowSize } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
-import { computed, onBeforeUnmount, onMounted, provide, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
 import useExportMap from '~/composables/useExportMap'
+import useCluPreviewMode from '~/composables/useCluPreviewMode'
 import { useProjectVersionCheck } from '~/composables/useProjectVersionCheck'
 import useVersion from '~/composables/useVersion'
 import { useProject } from '~/stores/useProject'
@@ -17,10 +17,12 @@ const checkVersion = useProjectVersionCheck()
 
 const el = ref()
 const error = ref(false)
-const sncfPreview = useState<boolean>(
-  'clu-sncf-preview',
-  () => false,
-)
+const exportNativeScale = ref(false)
+const {
+  previewMode,
+  isPreviewing,
+  exitPreview,
+} = useCluPreviewMode()
 
 /*
  * =========================================================
@@ -73,6 +75,44 @@ const mapBaseSize = computed(() => {
   )
 })
 
+
+/*
+ * Sur mobile/tablette, on réduit la vraie unité interne du plan au lieu
+ * d'utiliser CSS zoom. Les fourches et branches parallèles mesurent leur
+ * géométrie via le DOM : une vraie --base-size numérique garantit que
+ * getBoundingClientRect(), offsetWidth et les ResizeObserver restent dans
+ * le même référentiel.
+ *
+ * IMPORTANT : --base-size reste toujours un NOMBRE (jamais calc(...)).
+ */
+const { width: viewportWidth, height: viewportHeight } =
+  useWindowSize({
+    initialWidth: 1280,
+    initialHeight: 800,
+  })
+
+const editorDisplayScale = computed(() => {
+  if (exportNativeScale.value || viewportWidth.value > 1100) {
+    return 1
+  }
+
+  if (
+    viewportHeight.value <= 560
+    && viewportWidth.value <= 1000
+  ) {
+    return .5
+  }
+
+  if (viewportWidth.value <= 390) return .42
+  if (viewportWidth.value <= 720) return .48
+
+  return .62
+})
+
+const effectiveBaseSize = computed(() =>
+  mapBaseSize.value * editorDisplayScale.value,
+)
+
 provide<LineContext>(LineContextKey, {
   color: computed(() => line.value.color ?? '#000000'),
   lineThickness: computed(() => Number.parseFloat(line.value.lineThickness ?? '1') || 1),
@@ -81,8 +121,20 @@ provide<LineContext>(LineContextKey, {
   frameTerminusNames: computed(() => line.value.frameTerminusNames),
 })
 
-function doExport() {
-  exportMap(el.value)
+async function doExport() {
+  /*
+   * Le dézoom téléphone/tablette est uniquement un confort d'édition.
+   * Les exports restent calculés à l'échelle native du plan.
+   */
+  exportNativeScale.value = true
+  await nextTick()
+
+  try {
+    await exportMap(el.value)
+  }
+  finally {
+    exportNativeScale.value = false
+  }
 }
 
 function onError(e: unknown) {
@@ -94,12 +146,11 @@ onMounted(() => {
   exportSignal.on(doExport)
   checkVersion(version.value, projectMinimumVersion)
 
-  sncfPreview.value = false
-
-  window.localStorage.setItem(
-    'clu-sncf-preview',
-    '0',
-  )
+  /*
+   * Comme l'ancien aperçu SNCF, une actualisation de /editor
+   * revient volontairement au mode édition.
+   */
+  exitPreview()
 })
 
 onBeforeUnmount(() => exportSignal.off(doExport))
@@ -110,14 +161,25 @@ onBeforeUnmount(() => exportSignal.off(doExport))
     class="map-editor"
     :style="{
       '--base-size':
-        mapBaseSize,
+        effectiveBaseSize,
+      '--font-size':
+        `calc(${effectiveBaseSize} * 16px)`,
     }"
   >
     <div class="editor-content">
       <div class="dead-zone">
         <NuxtErrorBoundary v-if="!error" @error="onError">
-          <div ref="el">
-            <LineCanvas :sncf-preview="sncfPreview" />
+          <div
+            ref="el"
+            class="editor-map-surface"
+            :class="{
+              'is-export-native-scale': exportNativeScale,
+            }"
+          >
+            <LineCanvas
+              :key="previewMode ?? 'EDIT'"
+              :preview-mode="previewMode"
+            />
           </div>
         </NuxtErrorBoundary>
 
@@ -131,44 +193,26 @@ onBeforeUnmount(() => exportSignal.off(doExport))
       =========================================================
     -->
     <div
-      v-if="!sncfPreview"
+      v-if="!isPreviewing"
       class="toolbox-area"
     >
       <div class="editor-toolbox">
         <!--
-          GROUPE 1
-          Branche
-          Fourche
-          Segment vertical
-          Branches parallèles
-          Demi-tour
+          MODULE 1 — structure de ligne
+          Les wrappers restent display: contents sur desktop afin de
+          conserver exactement la topbar d'outils historique.
         -->
-        <LineSectionToolbox />
-
-        <!--
-          Séparateur visuel |
-        -->
-        <div
-          class="toolbox-group-separator"
-          aria-hidden="true"
-        >
-          |
+        <div class="toolbox-module toolbox-module-structure">
+          <LineSectionToolbox />
         </div>
 
         <!--
-          GROUPE 2
-          Arrêt
-          Espacement
-          Séparation Ville/Zone
+          MODULE 2 — contenu de branche + suppression
         -->
-        <BranchToolbox />
-
-        <!--
-          Espace entre les outils et Supprimer
-        -->
-        <div class="flex-grow min-w-1em" />
-
-        <Trash />
+        <div class="toolbox-module toolbox-module-content">
+          <BranchToolbox />
+          <Trash />
+        </div>
       </div>
     </div>
 
@@ -182,7 +226,6 @@ onBeforeUnmount(() => exportSignal.off(doExport))
    * .map-editor redéfinit --base-size dynamiquement selon mapSize.
    */
   --base-size: 2;
-  --font-size: calc(var(--base-size) * 16px);
 }
 </style>
 
@@ -348,6 +391,12 @@ onBeforeUnmount(() => exportSignal.off(doExport))
   & > * {
     flex-shrink: 0;
   }
+}
+
+
+/* Wrappers purement structurels sur desktop : aucun changement visuel. */
+.toolbox-module {
+  display: contents;
 }
 
 
@@ -535,4 +584,266 @@ onBeforeUnmount(() => exportSignal.off(doExport))
     border-radius: 1.4rem;
   }
 }
+
+
+/* =========================================================
+ * RESPONSIVE ÉDITEUR — TABLETTE / MOBILE
+ *
+ * Le plan conserve sa vraie échelle de données. On ne dézoome que
+ * la surface de travail, afin que les exports restent identiques.
+ * ========================================================= */
+.editor-content {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+@media (max-width: 1100px) {
+  .editor-content {
+    touch-action: pan-x pan-y;
+  }
+
+  .dead-zone {
+    align-items: flex-start;
+    justify-content: flex-start;
+
+    padding: 1rem 1rem 8.5rem;
+  }
+
+  /*
+   * Le dock appartient au viewport, pas au contenu scrollable du plan :
+   * il reste donc disponible après un pan horizontal ou vertical.
+   */
+  .toolbox-area {
+    position: fixed;
+
+    left: 50%;
+    right: auto;
+    bottom: calc(2.9rem + env(safe-area-inset-bottom));
+
+    width: fit-content;
+    max-width: calc(100vw - 1rem);
+
+    transform: translateX(-50%);
+
+    z-index: 90;
+    overscroll-behavior: none;
+  }
+
+  .editor-toolbox {
+    width: fit-content;
+    max-width: calc(100vw - .75rem);
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .2rem;
+
+    margin-inline: auto;
+    padding: .3rem .34rem;
+
+    overflow: visible;
+
+    /*
+     * Mobile / tablette : un seul dock continu en deux rangées.
+     * Les modules ne portent plus chacun leur propre carte visuelle.
+     */
+    background:
+      linear-gradient(
+        180deg,
+        rgb(39 39 42 / 88%) 0%,
+        rgb(22 22 25 / 84%) 100%
+      );
+
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    backdrop-filter: blur(22px) saturate(170%);
+
+    border: 1px solid rgb(255 255 255 / 17%);
+    border-radius: 1rem;
+
+    box-shadow:
+      0 .5rem 1.3rem rgb(0 0 0 / 26%),
+      inset 0 1px 0 rgb(255 255 255 / 14%);
+  }
+
+  .editor-toolbox::before {
+    display: none;
+  }
+
+  /*
+   * Deux modules horizontaux indépendants. Les vrais conteneurs Sortable
+   * restent les .toolbox-section internes, donc le drag tactile reste intact.
+   */
+  .toolbox-module {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: center;
+
+    width: fit-content;
+    max-width: 100%;
+    padding: 0;
+
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .toolbox-module-content {
+    gap: .18rem;
+  }
+
+  .editor-toolbox :deep(.toolbox-section),
+  .editor-toolbox :deep(.draggable-elements) {
+    display: flex !important;
+    flex-flow: row nowrap;
+    align-items: stretch;
+    justify-content: center;
+    gap: .16rem !important;
+
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .editor-toolbox,
+  .editor-toolbox :deep(.toolbox-item) {
+    touch-action: none;
+  }
+
+  /* Les éléments déjà présents dans le plan restent eux aussi déplaçables. */
+  .editor-content :deep(.branch-element-handle) {
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .toolbox-group-separator,
+  .editor-toolbox > .flex-grow {
+    display: none !important;
+  }
+
+  .editor-toolbox :deep(.toolbox-item),
+  .editor-toolbox > .toolbox-item {
+    min-width: 4.55rem !important;
+    min-height: 3.35rem;
+
+    padding: .38rem .28rem !important;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: .75rem !important;
+
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .editor-toolbox :deep(.toolbox-item span),
+  .editor-toolbox > .toolbox-item span {
+    max-width: 4.8rem;
+
+    font-size: .67rem !important;
+    line-height: 1.08;
+
+    white-space: normal;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+
+  .editor-toolbox :deep(.toolbox-item i),
+  .editor-toolbox > .toolbox-item i {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .map-editor {
+    border-radius: 0;
+  }
+
+  .dead-zone {
+    padding: .55rem .55rem 9.5rem;
+  }
+
+  .toolbox-area {
+    left: 50%;
+    right: auto;
+    bottom: calc(3.15rem + env(safe-area-inset-bottom));
+
+    width: fit-content;
+    max-width: calc(100vw - 1rem);
+
+    transform: translateX(-50%);
+  }
+
+  .editor-toolbox {
+    width: fit-content;
+    max-width: calc(100vw - .55rem);
+    gap: .18rem;
+    padding: .26rem .26rem .3rem;
+    border-radius: .9rem;
+  }
+
+  .toolbox-module {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .toolbox-module-content {
+    gap: .14rem;
+  }
+
+  .editor-toolbox :deep(.toolbox-section),
+  .editor-toolbox :deep(.draggable-elements) {
+    gap: .1rem !important;
+  }
+
+  .editor-toolbox :deep(.toolbox-item),
+  .editor-toolbox > .toolbox-item {
+    min-width: 3.72rem !important;
+    min-height: 3.05rem;
+    padding: .3rem .16rem !important;
+  }
+
+  .editor-toolbox :deep(.toolbox-item span),
+  .editor-toolbox > .toolbox-item span {
+    max-width: 3.95rem;
+    font-size: .64rem !important;
+    line-height: 1.1;
+  }
+}
+
+@media (max-width: 390px) {
+  .editor-toolbox :deep(.toolbox-item),
+  .editor-toolbox > .toolbox-item {
+    min-width: 3.48rem !important;
+  }
+
+  .editor-toolbox :deep(.toolbox-item span),
+  .editor-toolbox > .toolbox-item span {
+    max-width: 3.62rem;
+    font-size: .6rem !important;
+  }
+}
+
+/* Téléphone paysage : plan encore plus compact, dock sur deux lignes courtes. */
+@media (max-height: 560px) and (orientation: landscape) and (max-width: 1000px) {
+  .dead-zone {
+    padding-bottom: 6.5rem;
+  }
+
+  .editor-toolbox :deep(.toolbox-item),
+  .editor-toolbox > .toolbox-item {
+    min-height: 2.45rem;
+  }
+}
+
+
 </style>

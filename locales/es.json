@@ -231,7 +231,9 @@
           "terminus": "Final de línea"
         },
         "subtitle": "Subtítulo",
-        "terminus": "Final de línea"
+        "terminus": "Final de línea",
+        "urban_bubble": "Burbuja urbana",
+        "urban_bubble_summary": "Añade esta parada a una zona gráfica. Las paradas contiguas activadas se fusionan automáticamente en la misma burbuja."
       },
       "troubleshooting": {
         "github": "abrir un ticket en GitHub",

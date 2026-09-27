@@ -290,7 +290,9 @@
           "title": "駅のタイプ"
         },
         "subtitle": "副題",
-        "terminus": "終着駅"
+        "terminus": "終着駅",
+        "urban_bubble": "都市バブル",
+        "urban_bubble_summary": "この停留所を視覚的なエリアに追加します。隣接する有効な停留所は自動的に同じバブルへ結合されます。"
       },
       "troubleshooting": {
         "github": "GitHubの課題を開く",

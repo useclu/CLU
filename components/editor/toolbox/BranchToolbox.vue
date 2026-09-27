@@ -2,6 +2,7 @@
 import type { DraggableEvent } from 'vue-draggable-plus'
 import { v4 as uuidv4 } from 'uuid'
 import { computed, ref } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { VueDraggable } from 'vue-draggable-plus'
 import { storeToRefs } from 'pinia'
@@ -15,6 +16,7 @@ interface Element {
 }
 
 const { grab, release } = useElementGrabbing()
+const isCompactEditorViewport = useMediaQuery('(max-width: 1100px)')
 const { line } = storeToRefs(useProject())
 const { t } = useI18n()
 
@@ -30,11 +32,13 @@ const elements = ref<Element[]>([
     icon: 'i-bulb-stop',
     type: 'STOP',
   },
-  {
-    label: 'ui.map_editor.toolbox.spacer',
-    icon: 'i-bulb-spacer',
-    type: 'SPACER',
-  },
+  /*
+   * Le Spacer historique n'est plus proposé à la création.
+   *
+   * Les anciens projets qui en contiennent restent compatibles :
+   * Spacer.vue / SpacerPropertiesDialog.vue et le type Spacer sont
+   * conservés. Le nouvel ajustement local se fait depuis l'arrêt.
+   */
   {
     label: 'ui.map_editor.toolbox.area_separator',
     icon: 'i-bulb-spacer',
@@ -58,6 +62,7 @@ function clone(element: Element): BranchElement {
           terminus: false,
           closed: false,
           future: false,
+          spacingAfter: 0,
           outOfFareZone: false,
           connections: [],
           nameStyle: {
@@ -120,6 +125,12 @@ function onStart(
     }"
     :clone="clone"
     :sort="false"
+    :force-fallback="isCompactEditorViewport"
+    :fallback-on-body="isCompactEditorViewport"
+    :fallback-tolerance="isCompactEditorViewport ? 4 : 0"
+    :touch-start-threshold="isCompactEditorViewport ? 3 : 1"
+    :scroll="!isCompactEditorViewport"
+    fallback-class="clu-touch-drag-fallback"
     @start="e => onStart(e as DraggableEvent<Element>)"
     @end="release()"
   >

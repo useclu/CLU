@@ -451,13 +451,13 @@ const sharedMarkerExtra = '.9em'
 
 .dot-wrapper.bus-mode {
   .dot {
-    width: .55em;
-    height: .55em;
+    width: .68em;
+    height: .68em;
 
     background-color: white;
 
     border:
-      .105em
+      .115em
       solid
       #222;
 
@@ -467,13 +467,13 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.connection {
-    width: .64em;
-    height: .64em;
+    width: .76em;
+    height: .76em;
 
     background-color: white;
 
     border:
-      .11em
+      .12em
       solid
       #222;
 
@@ -481,13 +481,20 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.terminus {
-    width: .72em;
-    height: .72em;
+    width: .92em;
+    height: .92em;
 
-    background-color: white;
+    background:
+      radial-gradient(
+        circle at center,
+        #222 0,
+        #222 .17em,
+        white .18em,
+        white 100%
+      );
 
     border:
-      .13em
+      .125em
       solid
       #222;
 
@@ -495,13 +502,20 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.terminus.connection {
-    width: .72em;
-    height: .72em;
+    width: .92em;
+    height: .92em;
 
-    background-color: white;
+    background:
+      radial-gradient(
+        circle at center,
+        #222 0,
+        #222 .17em,
+        white .18em,
+        white 100%
+      );
 
     border:
-      .13em
+      .125em
       solid
       #222;
 
@@ -509,13 +523,13 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.future {
-    width: .55em;
-    height: .55em;
+    width: .68em;
+    height: .68em;
 
     background-color: white;
 
     border:
-      .105em
+      .115em
       dashed
       v-bind(color);
 
@@ -525,13 +539,13 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.future.connection {
-    width: .64em;
-    height: .64em;
+    width: .76em;
+    height: .76em;
 
     background-color: white;
 
     border:
-      .11em
+      .12em
       dashed
       #222;
 
@@ -541,13 +555,20 @@ const sharedMarkerExtra = '.9em'
   }
 
   .dot.future.terminus {
-    width: .72em;
-    height: .72em;
+    width: .92em;
+    height: .92em;
 
-    background-color: white;
+    background:
+      radial-gradient(
+        circle at center,
+        rgb(34 34 34 / .65) 0,
+        rgb(34 34 34 / .65) .17em,
+        white .18em,
+        white 100%
+      );
 
     border:
-      .13em
+      .125em
       dashed
       v-bind(color);
 
@@ -561,17 +582,17 @@ const sharedMarkerExtra = '.9em'
    * le langage Bus ne doit pas le réduire à un petit point.
    */
   .shared-stop {
-    width: .8em;
+    width: .88em;
 
-    border-width: .105em;
+    border-width: .115em;
     border-color: #222;
 
-    border-radius: .4em;
+    border-radius: .44em;
   }
 
   .shared-stop-dot {
-    width: .19em;
-    height: .19em;
+    width: .22em;
+    height: .22em;
 
     background-color: #222;
   }
@@ -583,41 +604,41 @@ const sharedMarkerExtra = '.9em'
    */
 
   .vertical-stop {
-    width: .8em;
-    height: 1.35em;
+    width: .88em;
+    height: 1.48em;
 
-    padding-top: .17em;
-    padding-bottom: .17em;
+    padding-top: .19em;
+    padding-bottom: .19em;
 
     background-color: white;
 
     border:
-      .105em
+      .115em
       solid
       #222;
 
-    border-radius: .4em;
+    border-radius: .44em;
   }
 
   .vertical-stop-dot {
-    width: .19em;
-    height: .19em;
+    width: .22em;
+    height: .22em;
 
     background-color: #222;
   }
 
   .vertical-stop.connection {
-    width: .86em;
-
-    border-color: #222;
-    border-width: .11em;
-  }
-
-  .vertical-stop.terminus {
-    width: .86em;
+    width: .94em;
 
     border-color: #222;
     border-width: .12em;
+  }
+
+  .vertical-stop.terminus {
+    width: .94em;
+
+    border-color: #222;
+    border-width: .125em;
   }
 
   .vertical-stop.future {

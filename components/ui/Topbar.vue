@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { computed, ref } from 'vue'
-import { useRoute, useState } from '#app'
+import { useI18n } from 'vue-i18n'
+import { useRoute } from '#app'
+import useCluPreviewMode, { type PreviewMode } from '~/composables/useCluPreviewMode'
 import { useProject } from '~/stores/useProject'
 import { useSnow } from '~/stores/useSnow'
 
@@ -15,12 +17,21 @@ const route = useRoute()
 const normalizedRoutePath = computed(() => route.path.replace(/\/+$/, '') || '/')
 const isEditorRoute = computed(() => normalizedRoutePath.value === '/editor')
 const isGameRoute = computed(() => normalizedRoutePath.value === '/game')
-const sncfPreview = useState<boolean>(
-  'clu-sncf-preview',
-  () => false,
+const {
+  previewMode,
+  isPreviewing,
+  setPreviewMode,
+  exitPreview,
+} = useCluPreviewMode()
+const isEditorPreview = computed(
+  () => isEditorRoute.value && isPreviewing.value,
 )
-
-const showMenu = ref(false)
+const isRatpEditorPreview = computed(
+  () =>
+    isEditorRoute.value
+    && previewMode.value === 'RATP',
+)
+const { t } = useI18n()
 
 const showLineIndexDirectory = ref(false)
 const showModePictogramsDialog = ref(false)
@@ -32,14 +43,63 @@ const customLineThickness = ref<string | null>(null)
 
 const filePopover = ref()
 const toolsPopover = ref()
+const previewPopover = ref()
+const utilityPopover = ref()
+
+const previewOptions: Array<{
+  mode: PreviewMode
+  labelKey: string
+  icon: string
+}> = [
+  {
+    mode: 'SNCF',
+    labelKey: 'ui.map_editor.preview_mode_sncf',
+    icon: 'i-tabler-train',
+  },
+  {
+    mode: 'RATP',
+    labelKey: 'ui.map_editor.preview_ratp',
+    icon: 'i-tabler-route',
+  },
+]
+
+function previewModeLabelKey(
+  mode: PreviewMode,
+) {
+  return previewOptions.find(
+    option => option.mode === mode,
+  )?.labelKey
+  ?? 'ui.map_editor.preview'
+}
+
+const previewButtonLabel = computed(() => {
+  if (!previewMode.value) {
+    return t('ui.map_editor.preview')
+  }
+
+  return t(
+    'ui.map_editor.preview_current',
+    {
+      mode: t(
+        previewModeLabelKey(
+          previewMode.value,
+        ),
+      ),
+    },
+  )
+})
 
 function toggleFileMenu(event: Event) {
   toolsPopover.value?.hide()
+  previewPopover.value?.hide()
+  utilityPopover.value?.hide()
   filePopover.value?.toggle(event)
 }
 
 function toggleToolsMenu(event: Event) {
   filePopover.value?.hide()
+  previewPopover.value?.hide()
+  utilityPopover.value?.hide()
   toolsPopover.value?.toggle(event)
 }
 
@@ -49,25 +109,21 @@ function closeFilePopover() {
 
 function openCustomIndices() {
   closeFilePopover()
-  showMenu.value = false
   showLineIndexDirectory.value = true
 }
 
 function openModePictograms() {
   closeFilePopover()
-  showMenu.value = false
   showModePictogramsDialog.value = true
 }
 
 function openSave() {
   closeFilePopover()
-  showMenu.value = false
   showSaveDialog.value = true
 }
 
 function openCustomMapSize() {
   toolsPopover.value?.hide()
-  showMenu.value = false
   customMapSize.value = project.line.mapSize
   showCustomMapSizeDialog.value = true
 }
@@ -92,7 +148,6 @@ function applyCustomMapSize() {
 
 function openCustomLineThickness() {
   toolsPopover.value?.hide()
-  showMenu.value = false
   customLineThickness.value = project.line.lineThickness
   showCustomLineThicknessDialog.value = true
 }
@@ -115,23 +170,41 @@ function applyCustomLineThickness() {
   showCustomLineThicknessDialog.value = false
 }
 
-function toggleSncfPreview() {
+function togglePreviewMenu(event: Event) {
   filePopover.value?.hide()
   toolsPopover.value?.hide()
-  sncfPreview.value = !sncfPreview.value
-
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(
-      'clu-sncf-preview',
-      sncfPreview.value ? '1' : '0',
-    )
-  }
+  utilityPopover.value?.hide()
+  previewPopover.value?.toggle(event)
 }
 
-function toggleSncfPreviewFromMobile() {
-  toggleSncfPreview()
-  showMenu.value = false
+function toggleUtilityMenu(event: Event) {
+  filePopover.value?.hide()
+  toolsPopover.value?.hide()
+  previewPopover.value?.hide()
+  utilityPopover.value?.toggle(event)
 }
+
+function closeUtilityMenu() {
+  utilityPopover.value?.hide()
+}
+
+function selectPreviewMode(
+  mode: PreviewMode,
+) {
+  setPreviewMode(mode)
+
+  filePopover.value?.hide()
+  toolsPopover.value?.hide()
+  previewPopover.value?.hide()
+  utilityPopover.value?.hide()
+}
+
+
+function returnToEditing() {
+  exitPreview()
+  previewPopover.value?.hide()
+}
+
 
 function toggleSnow() {
   snowEnabled.value = !snowEnabled.value
@@ -141,198 +214,147 @@ function toggleSnow() {
 <template>
   <template v-if="!isGameRoute">
     <Menubar class="bulb-topbar">
-    <template #start>
-      <div class="topbar-left">
-        <!--
-          =====================================================
-          IDENTITÉ CLU
-          =====================================================
-        -->
-        <div class="brand">
-          <h1 class="brand-title">
-            <strong class="text-nowrap hidden 2xl:block">
-              {{ $t('ui.topbar.brand') }}
-            </strong>
+      <template #start>
+        <div class="topbar-shell">
+          <div class="topbar-primary">
+            <div class="brand">
+              <h1 class="brand-title">
+                <strong class="brand-full">
+                  {{ $t('ui.topbar.brand') }}
+                </strong>
+                <strong class="brand-short">CLU</strong>
+              </h1>
+            </div>
 
-            <strong class="text-nowrap 2xl:hidden visible">
-              CLU
-            </strong>
-          </h1>
+            <div class="topbar-actions">
+              <Button
+                :label="$t('ui.topbar.file')"
+                icon="i-tabler-file"
+                severity="secondary"
+                text
+                size="small"
+                @click="toggleFileMenu"
+              />
+
+              <Button
+                v-if="!isEditorPreview"
+                :label="$t('ui.topbar.tools')"
+                icon="i-tabler-adjustments-horizontal"
+                severity="secondary"
+                text
+                size="small"
+                @click="toggleToolsMenu"
+              />
+
+              <Button
+                v-if="isEditorRoute"
+                :label="previewButtonLabel"
+                icon="i-tabler-eye"
+                :severity="isEditorPreview ? 'primary' : 'secondary'"
+                text
+                size="small"
+                @click="togglePreviewMenu"
+              />
+            </div>
+          </div>
+
+          <div
+            v-if="!isEditorPreview"
+            class="history-actions"
+          >
+            <Button
+              :label="$t('ui.topbar.undo')"
+              icon="i-tabler-arrow-left"
+              severity="secondary"
+              text
+              size="small"
+              :disabled="!canUndo"
+              @click="undo"
+            />
+
+            <Button
+              :label="$t('ui.topbar.redo')"
+              icon="i-tabler-arrow-right"
+              icon-pos="right"
+              severity="secondary"
+              text
+              size="small"
+              :disabled="!canRedo"
+              @click="redo"
+            />
+          </div>
+
+          <div class="topbar-right">
+            <!--
+              Desktop : on conserve les accès directs historiques.
+              Ils ne sont rangés dans le menu = que sur tablette/mobile.
+            -->
+            <div class="desktop-page-actions">
+              <TopbarPageButton
+                :label="$t('ui.topbar.editor')"
+                icon="i-tabler-map"
+                to="/editor"
+              />
+
+              <TopbarPageButton
+                v-if="isEditorRoute"
+                :label="$t('ui.topbar.metropole')"
+                icon="i-tabler-train"
+                to="/game"
+              />
+            </div>
+
+            <div
+              v-if="!isEditorPreview"
+              class="compact-history-actions"
+            >
+              <Button
+                :label="$t('ui.topbar.undo')"
+                icon="i-tabler-arrow-left"
+                severity="secondary"
+                text
+                size="small"
+                :disabled="!canUndo"
+                :title="$t('ui.topbar.undo')"
+                @click="undo"
+              />
+
+              <Button
+                :label="$t('ui.topbar.redo')"
+                icon="i-tabler-arrow-right"
+                icon-pos="right"
+                severity="secondary"
+                text
+                size="small"
+                :disabled="!canRedo"
+                :title="$t('ui.topbar.redo')"
+                @click="redo"
+              />
+            </div>
+
+            <Button
+              class="unified-menu-button"
+              label="="
+              severity="secondary"
+              text
+              rounded
+              :aria-label="$t('ui.topbar.utility_menu')"
+              :title="$t('ui.topbar.utility_menu')"
+              @click="toggleUtilityMenu"
+            />
+
+            <Button
+              v-if="isWinter"
+              class="winter-action"
+              text
+              rounded
+              :icon="snowEnabled ? 'i-tabler-snowflake' : 'i-tabler-snowflake-off'"
+              @click="toggleSnow()"
+            />
+          </div>
         </div>
-
-        <!--
-          =====================================================
-          FICHIER / OUTILS
-          =====================================================
-        -->
-        <div class="hidden lg:flex topbar-actions">
-          <Button
-            :label="$t('ui.topbar.file')"
-            icon="i-tabler-file"
-            severity="secondary"
-            text
-            @click="toggleFileMenu"
-          />
-
-          <Button
-            :label="$t('ui.topbar.tools')"
-            icon="i-tabler-adjustments-horizontal"
-            severity="secondary"
-            text
-            @click="toggleToolsMenu"
-          />
-
-          <Button
-            v-if="isEditorRoute"
-            :label="
-              $t(
-                sncfPreview
-                  ? 'ui.map_editor.back_to_editing'
-                  : 'ui.map_editor.preview_sncf',
-              )
-            "
-            :icon="
-              sncfPreview
-                ? 'i-tabler-edit'
-                : 'i-tabler-eye'
-            "
-            :severity="
-              sncfPreview
-                ? 'primary'
-                : 'secondary'
-            "
-            text
-            @click="toggleSncfPreview"
-          />
-        </div>
-      </div>
-
-      <!--
-        =====================================================
-        AVANT / APRÈS
-        =====================================================
-      -->
-      <div class="hidden lg:flex history-actions">
-        <Button
-          :label="$t('ui.topbar.undo')"
-          icon="i-tabler-arrow-left"
-          severity="secondary"
-          text
-          :disabled="!canUndo"
-          @click="undo"
-        />
-
-        <Button
-          :label="$t('ui.topbar.redo')"
-          icon="i-tabler-arrow-right"
-          icon-pos="right"
-          severity="secondary"
-          text
-          :disabled="!canRedo"
-          @click="redo"
-        />
-      </div>
-    </template>
-
-    <template #end>
-      <!--
-        =====================================================
-        NAVIGATION À DROITE
-        =====================================================
-      -->
-      <div class="hidden lg:flex topbar-right">
-        <TopbarPageButton
-          :label="$t('ui.topbar.editor')"
-          icon="i-tabler-map"
-          to="/editor"
-        />
-
-        <TopbarPageButton
-          v-if="isEditorRoute"
-          label="CLU Métropole"
-          icon="i-tabler-train"
-          to="/game"
-        />
-
-        <a
-          class="bulb-official-link"
-          href="https://bulb.slama.io"
-          target="_blank"
-          rel="noopener noreferrer"
-          :aria-label="$t('ui.topbar.bulb_official')"
-          :title="$t('ui.topbar.bulb_open')"
-        >
-          <i class="i-tabler-bulb" />
-
-          <span>
-            {{ $t('ui.topbar.bulb_official') }}
-          </span>
-        </a>
-
-        <a
-          class="social-link"
-          href="https://x.com/Bot_CLU"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="X (Twitter)"
-          title="X (Twitter)"
-        >
-          <i class="i-tabler-brand-x" />
-        </a>
-
-        <a
-          class="social-link"
-          href="https://discord.gg/EPt3scCQH8"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Discord CLU"
-          :title="$t('ui.topbar.discord_join')"
-        >
-          <i class="i-tabler-brand-discord" />
-        </a>
-
-        <Divider
-          layout="vertical"
-          pt:root:class="important-mx-1"
-        />
-
-        <ThemeSwitcher />
-        <LocaleSwitcher />
-
-        <template v-if="isWinter">
-          <Divider
-            layout="vertical"
-            pt:root:class="important-mx-1"
-          />
-
-          <Button
-            text
-            rounded
-            :icon="
-              snowEnabled
-                ? 'i-tabler-snowflake'
-                : 'i-tabler-snowflake-off'
-            "
-            @click="toggleSnow()"
-          />
-        </template>
-      </div>
-
-      <!--
-        =====================================================
-        MENU MOBILE
-        =====================================================
-      -->
-      <Button
-        pt:root:class="lg:important-hidden"
-        icon="i-tabler-menu-2"
-        severity="secondary"
-        text
-        rounded
-        @click="showMenu = true"
-      />
-    </template>
-  </Menubar>
+      </template>
+    </Menubar>
 
   <!--
     =========================================================
@@ -364,6 +386,7 @@ function toggleSnow() {
 
       <div class="file-menu-wrapper">
         <MainMenu
+          :preview-limited="isRatpEditorPreview"
           @open-custom-indices="openCustomIndices"
           @open-mode-pictograms="openModePictograms"
           @open-save="openSave"
@@ -411,150 +434,137 @@ function toggleSnow() {
 
   <!--
     =========================================================
-    MENU MOBILE
+    CHOIX DE PRÉVISUALISATION
     =========================================================
   -->
-  <Dialog
-    v-model:visible="showMenu"
-    :header="$t('ui.topbar.menu')"
-    pt:root:class="w-full"
-    modal
+  <Popover
+    ref="previewPopover"
+    class="topbar-popover"
   >
-    <div class="mobile-menu">
-      <div class="mobile-section">
-        <div class="mobile-section-title">
-          {{ $t('ui.topbar.file') }}
+    <div class="popover-content preview-popover-content">
+      <div class="popover-heading">
+        <div class="popover-heading-icon">
+          <i class="i-tabler-eye" />
         </div>
 
-        <MainMenu
-          @open-custom-indices="openCustomIndices"
-          @open-mode-pictograms="openModePictograms"
-          @open-save="openSave"
-        />
+        <div>
+          <div class="popover-title">
+            {{ $t('ui.map_editor.preview_title') }}
+          </div>
+
+          <div class="popover-subtitle">
+            {{ $t('ui.map_editor.preview_subtitle') }}
+          </div>
+        </div>
       </div>
 
       <Divider />
 
-      <div class="mobile-section">
-        <div class="mobile-section-title">
-          {{ $t('ui.topbar.tools') }}
-        </div>
-
-        <GeneralMapSettings
-          @open-custom-map-size="openCustomMapSize"
-          @open-custom-line-thickness="openCustomLineThickness"
-        />
-
+      <div class="preview-options">
         <Button
-          v-if="isEditorRoute"
-          :label="
-            $t(
-              sncfPreview
-                ? 'ui.map_editor.back_to_editing'
-                : 'ui.map_editor.preview_sncf',
-            )
-          "
-          :icon="
-            sncfPreview
-              ? 'i-tabler-edit'
-              : 'i-tabler-eye'
-          "
+          v-for="option in previewOptions"
+          :key="option.mode"
+          :label="$t(option.labelKey)"
+          :icon="option.icon"
           :severity="
-            sncfPreview
+            previewMode === option.mode
               ? 'primary'
               : 'secondary'
           "
-          size="large"
-          @click="toggleSncfPreviewFromMobile"
+          text
+          @click="selectPreviewMode(option.mode)"
         />
       </div>
 
-      <Divider />
-
-      <TopbarPageButton
-        :label="$t('ui.topbar.editor')"
-        icon="i-tabler-map"
-        to="/editor"
-        size="large"
-        @click="showMenu = false"
-      />
-
-      <TopbarPageButton
-        v-if="isEditorRoute"
-        label="CLU Métropole"
-        icon="i-tabler-train"
-        to="/game"
-        size="large"
-        @click="showMenu = false"
-      />
-
-      <a
-        class="mobile-bulb-official-link"
-        href="https://bulb.slama.io"
-        target="_blank"
-        rel="noopener noreferrer"
-        :aria-label="$t('ui.topbar.bulb_official')"
-        @click="showMenu = false"
-      >
-        <i class="i-tabler-bulb" />
-
-        <span>
-          {{ $t('ui.topbar.bulb_official') }}
-        </span>
-      </a>
-
-      <div class="mobile-social-links">
-        <a
-          class="mobile-social-link"
-          href="https://x.com/Bot_CLU"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="X (Twitter)"
-          @click="showMenu = false"
-        >
-          <i class="i-tabler-brand-x" />
-
-          <span>
-            X
-          </span>
-        </a>
-
-        <a
-          class="mobile-social-link"
-          href="https://discord.gg/EPt3scCQH8"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Discord CLU"
-          @click="showMenu = false"
-        >
-          <i class="i-tabler-brand-discord" />
-
-          <span>
-            Discord
-          </span>
-        </a>
-      </div>
-
-      <Divider />
-
-      <div class="mobile-footer">
-        <ThemeSwitcher />
-        <LocaleSwitcher />
+      <template v-if="isEditorPreview">
+        <Divider />
 
         <Button
-          v-if="isWinter"
+          :label="$t('ui.map_editor.back_to_editing')"
+          icon="i-tabler-edit"
+          severity="secondary"
           text
-          rounded
-          :icon="
-            snowEnabled
-              ? 'i-tabler-snowflake'
-              : 'i-tabler-snowflake-off'
-          "
-          @click="toggleSnow()"
+          @click="returnToEditing"
         />
+      </template>
+    </div>
+  </Popover>
+
+  <!--
+    =========================================================
+    RÉSEAUX / THÈME / TRADUCTION
+    =========================================================
+  -->
+  <Popover
+    ref="utilityPopover"
+    class="topbar-popover"
+  >
+    <div class="popover-content utility-popover-content">
+      <NuxtLink
+        class="utility-menu-link"
+        to="/editor"
+        @click="closeUtilityMenu"
+      >
+        <i class="i-tabler-map" />
+        <span>{{ $t('ui.topbar.editor') }}</span>
+      </NuxtLink>
+
+      <NuxtLink
+        class="utility-menu-link"
+        to="/game"
+        @click="closeUtilityMenu"
+      >
+        <i class="i-tabler-train" />
+        <span>{{ $t('ui.topbar.metropole') }}</span>
+      </NuxtLink>
+
+      <Divider />
+
+      <a
+        class="utility-menu-link"
+        href="https://x.com/Bot_CLU"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="X (Twitter)"
+        @click="closeUtilityMenu"
+      >
+        <i class="i-tabler-brand-x" />
+        <span>{{ $t('ui.topbar.twitter') }}</span>
+      </a>
+
+      <a
+        class="utility-menu-link"
+        href="https://discord.gg/EPt3scCQH8"
+        target="_blank"
+        rel="noopener noreferrer"
+        :aria-label="$t('ui.topbar.discord_join')"
+        @click="closeUtilityMenu"
+      >
+        <i class="i-tabler-brand-discord" />
+        <span>{{ $t('ui.topbar.discord') }}</span>
+      </a>
+
+      <Divider />
+
+      <div class="utility-setting-row">
+        <div class="utility-setting-label">
+          <i class="i-tabler-palette" />
+          <span>{{ $t('ui.topbar.theme') }}</span>
+        </div>
+
+        <ThemeSwitcher />
+      </div>
+
+      <div class="utility-setting-row">
+        <div class="utility-setting-label">
+          <i class="i-tabler-language" />
+          <span>{{ $t('ui.topbar.language') }}</span>
+        </div>
+
+        <LocaleSwitcher />
       </div>
     </div>
-  </Dialog>
+  </Popover>
 
   <!--
     =========================================================
@@ -663,351 +673,387 @@ function toggleSnow() {
 </template>
 
 <style scoped lang="scss">
-/*
- * =========================================================
- * BARRE SUPÉRIEURE
- * =========================================================
- */
-
 .bulb-topbar {
   position: relative;
   z-index: 100;
+
+  padding: .3rem .45rem;
 }
 
-.topbar-left,
-.topbar-right,
-.topbar-actions {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-}
-
-.topbar-left {
+.bulb-topbar :deep(.p-menubar-start) {
+  width: 100%;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
-.topbar-right {
-  gap: .25rem;
+.bulb-topbar :deep(.p-menubar-root-list),
+.bulb-topbar :deep(.p-menubar-button) {
+  display: none !important;
 }
 
-.topbar-actions {
-  gap: .15rem;
-}
+.topbar-shell {
+  width: 100%;
+  min-width: 0;
 
-.bulb-official-link {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas: 'primary history right';
   align-items: center;
-  justify-content: center;
-  gap: .45rem;
-
-  min-height: 2.5rem;
-  padding: 0 .75rem;
-
-  border-radius: .5rem;
-
-  color: var(--p-text-color);
-  text-decoration: none;
-
-  font-size: .875rem;
-  font-weight: 500;
-
-  transition:
-    background-color .15s ease,
-    color .15s ease;
+  gap: .5rem;
 }
 
-.bulb-official-link i {
-  font-size: 1.1rem;
-}
+.topbar-primary {
+  grid-area: primary;
 
-.bulb-official-link:hover {
-  background: var(--p-content-hover-background);
-}
+  min-width: 0;
 
-.bulb-official-link:focus-visible {
-  outline:
-    2px solid
-    var(--p-primary-color);
-  outline-offset: 2px;
-}
-
-.social-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-
-  width: 2.5rem;
-  height: 2.5rem;
-
-  border-radius: 50%;
-
-  color: var(--p-text-color);
-  text-decoration: none;
-
-  font-size: 1.2rem;
-
-  transition:
-    background-color .15s ease,
-    color .15s ease;
-}
-
-.social-link:hover {
-  background: var(--p-content-hover-background);
-}
-
-.social-link:focus-visible {
-  outline:
-    2px solid
-    var(--p-primary-color);
-  outline-offset: 2px;
+  gap: .55rem;
 }
 
 .brand {
   display: flex;
-  flex-direction: row;
   align-items: center;
-
-  margin-right: 1rem;
+  flex: 0 0 auto;
 }
 
 .brand-title {
   margin: 0;
-
-  font-size: 1.875rem;
-  line-height: 1.2;
+  line-height: 1;
 }
 
-/*
- * =========================================================
- * AVANT / APRÈS
- * =========================================================
- */
+.brand-full,
+.brand-short {
+  white-space: nowrap;
+}
+
+.brand-full {
+  display: none;
+  font-size: 1.25rem;
+}
+
+.brand-short {
+  display: inline;
+  font-size: 1.45rem;
+}
+
+.topbar-actions,
+.topbar-right,
+.history-actions,
+.compact-history-actions,
+.desktop-page-actions {
+  display: flex;
+  align-items: center;
+}
+
+.compact-history-actions {
+  display: none;
+  gap: .05rem;
+}
+
+.desktop-page-actions {
+  gap: .12rem;
+}
+
+.topbar-actions {
+  min-width: 0;
+  gap: .05rem;
+}
+
+.topbar-actions :deep(.p-button) {
+  min-height: 2.25rem;
+  padding-inline: .55rem;
+}
+
+.topbar-actions :deep(.p-button-label) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .history-actions {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-
-  z-index: 5;
-
-  flex-direction: row;
-  align-items: center;
-  gap: .15rem;
-
-  transform: translate(-50%, -50%);
+  grid-area: history;
+  gap: .05rem;
 }
 
-/*
- * =========================================================
- * POPOVERS
- * =========================================================
- */
+.topbar-right {
+  grid-area: right;
+  justify-content: flex-end;
+  gap: .15rem;
+  min-width: 0;
+}
 
+.unified-menu-button,
+.winter-action {
+  width: 2.35rem;
+  min-width: 2.35rem;
+  height: 2.35rem;
+}
+
+.unified-menu-button {
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Popovers */
 .popover-content {
   display: flex;
   flex-direction: column;
-
   padding: .15rem;
 }
 
-.file-popover-content {
-  width: 22rem;
+.file-popover-content,
+.preview-popover-content {
+  width: min(22rem, calc(100vw - 1rem));
 }
 
 .tools-popover-content {
-  width: 24rem;
-  max-height: min(44rem, calc(100vh - 7rem));
+  width: min(24rem, calc(100vw - 1rem));
+  max-height: min(44rem, calc(100dvh - 5rem));
+}
+
+.utility-popover-content {
+  width: min(15.5rem, calc(100vw - 1rem));
+  gap: .15rem;
+}
+
+.preview-options {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.preview-options :deep(.p-button) {
+  justify-content: flex-start;
 }
 
 .popover-heading {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  gap: .75rem;
-
-  padding: .35rem .35rem 0;
+  gap: .65rem;
+  padding: .25rem .25rem 0;
 }
 
 .popover-heading-icon {
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+
   display: flex;
   align-items: center;
   justify-content: center;
 
-  width: 2.25rem;
-  height: 2.25rem;
-
-  flex-shrink: 0;
-
-  border-radius: .75rem;
-
-  background:
-    var(--p-content-hover-background);
-
-  font-size: 1.2rem;
+  border-radius: .65rem;
+  background: var(--p-content-hover-background);
+  font-size: 1.05rem;
 }
 
 .popover-title {
-  font-size: 1rem;
+  font-size: .95rem;
   font-weight: 700;
 }
 
 .popover-subtitle {
-  margin-top: .1rem;
-
+  margin-top: .05rem;
   color: var(--p-text-muted-color);
-
-  font-size: .75rem;
+  font-size: .72rem;
 }
 
 .tools-settings {
   overflow-y: auto;
-
-  padding-right: .25rem;
+  overscroll-behavior: contain;
+  padding-right: .2rem;
 }
 
-/*
- * Les libellés du menu Fichier restent alignés à gauche
- * lorsqu'ils occupent plusieurs lignes.
- */
-.file-menu-wrapper {
-  :deep(.p-button) {
-    justify-content: flex-start;
-    text-align: left;
-  }
-
-  :deep(.p-button-label) {
-    flex: initial;
-
-    white-space: normal;
-    text-align: left;
-  }
+.file-menu-wrapper :deep(.p-button) {
+  justify-content: flex-start;
+  text-align: left;
 }
 
-/*
- * =========================================================
- * MOBILE
- * =========================================================
- */
-
-.mobile-menu {
-  display: flex;
-  flex-direction: column;
-  gap: .5rem;
+.file-menu-wrapper :deep(.p-button-label) {
+  flex: initial;
+  white-space: normal;
+  text-align: left;
 }
 
-.mobile-section {
-  display: flex;
-  flex-direction: column;
-  gap: .5rem;
-}
-
-.mobile-section-title {
-  font-size: 1rem;
-  font-weight: 700;
-}
-
-.mobile-bulb-official-link {
+.utility-menu-link,
+.utility-setting-row {
+  min-height: 2.5rem;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: .5rem;
-
-  min-height: 2.75rem;
-  padding: .55rem .75rem;
-
-  border-radius: .65rem;
-
-  background: transparent;
-
+  border-radius: .5rem;
   color: var(--p-text-color);
   text-decoration: none;
-
-  font-size: .9rem;
-  font-weight: 600;
-
-  transition:
-    background-color .15s ease,
-    color .15s ease;
 }
 
-.mobile-bulb-official-link i {
-  font-size: 1.2rem;
+.utility-menu-link {
+  gap: .7rem;
+  padding: .5rem .7rem;
+  transition: background-color .15s ease;
 }
 
-.mobile-bulb-official-link:hover {
+.utility-menu-link:hover {
   background: var(--p-content-hover-background);
 }
 
-.mobile-bulb-official-link:focus-visible {
-  outline:
-    2px solid
-    var(--p-primary-color);
+.utility-menu-link:focus-visible {
+  outline: 2px solid var(--p-primary-color);
   outline-offset: 2px;
 }
 
-.mobile-social-links {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .5rem;
+.utility-menu-link > i,
+.utility-setting-label > i {
+  width: 1.2rem;
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  text-align: center;
 }
 
-.mobile-social-link {
-  display: flex;
+.utility-setting-row {
+  justify-content: space-between;
+  gap: .65rem;
+  padding: .25rem .3rem .25rem .7rem;
+}
+
+.utility-setting-label {
+  min-width: 0;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: .5rem;
-
-  min-height: 2.75rem;
-  padding: .55rem .75rem;
-
-  border-radius: .65rem;
-
-  background: transparent;
-
-  color: var(--p-text-color);
-  text-decoration: none;
-
-  font-size: .9rem;
-  font-weight: 600;
-
-  transition:
-    background-color .15s ease,
-    color .15s ease;
+  gap: .7rem;
 }
 
-.mobile-social-link i {
-  font-size: 1.2rem;
+/* Ordinateurs larges */
+@media (min-width: 1536px) {
+  .brand-full { display: inline; }
+  .brand-short { display: none; }
 }
 
-.mobile-social-link:hover {
-  background: var(--p-content-hover-background);
-}
-
-.mobile-social-link:focus-visible {
-  outline:
-    2px solid
-    var(--p-primary-color);
-  outline-offset: 2px;
-}
-
-.mobile-footer {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-evenly;
-
-  padding: 0 .5rem;
-}
-
-/*
- * =========================================================
- * PETITS ÉCRANS
- * =========================================================
- */
-
+/* Tablettes / petits portables : aucun Avant/Après au milieu. */
 @media (max-width: 1280px) {
+  .topbar-shell {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'primary right';
+  }
+
+  .history-actions {
+    display: none;
+  }
+
+  .compact-history-actions {
+    display: flex;
+  }
+
+  .compact-history-actions :deep(.p-button) {
+    min-height: 2.35rem;
+    padding-inline: .5rem;
+  }
+}
+
+@media (max-width: 1100px) {
+  .desktop-page-actions {
+    display: none;
+  }
+}
+
+/* Téléphones : 1re ligne navigation, 2e ligne Fichier/Outils/Prévisualiser. */
+@media (max-width: 720px) {
+  .bulb-topbar {
+    padding: .25rem .35rem;
+  }
+
+  .topbar-shell {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand right'
+      'actions actions';
+    row-gap: .2rem;
+  }
+
+  .topbar-primary {
+    display: contents;
+  }
+
   .brand {
-    margin-right: .5rem;
+    grid-area: brand;
+    min-width: 0;
+  }
+
+  .brand-short {
+    font-size: 1.35rem;
+  }
+
+  .topbar-actions {
+    grid-area: actions;
+    width: 100%;
+
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .15rem;
+  }
+
+  .topbar-actions :deep(.p-button) {
+    width: 100%;
+    min-width: 0;
+    min-height: 2.15rem;
+    padding: .35rem .35rem;
+    justify-content: center;
+  }
+
+  .topbar-actions :deep(.p-button-label) {
+    min-width: 0;
+    font-size: .74rem;
+  }
+
+  .topbar-actions :deep(.p-button-icon) {
+    font-size: .95rem;
+  }
+
+  .topbar-right {
+    gap: .05rem;
+  }
+
+  .unified-menu-button,
+  .winter-action {
+    width: 2.15rem;
+    min-width: 2.15rem;
+    height: 2.15rem;
+  }
+
+  .compact-history-actions :deep(.p-button) {
+    width: 2.15rem;
+    min-width: 2.15rem;
+    height: 2.15rem;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .compact-history-actions :deep(.p-button-label) {
+    display: none;
+  }
+
+  .unified-menu-button {
+    font-size: 1.1rem;
+  }
+
+  .popover-heading {
+    gap: .5rem;
+  }
+
+  .popover-subtitle {
+    display: none;
+  }
+}
+
+@media (max-width: 390px) {
+  .topbar-actions :deep(.p-button-label) {
+    font-size: .68rem;
+  }
+
+  .topbar-actions :deep(.p-button) {
+    gap: .25rem;
+    padding-inline: .2rem;
   }
 }
 </style>

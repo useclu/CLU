@@ -1556,6 +1556,16 @@ interface LineIdentityChangeVisual {
 const lineIdentityChangeVisuals =
   ref<LineIdentityChangeVisual[]>([])
 
+
+/*
+ * En style Horizontal, un terminus placé en première / dernière
+ * position doit être la vraie extrémité du rail. La largeur du nom
+ * peut agrandir son wrapper ; sans cette borne mesurée, le SVG allait
+ * jusqu'au bord du wrapper et dépassait visuellement le point terminus.
+ */
+const horizontalTerminusStartX = ref<number | null>(null)
+const horizontalTerminusEndX = ref<number | null>(null)
+
 /*
  * Retrouve l'identité demandée sur un arrêt.
  *
@@ -2681,6 +2691,15 @@ function updateLineIdentityChangeVisuals() {
 function baseLineVisibleSegments(
   lineId: string,
 ) {
+  const {
+    startX: routeStartX,
+    endX: routeEndX,
+  } = visibleRailBounds()
+
+  if (routeEndX <= routeStartX) {
+    return []
+  }
+
   const ranges =
     lineIdentityChangeVisuals.value
       .filter(
@@ -2690,17 +2709,17 @@ function baseLineVisibleSegments(
       .map(visual => ({
         startX:
           Math.max(
-            0,
+            routeStartX,
             Math.min(
-              branchLength.value,
+              routeEndX,
               visual.startX,
             ),
           ),
         endX:
           Math.max(
-            0,
+            routeStartX,
             Math.min(
-              branchLength.value,
+              routeEndX,
               visual.endX,
             ),
           ),
@@ -2718,8 +2737,8 @@ function baseLineVisibleSegments(
     return [
       {
         key: `${lineId}-full`,
-        startX: 0,
-        endX: branchLength.value,
+        startX: routeStartX,
+        endX: routeEndX,
       },
     ]
   }
@@ -2731,7 +2750,7 @@ function baseLineVisibleSegments(
       endX: number
     }> = []
 
-  let cursor = 0
+  let cursor = routeStartX
 
   ranges.forEach((range, index) => {
     if (range.startX > cursor) {
@@ -2750,11 +2769,11 @@ function baseLineVisibleSegments(
       )
   })
 
-  if (cursor < branchLength.value) {
+  if (cursor < routeEndX) {
     segments.push({
       key: `${lineId}-after`,
       startX: cursor,
-      endX: branchLength.value,
+      endX: routeEndX,
     })
   }
 
@@ -2771,6 +2790,11 @@ function baseLineVisibleSegments(
 function lineIdentitySegmentsForLine(
   lineId: string,
 ) {
+  const {
+    startX: routeStartX,
+    endX: routeEndX,
+  } = visibleRailBounds()
+
   return lineIdentityChangeVisuals.value
     .filter(
       visual =>
@@ -2778,10 +2802,22 @@ function lineIdentitySegmentsForLine(
     )
     .map(visual => ({
       key: `${visual.key}-same-rail`,
-      startX: visual.startX,
-      endX: visual.endX,
+      startX:
+        Math.max(
+          routeStartX,
+          visual.startX,
+        ),
+      endX:
+        Math.min(
+          routeEndX,
+          visual.endX,
+        ),
       color: visual.color,
     }))
+    .filter(
+      segment =>
+        segment.endX > segment.startX,
+    )
 }
 
 
@@ -3275,6 +3311,88 @@ function stopAnchorX(
     + rect.width / 2
     - wrapperRect.left
   )
+}
+
+
+function updateHorizontalTerminusBounds() {
+  horizontalTerminusStartX.value = null
+  horizontalTerminusEndX.value = null
+
+  if (
+    !isTramHorizontal.value
+    || !el.value
+    || branchStops.value.length === 0
+  ) {
+    return
+  }
+
+  const railSvg =
+    line.value?.querySelector<SVGSVGElement>(
+      'svg',
+    )
+
+  const wrapperRect =
+    railSvg?.getBoundingClientRect()
+    ?? el.value.getBoundingClientRect()
+
+  const firstStop = branchStops.value[0]
+  const lastStop =
+    branchStops.value[
+      branchStops.value.length - 1
+    ]
+
+  if (firstStop?.$stop.terminus) {
+    const firstElement =
+      findStopElement(firstStop.id)
+
+    if (firstElement) {
+      horizontalTerminusStartX.value =
+        Math.max(
+          0,
+          Math.min(
+            branchLength.value,
+            stopAnchorX(
+              firstElement,
+              wrapperRect,
+            ),
+          ),
+        )
+    }
+  }
+
+  if (lastStop?.$stop.terminus) {
+    const lastElement =
+      findStopElement(lastStop.id)
+
+    if (lastElement) {
+      horizontalTerminusEndX.value =
+        Math.max(
+          0,
+          Math.min(
+            branchLength.value,
+            stopAnchorX(
+              lastElement,
+              wrapperRect,
+            ),
+          ),
+        )
+    }
+  }
+}
+
+function visibleRailBounds() {
+  const startX =
+    horizontalTerminusStartX.value
+    ?? 0
+
+  const endX =
+    horizontalTerminusEndX.value
+    ?? branchLength.value
+
+  return {
+    startX,
+    endX: Math.max(startX, endX),
+  }
 }
 
 function stopMarkerHorizontalEdges(
@@ -5291,6 +5409,7 @@ function scheduleConnectionBridgeUpdate() {
         await nextTick()
 
         updateMultiLineSeparationCues()
+        updateHorizontalTerminusBounds()
         updateLineIdentityChangeVisuals()
         updateLineToForkExtensions()
         updateConnectionBridges()
@@ -5308,6 +5427,13 @@ watch(
   },
   {
     deep: true,
+  },
+)
+
+watch(
+  isTramHorizontal,
+  () => {
+    scheduleConnectionBridgeUpdate()
   },
 )
 

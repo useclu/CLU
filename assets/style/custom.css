@@ -115,3 +115,188 @@ body {
   font-display: swap;
 }
 
+
+/* =========================================================
+ * CLU EDITOR — RESPONSIVE DIALOGS / TOUCH
+ * Activé uniquement sur /editor via la classe du body.
+ * ========================================================= */
+.clu-editor-responsive {
+  overscroll-behavior: none;
+}
+
+.clu-editor-responsive button,
+.clu-editor-responsive [role="button"] {
+  touch-action: manipulation;
+}
+
+@media (max-width: 1100px) {
+  body.clu-editor-responsive .p-dialog {
+    width: min(42rem, calc(100vw - 1.25rem)) !important;
+    max-width: calc(100vw - 1.25rem) !important;
+    max-height: calc(100dvh - 1.25rem) !important;
+    margin: .625rem !important;
+  }
+
+  body.clu-editor-responsive .p-dialog-header {
+    padding: .75rem .9rem !important;
+  }
+
+  body.clu-editor-responsive .p-dialog-content {
+    padding: .75rem .9rem !important;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body.clu-editor-responsive .p-dialog-footer {
+    padding: .65rem .9rem .8rem !important;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+  }
+
+  body.clu-editor-responsive .p-popover {
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 4.5rem) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  body.clu-editor-responsive .p-dialog {
+    width: calc(100vw - .75rem) !important;
+    max-width: calc(100vw - .75rem) !important;
+    max-height: calc(100dvh - .75rem) !important;
+    margin: .375rem !important;
+    border-radius: .75rem !important;
+  }
+
+  body.clu-editor-responsive .p-dialog-header {
+    padding: .6rem .7rem !important;
+  }
+
+  body.clu-editor-responsive .p-dialog-title {
+    font-size: .92rem !important;
+  }
+
+  body.clu-editor-responsive .p-dialog-content {
+    padding: .6rem .7rem !important;
+    font-size: .86rem;
+  }
+
+  body.clu-editor-responsive .p-dialog-footer {
+    padding: .55rem .7rem .65rem !important;
+  }
+
+  body.clu-editor-responsive .p-dialog-footer .p-button {
+    flex: 1 1 auto;
+    min-height: 2.5rem;
+  }
+
+  body.clu-editor-responsive .p-inputtext,
+  body.clu-editor-responsive .p-inputnumber-input,
+  body.clu-editor-responsive .p-select,
+  body.clu-editor-responsive .p-button {
+    min-height: 2.35rem;
+  }
+
+
+  /*
+   * Les SelectButton de certaines propriétés (notamment Fourche) passent
+   * en colonne sur téléphone. Leur ancien flex: 1 1 0 les écrasait alors
+   * jusqu'à quelques pixels de haut. On leur redonne une vraie zone tactile.
+   */
+  body.clu-editor-responsive .p-selectbutton {
+    width: 100%;
+
+    display: grid !important;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: .3rem;
+
+    overflow: visible !important;
+  }
+
+  body.clu-editor-responsive .p-selectbutton .p-togglebutton {
+    flex: none !important;
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 2.65rem !important;
+
+    padding: .48rem .4rem !important;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    line-height: 1.15 !important;
+  }
+
+  body.clu-editor-responsive .p-selectbutton .p-togglebutton-label {
+    min-width: 0;
+
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+
+    font-size: .78rem !important;
+    line-height: 1.15 !important;
+    text-align: center;
+  }
+
+  body.clu-editor-responsive .p-inputnumber,
+  body.clu-editor-responsive .p-select,
+  body.clu-editor-responsive .p-inputtext {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  body.clu-editor-responsive .p-popover {
+    max-width: calc(100vw - .75rem) !important;
+    max-height: calc(100dvh - 4rem) !important;
+  }
+
+  /*
+   * iOS Safari zoome automatiquement lorsqu'un input a une taille de
+   * caractères inférieure à 16px. Les dialogs gardent leur mise en page
+   * compacte, mais les zones de saisie utilisent 16px pour empêcher ce zoom.
+   */
+  body.clu-editor-responsive .p-dialog input:not([type="checkbox"]):not([type="radio"]),
+  body.clu-editor-responsive .p-dialog textarea,
+  body.clu-editor-responsive .p-dialog select,
+  body.clu-editor-responsive .p-dialog .p-inputtext,
+  body.clu-editor-responsive .p-dialog .p-textarea,
+  body.clu-editor-responsive .p-dialog .p-inputnumber-input {
+    font-size: 16px !important;
+  }
+}
+
+
+/*
+ * Nuxt DevTools est un outil de développement, pas une commande CLU.
+ * Sur téléphone/tablette son launcher flottant remonte avec le clavier et peut
+ * masquer le champ actif. On le masque uniquement dans l'éditeur tactile.
+ * Les sélecteurs couvrent les hôtes utilisés par plusieurs versions de Nuxt.
+ */
+@media (max-width: 1100px), (hover: none) and (pointer: coarse) {
+  body.clu-editor-responsive > nuxt-devtools,
+  body.clu-editor-responsive > nuxt-devtools-container,
+  body.clu-editor-responsive > #nuxt-devtools,
+  body.clu-editor-responsive > #nuxt-devtools-container,
+  body.clu-editor-responsive > [data-nuxt-devtools],
+  body.clu-editor-responsive > [id*="nuxt-devtools"],
+  body.clu-editor-responsive > iframe[src*="__nuxt_devtools__"] {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+}
+
+
+/* Clone tactile Sortable : toujours au-dessus du canvas et jamais interactif. */
+@media (max-width: 1100px) {
+  body.clu-editor-responsive .clu-touch-drag-fallback {
+    z-index: 10000 !important;
+    pointer-events: none !important;
+    opacity: .92 !important;
+  }
+}

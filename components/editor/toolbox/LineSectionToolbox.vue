@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { v4 as uuidv4 } from 'uuid'
 import { ref } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import type { DraggableEvent } from 'vue-draggable-plus'
 import useElementGrabbing from '~/composables/useElementGrabbing'
 import { VueDraggable } from 'vue-draggable-plus'
@@ -15,6 +16,8 @@ interface Element {
     | 'PARALLEL_BRANCHES'
     | 'LOOP'
 }
+
+const isCompactEditorViewport = useMediaQuery('(max-width: 1100px)')
 
 const elements = ref<Element[]>([
   {
@@ -197,6 +200,12 @@ function onBranchSpecialStart(
       :group="{ name: 'sectionElements', pull: 'clone', put: false }"
       :clone="clone"
       :sort="false"
+      :force-fallback="isCompactEditorViewport"
+      :fallback-on-body="isCompactEditorViewport"
+      :fallback-tolerance="isCompactEditorViewport ? 4 : 0"
+      :touch-start-threshold="isCompactEditorViewport ? 3 : 1"
+      :scroll="!isCompactEditorViewport"
+      fallback-class="clu-touch-drag-fallback"
       @start="e => onSectionElementStart(e as DraggableEvent<Element>)"
       @end="release()"
     >
@@ -232,6 +241,12 @@ function onBranchSpecialStart(
       }"
       :clone="cloneBranchSpecial"
       :sort="false"
+      :force-fallback="isCompactEditorViewport"
+      :fallback-on-body="isCompactEditorViewport"
+      :fallback-tolerance="isCompactEditorViewport ? 4 : 0"
+      :touch-start-threshold="isCompactEditorViewport ? 3 : 1"
+      :scroll="!isCompactEditorViewport"
+      fallback-class="clu-touch-drag-fallback"
       @start="e => onBranchSpecialStart(e as DraggableEvent<BranchSpecialToolElement>)"
       @end="release()"
     >

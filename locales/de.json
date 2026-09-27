@@ -105,7 +105,7 @@
     "temporary": "temporär"
   },
   "ui": {
-        "changelog": {
+    "changelog": {
       "entries_type": {
         "added": "Neuerungen",
         "changed": "Änderungen",
@@ -312,7 +312,9 @@
           "title": "Haltestellenart"
         },
         "subtitle": "Untertitel",
-        "terminus": "Endstation"
+        "terminus": "Endstation",
+        "urban_bubble": "Stadtblase",
+        "urban_bubble_summary": "Fügt diesen Halt zu einem grafischen Bereich hinzu. Benachbarte aktivierte Halte werden automatisch zu einer Blase verbunden."
       },
       "troubleshooting": {
         "github": "erstellen Sie ein Issue auf GitHub",
