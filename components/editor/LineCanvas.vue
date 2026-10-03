@@ -5680,10 +5680,17 @@ function isSncfLastStop(
  * (Orly / CDG) affichés sous certaines lignes ne sont pas
  * utilisés dans cette vue.
  *
+ * Les cartouches texte attachés aux connexions de service
+ * (ex. MAIN_STATION → « Gare de Paris – Bercy ») sont eux
+ * aussi masqués : leur composant natif est conçu pour le
+ * rendu IDFM sur fond clair et produisait un grand rectangle
+ * blanc dans la signalétique SNCF. Le pictogramme du service
+ * reste, lui, affiché.
+ *
  * Important :
  * - les données du projet ne sont jamais modifiées ;
  * - le rendu IDFM conserve intégralement ces ornements ;
- * - tous les autres pictogrammes / services restent présents.
+ * - tous les pictogrammes / services restent présents.
  */
 
 function isSncfHiddenAirportOrnament(
@@ -5696,6 +5703,19 @@ function isSncfHiddenAirportOrnament(
   return (
     '$airportOrnament' in ornament
     || '$airportNameOrnament' in ornament
+  )
+}
+
+function isSncfHiddenServiceOrnament(
+  ornament: Ornament | null | undefined,
+) {
+  if (!ornament) {
+    return false
+  }
+
+  return (
+    isSncfHiddenAirportOrnament(ornament)
+    || '$textOrnament' in ornament
   )
 }
 
@@ -5741,11 +5761,30 @@ function getSncfConnections(
       }
 
       if ('$serviceConnection' in connection) {
+        const isMainStationService =
+          connection
+            .$serviceConnection
+            .elements
+            .some(
+              element =>
+                element
+                  .$serviceConnectionElement
+                  .service === 'MAIN_STATION',
+            )
+
         return {
           ...connection,
 
           $serviceConnection: {
             ...connection.$serviceConnection,
+
+            // En rendu SNCF, le pictogramme de gare suffit.
+            // Le marqueur piéton natif IDFM d'une MAIN_STATION
+            // est un grand bloc clair sur le fond bleu foncé.
+            walk:
+              isMainStationService
+                ? false
+                : connection.$serviceConnection.walk,
 
             elements:
               connection
@@ -5760,7 +5799,7 @@ function getSncfConnections(
                         .$serviceConnectionElement,
 
                       ornament:
-                        isSncfHiddenAirportOrnament(
+                        isSncfHiddenServiceOrnament(
                           element
                             .$serviceConnectionElement
                             .ornament,
