@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { currentGameLocaleTag } from '../../../config/i18n'
+import { formatGameInteger, formatGameCurrencyCompact } from '../../../config/i18n'
 import { computed } from 'vue'
 import { useGameTerritory } from '../../../composables/useGameTerritory'
 import { useGameMunicipalities } from '../../../composables/useGameMunicipalities'
@@ -30,8 +30,8 @@ const departments = computed(() => {
   }
   return [...map.values()].sort((a, b) => a.code.localeCompare(b.code))
 })
-function integer(value: number) { return new Intl.NumberFormat(currentGameLocaleTag(), { maximumFractionDigits: 0 }).format(value) }
-function money(value: number) { return new Intl.NumberFormat(currentGameLocaleTag(), { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 }).format(value) }
+function integer(value: number) { return formatGameInteger(value) }
+function money(value: number) { return formatGameCurrencyCompact(value) }
 function relation(code: string) { return municipalities.state.value?.relations.find(item => item.code === code) ?? null }
 function relationLabel(score: number) {
   if (score >= 75) return 'Très favorable'
@@ -77,4 +77,8 @@ function relationLabel(score: number) {
 
 <style scoped>
 .municipality-panel{display:grid;gap:13px}.section-head{display:flex;align-items:center;justify-content:space-between}.eyebrow{font-size:calc(11px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.12em;opacity:.55}.section-head h2{margin:2px 0 0;font-size:calc(24px * var(--clu-text-scale,1))}.intro,.note{font-size:calc(12px * var(--clu-text-scale,1));opacity:.7}.totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.totals div{padding:9px;border-radius:10px;background:rgba(255,255,255,.045);display:grid;gap:3px}.totals span,.municipality-row small,.department-list small{font-size:calc(10px * var(--clu-text-scale,1));opacity:.55}.municipality-row .history-facts{margin-top:3px;opacity:.38}.department-list,.municipality-list{display:grid;gap:6px}.department-list>div,.municipality-row{padding:9px;border-radius:10px;background:rgba(255,255,255,.035)}.department-list>div{display:grid;gap:3px}.municipality-row{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:12px}.municipality-row>span{display:grid}.relation{text-align:right}.coverage{grid-template-columns:auto auto;gap:1px 5px;text-align:right}.note{padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:10px}details{border-top:1px solid rgba(255,255,255,.07);padding-top:8px}summary{cursor:pointer;font-weight:700;margin-bottom:8px}
+
+/* Territoire : liste compacte de communes. */
+.municipality-panel{gap:11px}.section-head h2{font-size:calc(18px * var(--clu-text-scale,1))}.municipality-panel .eyebrow{font-size:calc(8px * var(--clu-text-scale,1))}.municipality-panel :is(.municipality-card,.summary-card,.territory-card){padding:9px;border-radius:9px;background:rgba(255,255,255,.02)}.municipality-panel :is(.municipality-list,.request-list){gap:5px}.municipality-panel p{font-size:calc(8.5px * var(--clu-text-scale,1));line-height:1.35}
+
 </style>

@@ -9,6 +9,7 @@ import { isoDateForGameDay } from '../config/calendar'
 import { isGameServiceLevel } from '../config/operations'
 import { isGameStationFacilityLevel } from '../config/stations'
 import { isGameMaintenanceLevel } from '../config/maintenance'
+import { normalizeInfrastructureUpgradeLevel } from '../config/infrastructure'
 import {
   isGameFareLevel,
   isGameFareManagementMode,
@@ -29,16 +30,21 @@ import {
   normalizeServiceProfileLevel,
 } from '../engine/network'
 import { normalizeFleetCondition } from '../engine/maintenance'
+import { normalizeLineSchedule } from '../engine/timetable'
+import { createEmptyOperationsState, normalizeOperationsState } from '../engine/operations'
 import { normalizeControllerCount } from '../config/inspection'
 import { createEmptyObjectivesState } from '../engine/objectives'
 import { calculateRequiredVehiclesForService } from '../engine/rollingStock'
-import { normalizeRollingStockUpgrades } from '../config/rollingStock'
+import { getRollingStockModel, normalizeRollingStockUpgrades } from '../config/rollingStock'
 import { createDefaultFreePlaySettings, normalizeFreePlaySettings } from '../config/freePlay'
 import { createEmptySimulation } from '../engine/simulation'
 import { GAME_SIMULATION_HISTORY_LIMIT } from '../config/simulation'
+import { createEmptyPassengersState, normalizePassengersState } from '../engine/passengers'
+import { findLineStation } from '../engine/network/geometry'
+import { stationDistanceMeters } from '../engine/transitRuntime'
 import { getGameTerritoryCatalogEntry, isGameTerritory, isGameTerritoryAvailable } from '../config/territories'
 import { createStatisticsState, normalizeStatisticsState } from '../engine/statistics'
-import { createEmptyRoastState, normalizeRoastState } from '../engine/roast'
+import { createEmptyAssistantState, normalizeAssistantState } from '../engine/assistant'
 import { normalizeGeneratedTerritorySettings } from '../engine/territory/generator'
 import {
   assertCanCreateGameSave,
@@ -65,6 +71,7 @@ import {
   normalizeChallengeDefinition,
 } from '../engine/challenges'
 import { isSaveChallenge, isSaveReadOnly } from '../utils/challengeState'
+import { applyOnlineGamePatches, notifyOnlinePersist, shouldPersistOnlineSaveLocally, type CluOnlineGamePatch } from '../utils/onlineSync'
 import type { GameChallengeDefinition, GameChallengeFinishReason, GameChallengeRuntime } from '../types/challenges'
 
 import type { GameEconomyState } from '../types/economy'
@@ -75,17 +82,37 @@ import type { GameGeneratedTerritorySettings } from '../types/generatedTerritory
 import type { GameMunicipalitiesState } from '../types/municipalities'
 import type { GameObjectivesState } from '../types/objectives'
 import type {
+  GameDepot,
   GameLine,
   GameLineBranch,
   GameLineRouteSegment,
+  GameInfrastructureSegmentState,
   GameNetworkState,
   GameStation,
+  GameWalkingTransfer,
 } from '../types/network'
 import type {
   GameLineDailySimulation,
   GameSimulationDayReport,
   GameSimulationState,
 } from '../types/simulation'
+
+// Métropole 2.0 — toutes les écritures IndexedDB sont sérialisées.
+// Cela empêche une sauvegarde plus ancienne de terminer après une action plus
+// récente et de réinjecter un état obsolète (jour précédent, niveau d'amélioration
+// précédent, etc.) quand l'utilisateur clique rapidement.
+let currentGamePersistQueue: Promise<void> = Promise.resolve()
+let currentGamePersistBatchDepth = 0
+let currentGamePersistBatchDirty = false
+
+async function yieldBeforeStorageWrite() {
+  // L'état gameplay est déjà muté en mémoire. Laisser Vue peindre une frame
+  // avant le clone IndexedDB évite qu'un clic semble « ne rien faire » pendant
+  // la sauvegarde d'une grosse partie. La file ci-dessus conserve l'ordre exact.
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()))
+  }
+}
 
 function createSaveId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -142,6 +169,19 @@ function normalizeRouteSegment(segment: GameLineRouteSegment): GameLineRouteSegm
   }
 }
 
+
+function normalizeInfrastructureSegment(segment: GameInfrastructureSegmentState): GameInfrastructureSegmentState | null {
+  if (!segment || typeof segment.fromStationId !== 'string' || typeof segment.toStationId !== 'string') return null
+  if (!segment.fromStationId || !segment.toStationId || segment.fromStationId === segment.toStationId) return null
+  return {
+    fromStationId: segment.fromStationId,
+    toStationId: segment.toStationId,
+    capacityLevel: normalizeInfrastructureUpgradeLevel(segment.capacityLevel),
+    speedLevel: normalizeInfrastructureUpgradeLevel(segment.speedLevel),
+    reliabilityLevel: normalizeInfrastructureUpgradeLevel(segment.reliabilityLevel),
+  }
+}
+
 function normalizeLine(line: GameLine, index: number): GameLine {
   const mode = isGameTransportMode(line.mode) ? line.mode : 'METRO'
   const serviceLevel = isGameServiceLevel(line.serviceLevel) ? line.serviceLevel : 'STANDARD'
@@ -153,15 +193,31 @@ function normalizeLine(line: GameLine, index: number): GameLine {
   const routeSegments = Array.isArray(line.routeSegments)
     ? line.routeSegments.map(normalizeRouteSegment).filter((segment): segment is GameLineRouteSegment => Boolean(segment))
     : []
+  const validInfrastructureStationIds = new Set([
+    ...stations.map(station => station.id),
+    ...branches.flatMap(branch => branch.stations.map(station => station.id)),
+  ])
+  const infrastructureSegments = Array.isArray(line.infrastructureSegments)
+    ? line.infrastructureSegments
+        .map(normalizeInfrastructureSegment)
+        .filter((segment): segment is GameInfrastructureSegmentState => Boolean(
+          segment
+          && validInfrastructureStationIds.has(segment.fromStationId)
+          && validInfrastructureStationIds.has(segment.toStationId),
+        ))
+        .slice(0, 2400)
+    : []
   const legacyVehicleCount = calculateRequiredVehiclesForService(
     { mode, serviceLevel, stations },
     serviceLevel,
   )
-  const status = ['PROJECT', 'CONSTRUCTION', 'OPERATIONAL'].includes(String(line.status))
+  const storedStatus = ['PROJECT', 'CONSTRUCTION', 'OPERATIONAL'].includes(String(line.status))
     ? line.status
     : stations.length >= 2
       ? 'OPERATIONAL'
       : 'PROJECT'
+  // Phase 18 : les anciennes lignes en chantier ne restent plus bloquées plusieurs jours.
+  const status = storedStatus === 'CONSTRUCTION' && stations.length >= 2 ? 'OPERATIONAL' : storedStatus
 
   return {
     ...line,
@@ -177,8 +233,17 @@ function normalizeLine(line: GameLine, index: number): GameLine {
     mode,
     status,
     infrastructureType: normalizeInfrastructureType(line.infrastructureType),
-    routingMode: line.routingMode === 'FREE' ? 'FREE' : 'ASSISTED',
+    routingMode: mode === 'FERRY'
+      ? 'FREE'
+      : mode === 'CABLE' && line.routingMode !== 'ASSISTED' && line.routingMode !== 'LIGHT' && line.routingMode !== 'FREE'
+        ? 'FREE'
+        : line.routingMode === 'FREE'
+          ? 'FREE'
+          : line.routingMode === 'LIGHT'
+            ? 'LIGHT'
+            : 'ASSISTED',
     routeSegments,
+    infrastructureSegments,
     serviceLevel,
     serviceProfileMode: line.serviceProfileMode === 'ADVANCED' ? 'ADVANCED' : 'SIMPLE',
     serviceProfile: {
@@ -186,11 +251,14 @@ function normalizeLine(line: GameLine, index: number): GameLine {
       normal: normalizeServiceProfileLevel(line.serviceProfile?.normal, serviceLevel),
       peak: normalizeServiceProfileLevel(line.serviceProfile?.peak, 'FREQUENT'),
     },
+    schedule: normalizeLineSchedule({ ...line, stations, branches }),
     maintenanceLevel,
     fleetCondition: normalizeFleetCondition(line.fleetCondition),
     vehicleCount: Number.isFinite(line.vehicleCount)
       ? Math.max(0, Math.floor(line.vehicleCount))
       : legacyVehicleCount,
+    rollingStockModelId: getRollingStockModel(line.rollingStockModelId, mode).id,
+    depotId: typeof line.depotId === 'string' && line.depotId.trim() ? line.depotId.trim().slice(0, 180) : undefined,
     rollingStockUpgrades: normalizeRollingStockUpgrades(line.rollingStockUpgrades),
     regulationMode: line.regulationMode === 'MANUAL' ? 'MANUAL' : 'AUTO',
     manualBoostVehicles: Number.isFinite(line.manualBoostVehicles)
@@ -211,9 +279,79 @@ function normalizeLine(line: GameLine, index: number): GameLine {
   }
 }
 
+function normalizeDepot(raw: GameDepot): GameDepot | null {
+  if (!raw || !isGameTransportMode(raw.mode)) return null
+  const longitude = Number(raw.longitude)
+  const latitude = Number(raw.latitude)
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null
+  const now = new Date().toISOString()
+  return {
+    id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim().slice(0, 180) : `depot-${Math.random().toString(36).slice(2)}`,
+    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 60) : `Dépôt ${raw.mode}`,
+    mode: raw.mode,
+    longitude,
+    latitude,
+    capacity: Math.min(500, Math.max(1, Math.floor(Number(raw.capacity) || 20))),
+    createdAt: typeof raw.createdAt === 'string' && !Number.isNaN(new Date(raw.createdAt).getTime()) ? raw.createdAt : now,
+    updatedAt: typeof raw.updatedAt === 'string' && !Number.isNaN(new Date(raw.updatedAt).getTime()) ? raw.updatedAt : now,
+  }
+}
+
 function normalizeNetwork(network: GameNetworkState | undefined): GameNetworkState {
   if (!network || !Array.isArray(network.lines)) return createEmptyNetwork()
-  return { lines: network.lines.map((line, index) => normalizeLine(line, index)) }
+  const depots: GameDepot[] = []
+  const depotIds = new Set<string>()
+  for (const raw of Array.isArray(network.depots) ? network.depots : []) {
+    const depot = normalizeDepot(raw)
+    if (!depot || depotIds.has(depot.id)) continue
+    depotIds.add(depot.id)
+    depots.push(depot)
+    if (depots.length >= 120) break
+  }
+
+  const lines = network.lines.map((line, index) => normalizeLine(line, index))
+  const depotById = new Map(depots.map(depot => [depot.id, depot] as const))
+  for (const line of lines) {
+    const depot = line.depotId ? depotById.get(line.depotId) : null
+    if (!depot || depot.mode !== line.mode) line.depotId = undefined
+    line.rollingStockModelId = getRollingStockModel(line.rollingStockModelId, line.mode).id
+  }
+  const lineById = new Map(lines.map(line => [line.id, line] as const))
+  const seen = new Set<string>()
+  const walkingTransfers: GameWalkingTransfer[] = []
+
+  for (const raw of Array.isArray(network.walkingTransfers) ? network.walkingTransfers : []) {
+    if (!raw || typeof raw.fromLineId !== 'string' || typeof raw.fromStationId !== 'string'
+      || typeof raw.toLineId !== 'string' || typeof raw.toStationId !== 'string') continue
+    if (raw.fromLineId === raw.toLineId && raw.fromStationId === raw.toStationId) continue
+    const fromLine = lineById.get(raw.fromLineId)
+    const toLine = lineById.get(raw.toLineId)
+    const from = fromLine ? findLineStation(fromLine, raw.fromStationId) : null
+    const to = toLine ? findLineStation(toLine, raw.toStationId) : null
+    if (!fromLine || !toLine || !from || !to) continue
+    if (fromLine.id !== toLine.id && from.sharedStationId && from.sharedStationId === to.sharedStationId) continue
+    const a = `${fromLine.id}:${from.id}`
+    const b = `${toLine.id}:${to.id}`
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const now = new Date().toISOString()
+    walkingTransfers.push({
+      id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim().slice(0, 180) : `walk-${Math.random().toString(36).slice(2)}`,
+      autoGenerated: raw.autoGenerated === true ? true : undefined,
+      fromLineId: fromLine.id,
+      fromStationId: from.id,
+      toLineId: toLine.id,
+      toStationId: to.id,
+      walkingMinutes: Math.min(60, Math.max(1, Number(raw.walkingMinutes) || 5)),
+      distanceMeters: Math.round(stationDistanceMeters(from, to)),
+      createdAt: typeof raw.createdAt === 'string' && !Number.isNaN(new Date(raw.createdAt).getTime()) ? raw.createdAt : now,
+      updatedAt: typeof raw.updatedAt === 'string' && !Number.isNaN(new Date(raw.updatedAt).getTime()) ? raw.updatedAt : now,
+    })
+    if (walkingTransfers.length >= 400) break
+  }
+
+  return { lines, walkingTransfers, depots }
 }
 
 function normalizeEconomy(economy: GameEconomyState | undefined): GameEconomyState {
@@ -396,6 +534,75 @@ function normalizeMunicipalities(municipalities: GameMunicipalitiesState | undef
     totalSubsidiesReceived: Number.isFinite(municipalities.totalSubsidiesReceived)
       ? Math.max(0, municipalities.totalSubsidiesReceived)
       : 0,
+    development: Array.isArray(municipalities.development) ? municipalities.development
+      .filter(item => item && typeof item.code === 'string')
+      .map(item => ({
+        code: item.code,
+        basePopulation: Number.isFinite(item.basePopulation) ? Math.max(0, Math.round(item.basePopulation)) : 0,
+        population: Number.isFinite(item.population) ? Math.max(0, Math.round(item.population)) : Math.max(0, Math.round(item.basePopulation || 0)),
+        accessibility: Number.isFinite(item.accessibility) ? Math.min(100, Math.max(0, Math.round(item.accessibility))) : 0,
+        lastPopulationDelta: Number.isFinite(item.lastPopulationDelta) ? Math.round(item.lastPopulationDelta) : 0,
+        lastMilestoneDay: Number.isFinite(item.lastMilestoneDay) ? Math.max(1, Math.floor(Number(item.lastMilestoneDay))) : null,
+        milestoneLevel: Number.isFinite(item.milestoneLevel) ? Math.max(0, Math.floor(item.milestoneLevel)) : 0,
+        lastUpdatedDay: Number.isFinite(item.lastUpdatedDay) ? Math.max(0, Math.floor(item.lastUpdatedDay)) : 0,
+      })) : [],
+    urbanProjects: Array.isArray(municipalities.urbanProjects) ? municipalities.urbanProjects
+      .filter(item => item && typeof item.id === 'string' && typeof item.municipalityCode === 'string')
+      .slice(-28)
+      .map(item => ({
+        id: item.id.slice(0, 180),
+        municipalityCode: item.municipalityCode.slice(0, 120),
+        municipalityName: typeof item.municipalityName === 'string' ? item.municipalityName.slice(0, 180) : item.municipalityCode.slice(0, 180),
+        kind: ['RESIDENTIAL_DISTRICT','BUSINESS_DISTRICT','CAMPUS','LEISURE_HUB'].includes(String(item.kind)) ? item.kind : 'RESIDENTIAL_DISTRICT',
+        title: typeof item.title === 'string' ? item.title.slice(0, 220) : 'Projet urbain',
+        createdDay: Number.isFinite(item.createdDay) ? Math.max(1, Math.floor(Number(item.createdDay))) : 1,
+        openingDay: Number.isFinite(item.openingDay) ? Math.max(1, Math.floor(Number(item.openingDay))) : 1,
+        constructionStartDay: Number.isFinite(item.constructionStartDay)
+          ? Math.max(1, Math.floor(Number(item.constructionStartDay)))
+          : Math.max(1, Math.floor(Number(item.createdDay ?? 1) + Math.max(4, (Number(item.openingDay ?? 1) - Number(item.createdDay ?? 1)) * 0.42))),
+        maturityDay: Number.isFinite(item.maturityDay)
+          ? Math.max(1, Math.floor(Number(item.maturityDay)))
+          : Math.max(1, Math.floor(Number(item.openingDay ?? 1) + 28)),
+        status: ['PLANNED','CONSTRUCTION','OPENED','MATURE'].includes(String(item.status)) ? item.status : 'PLANNED',
+        populationGain: Number.isFinite(item.populationGain) ? Math.max(0, Math.round(Number(item.populationGain))) : 0,
+        mobilityDemandBonus: Number.isFinite(item.mobilityDemandBonus) ? Math.min(0.8, Math.max(0, Number(item.mobilityDemandBonus))) : 0,
+        openedDay: Number.isFinite(item.openedDay) ? Math.max(1, Math.floor(Number(item.openedDay))) : null,
+        maturedDay: Number.isFinite(item.maturedDay) ? Math.max(1, Math.floor(Number(item.maturedDay))) : null,
+      })) : [],
+    localEvents: Array.isArray(municipalities.localEvents) ? municipalities.localEvents
+      .filter(item => item && typeof item.id === 'string' && typeof item.municipalityCode === 'string')
+      .slice(-36)
+      .map(item => ({
+        id: item.id.slice(0, 180),
+        municipalityCode: item.municipalityCode.slice(0, 120),
+        municipalityName: typeof item.municipalityName === 'string' ? item.municipalityName.slice(0, 180) : item.municipalityCode.slice(0, 180),
+        kind: ['CONCERT','FOOTBALL','FESTIVAL','EXHIBITION'].includes(String(item.kind)) ? item.kind : 'CONCERT',
+        title: typeof item.title === 'string' ? item.title.slice(0, 220) : 'Événement local',
+        createdDay: Number.isFinite(item.createdDay) ? Math.max(1, Math.floor(Number(item.createdDay))) : 1,
+        startsDay: Number.isFinite(item.startsDay) ? Math.max(1, Math.floor(Number(item.startsDay))) : 1,
+        endsDay: Number.isFinite(item.endsDay) ? Math.max(1, Math.floor(Number(item.endsDay))) : 1,
+        expectedVisitors: Number.isFinite(item.expectedVisitors) ? Math.max(0, Math.round(Number(item.expectedVisitors))) : 0,
+        scale: ['LOCAL','MAJOR','MEGA'].includes(String(item.scale)) ? item.scale : Number(item.expectedVisitors ?? 0) >= 70_000 ? 'MEGA' : Number(item.expectedVisitors ?? 0) >= 20_000 ? 'MAJOR' : 'LOCAL',
+        demandMultiplier: Number.isFinite(item.demandMultiplier) ? Math.min(2, Math.max(1, Number(item.demandMultiplier))) : 1,
+        status: ['ANNOUNCED','ACTIVE','FINISHED'].includes(String(item.status)) ? item.status : 'ANNOUNCED',
+        preparedLineId: typeof item.preparedLineId === 'string' && item.preparedLineId ? item.preparedLineId : undefined,
+        preparationLevel: ['LIGHT','STRONG'].includes(String(item.preparationLevel)) ? item.preparationLevel : undefined,
+        serviceKind: ['REINFORCEMENT','EVENT_SHUTTLE','LATE_SERVICE'].includes(String(item.serviceKind)) ? item.serviceKind : undefined,
+        serviceCost: Number.isFinite(item.serviceCost) ? Math.max(0, Math.round(Number(item.serviceCost))) : 0,
+        preparedAtDay: Number.isFinite(item.preparedAtDay) ? Math.max(1, Math.floor(Number(item.preparedAtDay))) : undefined,
+        outcome: item.outcome && typeof item.outcome === 'object' ? {
+          resolvedDay: Number.isFinite(item.outcome.resolvedDay) ? Math.max(1, Math.floor(Number(item.outcome.resolvedDay))) : 1,
+          transportedVisitors: Number.isFinite(item.outcome.transportedVisitors) ? Math.max(0, Math.round(Number(item.outcome.transportedVisitors))) : 0,
+          leftBehindVisitors: Number.isFinite(item.outcome.leftBehindVisitors) ? Math.max(0, Math.round(Number(item.outcome.leftBehindVisitors))) : 0,
+          serviceScore: Number.isFinite(item.outcome.serviceScore) ? Math.min(100, Math.max(0, Math.round(Number(item.outcome.serviceScore)))) : 0,
+          extraRevenue: Number.isFinite(item.outcome.extraRevenue) ? Math.max(0, Math.round(Number(item.outcome.extraRevenue))) : 0,
+          serviceCost: Number.isFinite(item.outcome.serviceCost) ? Math.max(0, Math.round(Number(item.outcome.serviceCost))) : 0,
+          netImpact: Number.isFinite(item.outcome.netImpact) ? Math.round(Number(item.outcome.netImpact)) : Math.round(Number(item.outcome.extraRevenue ?? 0) - Number(item.serviceCost ?? 0)),
+          tone: ['SUCCESS','BALANCED','OVERLOADED'].includes(String(item.outcome.tone)) ? item.outcome.tone : 'BALANCED',
+        } : undefined,
+      })) : [],
+    nextUrbanProjectDay: Number.isFinite(municipalities.nextUrbanProjectDay) ? Math.max(1, Math.floor(Number(municipalities.nextUrbanProjectDay))) : 9,
+    nextLocalEventDay: Number.isFinite(municipalities.nextLocalEventDay) ? Math.max(1, Math.floor(Number(municipalities.nextLocalEventDay))) : 14,
   }
   trimMunicipalityRequestHistory(normalized)
   return normalized
@@ -520,30 +727,52 @@ function normalizeSave(save: GameSave): GameSave {
     }
   }
 
+  const normalizedNetwork = normalizeNetwork(save.data?.network)
+  const legacyPersonalityState = (save.data as unknown as Record<string, unknown>)[['ro', 'ast'].join('')]
   const normalizedData: GameSaveData = {
     simulationDay,
     freePlaySettings,
     calendarStartDate,
-    network: normalizeNetwork(save.data?.network),
+    network: normalizedNetwork,
     economy,
     simulation: normalizeSimulation(save.data?.simulation, calendarStartDate),
+    operations: createEmptyOperationsState(),
+    passengers: normalizePassengersState(save.data?.passengers, normalizedNetwork),
     municipalities: normalizeMunicipalities(save.data?.municipalities),
     events: normalizeEvents(save.data?.events),
     objectives: normalizeObjectives(save.data?.objectives),
-    roast: normalizeRoastState(save.data?.roast),
+    assistant: normalizeAssistantState(save.data?.assistant, legacyPersonalityState),
     // Initialisé juste après : le moteur statistique a besoin du reste des données normalisées.
     statistics: undefined as never,
     generatedTerritory,
     challenge,
     uiState: {
       panelOpen: save.data?.uiState?.panelOpen === true,
-      selectedPanel: ['NETWORK', 'MUNICIPALITIES', 'FINANCES', 'EVENTS', 'OBJECTIVES'].includes(String(save.data?.uiState?.selectedPanel))
+      selectedPanel: ['NETWORK', 'FLEET', 'PASSENGERS', 'OPERATIONS', 'MUNICIPALITIES', 'FINANCES', 'EVENTS', 'OBJECTIVES'].includes(String(save.data?.uiState?.selectedPanel))
         ? save.data.uiState.selectedPanel
         : 'NETWORK',
     },
   }
   // V41 : nettoie les références orphelines laissées par d'anciennes suppressions de lignes.
   const validLineIds = new Set(normalizedData.network.lines.map(line => line.id))
+  normalizedData.operations = normalizeOperationsState(save.data?.operations, validLineIds)
+
+  // Phase 15.1 : migration défensive. Une ancienne Phase 15 pouvait avoir
+  // préparé par erreur un service temporaire sur RER / Train / Métro / Tramway.
+  // On retire uniquement les préparations encore actives/annoncées et leurs
+  // circulations événementielles ; l'historique des événements terminés reste intact.
+  const lineModeById = new Map(normalizedData.network.lines.map(line => [line.id, line.mode] as const))
+  for (const event of normalizedData.municipalities.localEvents ?? []) {
+    if (event.status === 'FINISHED' || !event.preparedLineId || lineModeById.get(event.preparedLineId) === 'BUS') continue
+    const eventPrefix = `event:${event.id}:`
+    normalizedData.operations.extraTrips = normalizedData.operations.extraTrips.filter(trip => !trip.id.startsWith(eventPrefix))
+    event.preparedLineId = undefined
+    event.preparationLevel = undefined
+    event.serviceKind = undefined
+    event.serviceCost = 0
+    event.preparedAtDay = undefined
+  }
+
   normalizedData.simulation.lineStates = normalizedData.simulation.lineStates.filter(state => validLineIds.has(state.lineId))
   normalizedData.objectives.active = normalizedData.objectives.active.filter(objective => !objective.lineId || validLineIds.has(objective.lineId))
   for (const lineId of Object.keys(normalizedData.economy.customFarePolicy.lineTicketPrices)) {
@@ -636,10 +865,12 @@ export function useMetropoleGame() {
         network: createEmptyNetwork(),
         economy: createEmptyEconomy(settings.startingCapital, settings.cheatUnlimitedMoney),
         simulation: createEmptySimulation(),
+        operations: createEmptyOperationsState(),
+        passengers: createEmptyPassengersState(),
         municipalities: createEmptyMunicipalitiesState(),
         events: createEmptyEventsState(),
         objectives: createEmptyObjectivesState(),
-        roast: createEmptyRoastState(),
+        assistant: createEmptyAssistantState(),
         statistics: undefined as never,
         generatedTerritory,
         challenge: null,
@@ -658,7 +889,8 @@ export function useMetropoleGame() {
   async function createChallengeGame(definitionInput: GameChallengeDefinition) {
     const definition = normalizeChallengeDefinition(definitionInput)
     await pruneExpiredChallengeSaves()
-    await assertCanCreateGameSave(definition.kind === 'DAILY' ? 'CHALLENGE_DAILY' : 'CHALLENGE_FRIEND')
+    if (definition.kind !== 'DAILY') throw new Error('Les anciens défis entre amis par code ne sont plus pris en charge.')
+    await assertCanCreateGameSave('CHALLENGE_DAILY')
     if (!isGameTerritoryAvailable(definition.territory)) throw new Error('La carte de ce défi n’est pas disponible.')
     const generatedTerritory = definition.territory === 'GENERATED'
       ? normalizeGeneratedTerritorySettings(definition.generatedTerritory)
@@ -674,7 +906,7 @@ export function useMetropoleGame() {
       version: GAME_SAVE_VERSION,
       createdAt: iso,
       updatedAt: iso,
-      mode: definition.kind === 'DAILY' ? 'CHALLENGE_DAILY' : 'CHALLENGE_FRIEND',
+      mode: 'CHALLENGE_DAILY',
       territory: definition.territory,
       data: {
         simulationDay: 1,
@@ -683,10 +915,12 @@ export function useMetropoleGame() {
         network: createEmptyNetwork(),
         economy: createEmptyEconomy(settings.startingCapital, false),
         simulation: createEmptySimulation(),
+        operations: createEmptyOperationsState(),
+        passengers: createEmptyPassengersState(),
         municipalities: createEmptyMunicipalitiesState(),
         events: createEmptyEventsState(),
         objectives: createEmptyObjectivesState(),
-        roast: createEmptyRoastState(),
+        assistant: createEmptyAssistantState(),
         statistics: undefined as never,
         generatedTerritory,
         challenge: createChallengeRuntime(definition, now),
@@ -881,32 +1115,153 @@ export function useMetropoleGame() {
     return imported
   }
 
-  async function persistCurrentGame() {
+  async function applyOnlineSnapshot(snapshot: GameSave, preferredLocalId?: string | null) {
+    assertGameSaveShape(snapshot)
+    const compatibility = getGameSaveCompatibility(snapshot)
+    if (compatibility === 'FUTURE') throw new Error(`La partie en ligne utilise une sauvegarde V${snapshot.version}, mais ce client ne prend en charge que la V${GAME_SAVE_VERSION}.`)
+    if (compatibility === 'INVALID') throw new Error('Le snapshot de la partie en ligne est invalide.')
+
+    // Depuis HOME, state.save peut encore contenir la dernière partie quittée.
+    // Ne jamais réutiliser cet ID pour une première arrivée Online : cela
+    // écraserait une sauvegarde locale sans rapport. Une vraie reprise fournit
+    // explicitement preferredLocalId via la session Online.
+    const previous = state.value.status === 'PLAYING' ? state.value.save : null
+    const incoming = normalizeSave(cloneSave(snapshot))
+    incoming.id = preferredLocalId?.trim() || previous?.id || createSaveId()
+    incoming.updatedAt = new Date().toISOString()
+    // L'interface et CLU Assistant restent propres à chaque navigateur. Ils ne
+    // participent pas à l'autorité de la partie Online.
+    incoming.data.uiState = previous?.data.uiState ?? { panelOpen: false, selectedPanel: 'NETWORK' }
+    incoming.data.assistant = previous?.data.assistant ?? createEmptyAssistantState()
+
+    const persistLocally = shouldPersistOnlineSaveLocally(incoming)
+    if (persistLocally) await saveGame(incoming)
+    state.value = { version: incoming.version, status: 'PLAYING', save: incoming }
+    if (persistLocally) await refreshSaves()
+    return incoming
+  }
+
+  async function applyOnlineMutation(patches: CluOnlineGamePatch[]) {
+    const current = state.value.save
+    if (!current || !Array.isArray(patches) || patches.length === 0) return current
+    applyOnlineGamePatches(current, patches)
+    current.updatedAt = new Date().toISOString()
+    await persistCurrentGameNow(false)
+    return current
+  }
+
+  async function persistCurrentGameNow(notifyOnline = true) {
     const currentSave = state.value.save
     if (!currentSave) return
 
-    let migrationBackup: Awaited<ReturnType<typeof backupGameSave>> | null = null
-    try {
-      if (getGameSaveCompatibility(currentSave) === 'OLDER') {
-        migrationBackup = await backupGameSave(currentSave, 'MIGRATION')
-      }
-      const updatedSave = normalizeSave({ ...currentSave, updatedAt: new Date().toISOString() })
-      expireChallengeIfNeeded(updatedSave, new Date())
-      await saveGame(updatedSave)
-      state.value = { ...state.value, version: GAME_SAVE_VERSION, save: updatedSave }
-      await refreshSaves()
+    const compatibility = getGameSaveCompatibility(currentSave)
+    const needsMigrationBackup = compatibility === 'OLDER'
+    const sourceForBackup = currentSave
+    const now = new Date()
+
+    // Une partie chargée/créée dans cette version est déjà normalisée. Refaire
+    // normalizeSave() à CHAQUE clic parcourait tout le réseau, les voyageurs, les
+    // statistiques, etc. puis remplaçait l'arbre réactif complet : sur un gros
+    // réseau cela invalidait presque tous les computed/watchers de la carte.
+    // On garde le chemin complet uniquement pour une vraie migration.
+    let updatedSave: GameSave
+    if (compatibility === 'CURRENT') {
+      currentSave.updatedAt = now.toISOString()
+      expireChallengeIfNeeded(currentSave, now)
+      updatedSave = currentSave
     }
-    catch (error) {
-      if (migrationBackup) {
-        try { await restoreGameSaveBackup(migrationBackup) }
-        catch { /* La copie de secours reste conservée. */ }
+    else {
+      updatedSave = normalizeSave({ ...currentSave, updatedAt: now.toISOString() })
+      expireChallengeIfNeeded(updatedSave, now)
+      state.value = { ...state.value, version: GAME_SAVE_VERSION, save: updatedSave }
+    }
+
+    const persistLocally = shouldPersistOnlineSaveLocally(updatedSave)
+    if (!persistLocally) {
+      // Un participant Online ne possède pas une copie durable de la partie.
+      // Ses actions restent synchronisées au serveur mais aucune entrée IndexedDB
+      // n'est créée/mise à jour dans l'écran « Sauvegardes ».
+      if (notifyOnline) notifyOnlinePersist(updatedSave)
+      return
+    }
+
+    const task = currentGamePersistQueue
+      .catch(() => undefined)
+      .then(async () => {
+        let migrationBackup: Awaited<ReturnType<typeof backupGameSave>> | null = null
+        try {
+          await yieldBeforeStorageWrite()
+          if (needsMigrationBackup) migrationBackup = await backupGameSave(sourceForBackup, 'MIGRATION')
+          await saveGame(updatedSave)
+
+          // Ne relisons plus toutes les sauvegardes IndexedDB après chaque action.
+          // La liste d'accueil peut pointer vers l'état courant : elle restera donc
+          // exacte (jour, argent, lignes, stations) sans I/O ni seconde copie lourde.
+          const index = saves.value.findIndex(item => item.id === updatedSave.id)
+          if (index >= 0 && saves.value[index] !== updatedSave) {
+            const nextSaves = saves.value.slice()
+            nextSaves[index] = updatedSave
+            saves.value = nextSaves
+          }
+        }
+        catch (error) {
+          if (migrationBackup) {
+            try { await restoreGameSaveBackup(migrationBackup) }
+            catch { /* La copie de secours reste conservée. */ }
+          }
+          throw error
+        }
+      })
+
+    currentGamePersistQueue = task.then(() => undefined, () => undefined)
+    await task
+    if (notifyOnline) notifyOnlinePersist(updatedSave)
+  }
+
+  async function persistCurrentGame() {
+    if (!state.value.save) return
+
+    // Certaines actions de haut niveau appliquent plusieurs réglages d'un seul
+    // coup (par exemple la préparation d'exploitation avant une mise en service).
+    // Les sous-composables continuent d'appeler persistCurrentGame(), mais durant
+    // un lot on ne doit surtout pas sérialiser la même grosse sauvegarde après
+    // chaque niveau de matériel. Une seule écriture est effectuée à la fin.
+    if (currentGamePersistBatchDepth > 0) {
+      currentGamePersistBatchDirty = true
+      return
+    }
+
+    await persistCurrentGameNow()
+  }
+
+  async function batchCurrentGamePersistence<T>(action: () => Promise<T> | T): Promise<T> {
+    currentGamePersistBatchDepth += 1
+    try {
+      return await action()
+    }
+    finally {
+      currentGamePersistBatchDepth = Math.max(0, currentGamePersistBatchDepth - 1)
+      if (currentGamePersistBatchDepth === 0 && currentGamePersistBatchDirty) {
+        currentGamePersistBatchDirty = false
+        await persistCurrentGameNow()
       }
-      throw error
     }
   }
 
   function resetGame() {
     state.value = { version: GAME_SAVE_VERSION, status: 'HOME', save: null }
+  }
+
+  async function discardCurrentGame() {
+    const currentId = state.value.save?.id || null
+    // Retirer d'abord l'état mémoire pour qu'aucune persistance asynchrone ne
+    // puisse transformer une copie Online invitée en partie Solo visible.
+    resetGame()
+    if (currentId) {
+      try { await deleteGameSave(currentId) }
+      catch { /* Une copie invitée peut n'avoir jamais été persistée : normal. */ }
+    }
+    await refreshSaves()
   }
 
   return {
@@ -933,7 +1288,11 @@ export function useMetropoleGame() {
     duplicateSave,
     exportSave,
     importSave,
+    applyOnlineSnapshot,
+    applyOnlineMutation,
     persistCurrentGame,
+    batchCurrentGamePersistence,
     resetGame,
+    discardCurrentGame,
   }
 }

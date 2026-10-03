@@ -31,7 +31,7 @@ function compactInfoItems(source: GameInfoItem[]) {
   return result
 }
 
-export function useGameInfoCenter() {
+function createGameInfoCenter() {
   const game = useMetropoleGame()
   const items = computed(() => {
     const save = game.state.value.save
@@ -40,4 +40,14 @@ export function useGameInfoCenter() {
   const criticalCount = computed(() => items.value.filter(item => item.severity === 'CRITICAL').length)
   const attentionCount = computed(() => items.value.filter(item => ['CRITICAL', 'WARNING'].includes(item.severity)).length)
   return { items, criticalCount, attentionCount }
+}
+
+type GameInfoCenterRuntime = ReturnType<typeof createGameInfoCenter>
+let sharedGameInfoCenter: GameInfoCenterRuntime | null = null
+
+export function useGameInfoCenter() {
+  // Centre d’informations unique : buildGameInfoItems() parcourt rapports et lignes.
+  // GamePlay et le panneau d’informations partagent désormais le même résultat réactif.
+  if (!sharedGameInfoCenter) sharedGameInfoCenter = createGameInfoCenter()
+  return sharedGameInfoCenter
 }

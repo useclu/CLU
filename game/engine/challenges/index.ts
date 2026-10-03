@@ -7,18 +7,15 @@ import type { GameGeneratedTerritorySettings } from '../../types/generatedTerrit
 import type { GameTransportMode } from '../../types/network'
 import type {
   GameChallengeDefinition,
-  GameChallengeDifficulty,
   GameChallengeFinishReason,
   GameChallengeObjective,
   GameChallengeObjectiveMetric,
   GameChallengeObjectiveResult,
   GameChallengeResult,
-  GameChallengeResultEnvelope,
   GameChallengeRuntime,
 } from '../../types/challenges'
-import type { GameEconomyProfile, GameEventFrequency } from '../../types/freePlay'
 
-const ALL_MODES: GameTransportMode[] = ['METRO', 'TRAM', 'RER', 'TRAIN', 'BUS', 'BRT']
+const ALL_MODES: GameTransportMode[] = ['METRO', 'TRAM', 'RER', 'TRAIN', 'BUS', 'BRT', 'CABLE', 'FERRY']
 const REAL_TERRITORIES = getAvailableGameTerritories().map(entry => entry.id).filter(id => id !== 'GENERATED') as GameTerritory[]
 
 function fnv1a(value: string) {
@@ -107,7 +104,7 @@ export function normalizeChallengeDefinition(value: GameChallengeDefinition): Ga
   const definition: GameChallengeDefinition = {
     version: 1,
     id: typeof value.id === 'string' && value.id.trim() ? value.id.slice(0, 120) : `challenge-${Date.now()}`,
-    kind: ['DAILY', 'FRIEND_RANDOM', 'FRIEND_CUSTOM'].includes(value.kind) ? value.kind : 'FRIEND_CUSTOM',
+    kind: ['DAILY', 'FRIEND_RANDOM', 'FRIEND_CUSTOM'].includes(value.kind) ? value.kind : 'DAILY',
     title: typeof value.title === 'string' && value.title.trim() ? value.title.slice(0, 120) : 'Défi CLU',
     dateKey: typeof value.dateKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.dateKey) ? value.dateKey : undefined,
     territory,
@@ -196,140 +193,6 @@ function createGeneratedSettings(seed: string): GameGeneratedTerritorySettings {
     structure: 'POLYCENTRIC',
     water: 'STANDARD',
   }
-}
-
-export function createRandomFriendChallengeDefinition(seed = `${Date.now()}-${Math.random()}`): GameChallengeDefinition {
-  const random = seeded(`CLU-FRIEND-RANDOM-V1:${seed}`)
-  const useGenerated = random() < .3
-  const territory: GameTerritory = useGenerated ? 'GENERATED' : pick(random, REAL_TERRITORIES)
-  const durationMinutes = pick(random, [30, 45, 60] as const)
-  const allowedModes = dailyAllowedModes(random)
-  const passengerTarget = Math.round((60_000 + random() * 180_000) / 5_000) * 5_000
-  return normalizeChallengeDefinition({
-    version: 1,
-    id: `friend-random-${fnv1a(seed).toString(36)}`,
-    kind: 'FRIEND_RANDOM',
-    title: 'Défi entre amis · Aléatoire',
-    territory,
-    generatedTerritory: territory === 'GENERATED' ? createGeneratedSettings(`CLU-${fnv1a(seed).toString(36).toUpperCase()}`) : null,
-    startingCapital: pick(random, [2_000_000_000, 3_000_000_000, 4_000_000_000, 6_000_000_000] as const),
-    economyProfile: pick(random, ['STANDARD', 'HARD'] as const),
-    eventFrequency: pick(random, ['CALM', 'STANDARD', 'FREQUENT'] as const),
-    durationMinutes,
-    difficulty: pick(random, ['STANDARD', 'HARD', 'EXTREME'] as const),
-    allowedModes,
-    objectives: [
-      objective('TOTAL_PASSENGERS', passengerTarget, `Transporter ${compactNumber(passengerTarget)} voyageurs`, 'Cumulez le nombre de voyageurs demandé.', 'AT_LEAST', 1.25),
-      objective('OPERATIONAL_LINES', Math.max(1, Math.round(1 + random() * 2)), 'Mettre des lignes en service', 'Terminez avec le nombre demandé de lignes réellement en service.', 'AT_LEAST', 1),
-      objective('SERVICE_QUALITY', Math.round(55 + random() * 22), 'Préserver la qualité', 'Maintenez une qualité de service suffisante.', 'AT_LEAST', .9),
-    ],
-    constraints: [`Modes autorisés : ${allowedModes.join(', ')}`, 'Même configuration pour les deux joueurs', `Durée : ${durationMinutes} min`, 'Triche désactivée'],
-  })
-}
-
-export interface CustomFriendChallengeInput {
-  territory: GameTerritory
-  generatedTerritory?: GameGeneratedTerritorySettings | null
-  startingCapital: number
-  economyProfile: GameEconomyProfile
-  eventFrequency: GameEventFrequency
-  durationMinutes: number
-  difficulty: GameChallengeDifficulty
-  allowedModes: GameTransportMode[]
-  objectives: GameChallengeObjective[]
-}
-
-export function createCustomFriendChallengeDefinition(input: CustomFriendChallengeInput): GameChallengeDefinition {
-  const normalized = normalizeChallengeDefinition({
-    version: 1,
-    id: `friend-custom-${fnv1a(JSON.stringify(input)).toString(36)}`,
-    kind: 'FRIEND_CUSTOM',
-    title: 'Défi entre amis · Personnalisé',
-    territory: input.territory,
-    generatedTerritory: input.generatedTerritory,
-    startingCapital: input.startingCapital,
-    economyProfile: input.economyProfile,
-    eventFrequency: input.eventFrequency,
-    durationMinutes: input.durationMinutes,
-    difficulty: input.difficulty,
-    allowedModes: input.allowedModes,
-    objectives: input.objectives,
-    constraints: [`Modes autorisés : ${normalizeModes(input.allowedModes).join(', ')}`, 'Configuration personnalisée et versionnée', 'Triche désactivée'],
-  })
-  normalized.id = `friend-custom-${getChallengeDefinitionFingerprint(normalized).slice(0, 10)}`
-  return normalized
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(item => stableStringify(item)).join(',')}]`
-  const record = value as Record<string, unknown>
-  return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`
-}
-
-function canonicalDefinition(definition: GameChallengeDefinition) {
-  return stableStringify(normalizeChallengeDefinition(definition))
-}
-
-export function getChallengeDefinitionFingerprint(definition: GameChallengeDefinition) {
-  return fnv1a(canonicalDefinition(definition)).toString(36).padStart(7, '0')
-}
-
-function toBase64Url(value: string) {
-  const bytes = new TextEncoder().encode(value)
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
-}
-
-function fromBase64Url(value: string) {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4)
-  const binary = atob(padded)
-  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
-  return new TextDecoder().decode(bytes)
-}
-
-function encodeEnvelope(prefix: string, value: unknown) {
-  const body = JSON.stringify(value)
-  const payload = toBase64Url(body)
-  const checksum = fnv1a(`${prefix}:${payload}`).toString(36)
-  return `${prefix}.${payload}.${checksum}`
-}
-
-function decodeEnvelope<T>(prefix: string, code: string): T {
-  const [actualPrefix, payload, checksum, ...extra] = code.trim().split('.')
-  if (actualPrefix !== prefix || !payload || !checksum || extra.length) throw new Error('Code CLU invalide ou incomplet.')
-  const expected = fnv1a(`${prefix}:${payload}`).toString(36)
-  if (checksum !== expected) throw new Error('Code CLU altéré : contrôle d’intégrité invalide.')
-  try { return JSON.parse(fromBase64Url(payload)) as T }
-  catch { throw new Error('Le contenu du code CLU est illisible.') }
-}
-
-export function encodeChallengeDefinition(definition: GameChallengeDefinition) {
-  return encodeEnvelope('CLU1', { version: 1, definition: normalizeChallengeDefinition(definition) })
-}
-
-export function decodeChallengeDefinition(code: string) {
-  const envelope = decodeEnvelope<{ version?: number; definition?: GameChallengeDefinition }>('CLU1', code)
-  if (envelope.version !== 1 || !envelope.definition) throw new Error('Version de code défi non prise en charge.')
-  return normalizeChallengeDefinition(envelope.definition)
-}
-
-export function encodeChallengeResult(definition: GameChallengeDefinition, result: GameChallengeResult) {
-  const envelope: GameChallengeResultEnvelope = {
-    version: 1,
-    definitionFingerprint: getChallengeDefinitionFingerprint(definition),
-    definitionId: definition.id,
-    result,
-  }
-  return encodeEnvelope('CLUR1', envelope)
-}
-
-export function decodeChallengeResult(code: string) {
-  const envelope = decodeEnvelope<GameChallengeResultEnvelope>('CLUR1', code)
-  if (envelope.version !== 1 || !envelope.result || typeof envelope.definitionFingerprint !== 'string') throw new Error('Version de résultat défi non prise en charge.')
-  return envelope
 }
 
 export function createChallengeRuntime(definition: GameChallengeDefinition, start = new Date()): GameChallengeRuntime {

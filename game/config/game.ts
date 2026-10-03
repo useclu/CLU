@@ -2,7 +2,7 @@ export const GAME_NAME =
   'CLU Métropole'
 
 export const GAME_SAVE_VERSION =
-  45
+  52
 
 export const GAME_STORAGE_PREFIX =
   'clu-metropole'

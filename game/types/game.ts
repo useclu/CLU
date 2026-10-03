@@ -31,14 +31,18 @@ import type {
 } from './statistics'
 
 import type {
-  GameRoastState,
-} from './roast'
+  GameAssistantState,
+} from './assistant'
 
 import type {
   GameGeneratedTerritorySettings,
 } from './generatedTerritory'
 
 import type { GameChallengeRuntime } from './challenges'
+
+import type { GameOperationsState } from './operations'
+
+import type { GamePassengersState } from './passengers'
 
 export type GameStatus =
   | 'HOME'
@@ -49,6 +53,7 @@ export type GameStatus =
 export type GameMode =
   | 'FREE'
   | 'CHALLENGE_DAILY'
+  // Compatibilité de lecture/import des anciennes sauvegardes uniquement.
   | 'CHALLENGE_FRIEND'
 
 export type GameTerritory =
@@ -94,7 +99,7 @@ export type GameTerritory =
   | 'GENERATED'
 
 
-export type GameManagementPanel = 'NETWORK' | 'MUNICIPALITIES' | 'FINANCES' | 'EVENTS' | 'OBJECTIVES'
+export type GameManagementPanel = 'NETWORK' | 'FLEET' | 'PASSENGERS' | 'OPERATIONS' | 'MUNICIPALITIES' | 'FINANCES' | 'EVENTS' | 'OBJECTIVES'
 
 export interface GameUiState {
   /** V45 : état des grands panneaux mémorisé par sauvegarde. */
@@ -110,11 +115,15 @@ export interface GameSaveData {
   network: GameNetworkState
   economy: GameEconomyState
   simulation: GameSimulationState
+  /** V47 : PCC, perturbations et décisions d'exploitation persistées. */
+  operations: GameOperationsState
+  /** V49 : files d'attente OD et synthèse Voyageurs 2.0. */
+  passengers: GamePassengersState
   municipalities: GameMunicipalitiesState
   events: GameEventsState
   objectives: GameObjectivesState
   statistics: GameStatisticsState
-  roast: GameRoastState
+  assistant: GameAssistantState
   /** Présent uniquement pour une carte fictive. La carte complète est régénérée localement depuis cette seed. */
   generatedTerritory?: GameGeneratedTerritorySettings | null
   /** Présent uniquement pour les modes Défi. Persisté pour conserver timer, règles et résultat. */

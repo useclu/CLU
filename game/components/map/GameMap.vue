@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { currentGameLocaleTag } from '../../config/i18n'
+import { currentGameLocale, translateGameText, formatGameNumber } from '../../config/i18n'
 import {
   onBeforeUnmount,
   onMounted,
@@ -17,9 +17,11 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 
 import {
   getTransportModeDefinition,
+  isRailAutoRouting,
 } from '../../config/transportModes'
 
 import type {
+  GameDepot,
   GameInterchangeLink,
   GameLine,
   GameLineRoutingMode,
@@ -28,21 +30,30 @@ import type {
 import type { GameTerritory } from '../../types/game'
 import type { GameGeneratedTerritorySettings } from '../../types/generatedTerritory'
 import type { GameVisualVehicle } from '../../engine/transitRuntime'
+import type { GameMapInsightMode, GameMapMunicipalityInsight } from '../../types/mapInsights'
+import type { GameLineDailySimulation } from '../../types/simulation'
+import type { GameBusSubstitutionService, GameManualDisruption } from '../../types/operations'
 import {
   findLineStation,
+  findLineStationLocation,
   getLineAllStations,
   getLineTerminusStations,
 } from '../../engine/network/geometry'
 import {
-  calculateLineCorridorOffsets,
+  getBundledLineRenderChunks,
+  getBundledLineRenderHintsAtCoordinates,
+  getBundledStationRenderHints,
   getLineJunctionStationIds,
   getRenderedLineSequences,
 } from '../../engine/network/renderGeometry'
+import type { GameBundledLineRenderChunk, GameBundledPositionRenderHint, GameBundledStationRenderHint } from '../../engine/network/renderGeometry'
 import { getGameTerritoryMapDefinition } from '../../config/territories'
 import { gameMapAssetUrl } from '../../config/mapAssets'
 import { generateGeneratedTerritory, normalizeGeneratedTerritorySettings } from '../../engine/territory/generator'
 import { getRealTerritoryMunicipalityFallback } from '../../engine/territory/realTerritories'
-import { buildSmartRoutingGraph, routeThroughWaypoints, type SmartRouteCoordinate, type SmartRoutingGraph } from '../../engine/network/smartRouting'
+import { buildSmartRoutingGraph, routeThroughWaypoints, snapPointToSmartGraph, type SmartRouteCoordinate, type SmartRoutingGraph } from '../../engine/network/smartRouting'
+import { getSegmentCoordinates } from '../../engine/network/pathGeometry'
+import { registerGameMapInstance } from '../../utils/mapBridge'
 
 interface GameMapDraftAnchor {
   longitude: number
@@ -53,6 +64,7 @@ interface GameMapDraftAnchor {
 
 const props = defineProps<{
   lines: GameLine[]
+  dimmedLineIds?: string[]
   activeLineId: string | null
   selectedLineId?: string | null
   selectedStationId?: string | null
@@ -63,21 +75,33 @@ const props = defineProps<{
   routingMode?: GameLineRoutingMode
   building: boolean
   interchanges?: GameInterchangeLink[]
+  depots?: GameDepot[]
   vehicles?: GameVisualVehicle[]
   showVehicleAnimations?: boolean
+  /** Phase 21 : la simulation peut avancer vite, le rendu véhicule reste volontairement indépendant. */
+  simulationPlaying?: boolean
   showBuildings2D5?: boolean
-  graphicsQuality?: 'ECO' | 'BALANCED' | 'HIGH'
+  graphicsQuality?: 'AUTO' | 'ECO' | 'BALANCED' | 'HIGH'
+  municipalityInsights?: GameMapMunicipalityInsight[]
+  lineReports?: GameLineDailySimulation[]
+  insightMode?: GameMapInsightMode
+  projectMunicipalityCodes?: string[]
+  operationsDisruptions?: GameManualDisruption[]
+  substitutionServices?: GameBusSubstitutionService[]
 }>()
 
 const emit = defineEmits<{
   mapClick: [longitude: number, latitude: number, routeCoordinates?: SmartRouteCoordinate[]]
   draftPreview: [longitude: number | null, latitude: number | null, routeCoordinates?: SmartRouteCoordinate[]]
   lineClick: [lineId: string]
-  stationClick: [lineId: string, stationId: string]
+  stationClick: [lineId: string, stationId: string, routeCoordinates?: SmartRouteCoordinate[]]
   vehicleClick: [vehicle: GameVisualVehicle]
   loadingProgress: [message: string, progress: number]
   ready: []
   loadError: [message: string]
+  municipalityBuild: [code: string]
+  overlayChange: [open: boolean]
+  buildRejected: [message: string]
 }>()
 
 interface GeoJsonFeature {
@@ -105,6 +129,21 @@ interface SelectedCommune {
   code: string
   department: string
   population: number | null
+  accessibility?: number | null
+  growthRate?: number | null
+  lineCount?: number
+  stationCount?: number
+  potential?: number | null
+  urbanProjectTitle?: string
+  urbanProjectKind?: 'RESIDENTIAL_DISTRICT' | 'BUSINESS_DISTRICT' | 'CAMPUS' | 'LEISURE_HUB'
+  urbanProjectOpeningDay?: number
+  urbanProjectConstructionStartDay?: number
+  urbanProjectMaturityDay?: number
+  urbanProjectStatus?: 'PLANNED' | 'CONSTRUCTION' | 'OPENED' | 'MATURE'
+  localEventTitle?: string
+  localEventKind?: 'CONCERT' | 'FOOTBALL' | 'FESTIVAL' | 'EXHIBITION'
+  localEventStartsDay?: number
+  localEventVisitors?: number
 }
 
 interface MutableGeoJsonSource {
@@ -149,6 +188,8 @@ const loadedCommunes =
 const selectedCommune =
   ref<SelectedCommune | null>(null)
 
+watch(selectedCommune, value => emit('overlayChange', Boolean(value)))
+
 let map:
   MapLibreMap | null =
   null
@@ -165,6 +206,35 @@ let maplibreApi: typeof import('maplibre-gl') | null = null
 let resizeObserver: ResizeObserver | null = null
 let startupTimeout: number | null = null
 let lastMapRuntimeError: string | null = null
+let previousProjectMunicipalityCodes = new Set<string>()
+
+interface RenderViewportBounds { west: number; south: number; east: number; north: number }
+
+function activeRenderViewport(paddingRatio = .28): RenderViewportBounds | null {
+  if (!map) return null
+  try {
+    const bounds = map.getBounds()
+    const lonPad = Math.max(.01, (bounds.getEast() - bounds.getWest()) * paddingRatio)
+    const latPad = Math.max(.008, (bounds.getNorth() - bounds.getSouth()) * paddingRatio)
+    return { west: bounds.getWest() - lonPad, south: bounds.getSouth() - latPad, east: bounds.getEast() + lonPad, north: bounds.getNorth() + latPad }
+  }
+  catch { return null }
+}
+
+function pointInActiveViewport(longitude: number, latitude: number, viewport = activeRenderViewport()) {
+  if (!viewport) return true
+  return longitude >= viewport.west && longitude <= viewport.east && latitude >= viewport.south && latitude <= viewport.north
+}
+
+function coordinatesIntersectActiveViewport(coordinates: Array<[number, number]>, viewport = activeRenderViewport()) {
+  if (!viewport || coordinates.length === 0) return true
+  let west = Infinity; let south = Infinity; let east = -Infinity; let north = -Infinity
+  for (const point of coordinates) {
+    west = Math.min(west, point[0]); east = Math.max(east, point[0])
+    south = Math.min(south, point[1]); north = Math.max(north, point[1])
+  }
+  return !(east < viewport.west || west > viewport.east || north < viewport.south || south > viewport.north)
+}
 
 function setLoading(message: string, progress: number) {
   loadingMessage.value = message
@@ -220,24 +290,109 @@ function waitForSourceLoaded(sourceId: string, timeoutMs = 6500) {
 
 let interchangeMarkers: Array<{ marker: { remove: () => void }; element: HTMLElement }> = []
 let interchangeMarkerSignature = ''
+let interchangeMarkerVisibilityState: { visible: boolean; focusLineId: string | null } | null = null
+let interchangeMarkerFrame: number | null = null
 let stationMarkers: Array<{ marker: { remove: () => void }; element: HTMLElement; lineId: string }> = []
 let stationMarkerSignature = ''
+let lastStationRenderDensityKey = ''
 let draftCursor: { longitude: number; latitude: number } | null = null
 let draftPreviewCoordinates: SmartRouteCoordinate[] = []
 let draftPreviewFrame: number | null = null
+let draftPreviewEmitTimer: number | null = null
+let draftPreviewLastEmitAt = 0
+
 const routingGraphCache = new Map<string, SmartRoutingGraph | null>()
 let staticRoutingRevision = 0
 let lastStaticGraphRevision = -1
 
-function detailZoom(kind: 'BUILDINGS' | 'BUILDINGS_3D' | 'VEHICLES') {
-  const quality = props.graphicsQuality ?? 'BALANCED'
+// Les PMTiles ne gardent en mémoire que les tuiles actuellement chargées.
+// Pendant un long tracé ferroviaire, un pan de carte peut donc décharger les
+// rails proches de l'ancre : si l'on reconstruisait le graphe uniquement avec
+// le viewport courant, Rail auto « oublierait » le début du chemin et
+// l'aperçu disparaîtrait brutalement. On conserve donc, uniquement pendant la
+// construction RER/Train en Rail auto, les fragments ferroviaires déjà vus.
+const staticStrictRailFeatureCache = new Map<string, any>()
+
+function resetStaticStrictRailFeatureCache() {
+  staticStrictRailFeatureCache.clear()
+}
+
+interface CachedLineRenderData {
+  revision: string
+  stations: ReturnType<typeof getLineAllStations>
+  sequences: ReturnType<typeof getRenderedLineSequences>
+  terminusIds: Set<string>
+  junctionIds: Set<string>
+}
+const lineRenderDataCache = new Map<string, CachedLineRenderData>()
+let bundledLineRenderCacheSignature = ''
+let bundledLineRenderCache = new Map<string, GameBundledLineRenderChunk[]>()
+let bundledStationRenderHintCacheSignature = ''
+let bundledStationRenderHintCache = new Map<string, GameBundledStationRenderHint>()
+
+function lineRenderRevision(line: GameLine) {
+  return `${line.updatedAt}:${line.status}:${line.stations.length}:${(line.branches ?? []).map(branch => `${branch.id}:${branch.stations.length}`).join(',')}`
+}
+
+function cachedLineRenderData(line: GameLine): CachedLineRenderData {
+  const revision = lineRenderRevision(line)
+  const cached = lineRenderDataCache.get(line.id)
+  if (cached?.revision === revision) return cached
+  const stations = getLineAllStations(line)
+  const next: CachedLineRenderData = {
+    revision,
+    stations,
+    sequences: getRenderedLineSequences(line),
+    terminusIds: new Set(getLineTerminusStations(line).map(station => station.id)),
+    junctionIds: getLineJunctionStationIds(line),
+  }
+  lineRenderDataCache.set(line.id, next)
+  return next
+}
+
+function cachedBundledLineRenderChunks() {
+  const signature = props.lines.map(line => `${line.id}:${lineRenderRevision(line)}`).join('|')
+  if (signature !== bundledLineRenderCacheSignature) {
+    bundledLineRenderCacheSignature = signature
+    bundledLineRenderCache = getBundledLineRenderChunks(props.lines)
+    const validIds = new Set(props.lines.map(line => line.id))
+    for (const id of [...lineRenderDataCache.keys()]) if (!validIds.has(id)) lineRenderDataCache.delete(id)
+  }
+  return bundledLineRenderCache
+}
+
+function cachedBundledStationRenderHints() {
+  const signature = props.lines.map(line => `${line.id}:${lineRenderRevision(line)}`).join('|')
+  if (signature !== bundledStationRenderHintCacheSignature) {
+    bundledStationRenderHintCacheSignature = signature
+    bundledStationRenderHintCache = getBundledStationRenderHints(props.lines)
+  }
+  return bundledStationRenderHintCache
+}
+
+function resolvedGraphicsQuality(): 'ECO' | 'BALANCED' | 'HIGH' {
+  const requested = props.graphicsQuality ?? 'AUTO'
+  if (requested !== 'AUTO') return requested
+  const lineCount = props.lines.length
+  const stationCount = props.lines.reduce((total, line) => total + line.stations.length + (line.branches ?? []).reduce((sum, branch) => sum + branch.stations.length, 0), 0)
+  const vehicleCount = props.vehicles?.length ?? 0
+  const hardwareConcurrency = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4
+  const deviceMemory = typeof navigator !== 'undefined' ? Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8) : 8
+  if (hardwareConcurrency <= 4 || deviceMemory <= 4 || lineCount >= 45 || stationCount >= 650 || vehicleCount >= 350) return 'ECO'
+  if (hardwareConcurrency <= 8 || deviceMemory <= 8 || lineCount >= 14 || stationCount >= 180 || vehicleCount >= 140) return 'BALANCED'
+  return 'HIGH'
+}
+
+function detailZoom(kind: 'BUILDINGS' | 'BUILDINGS_3D' | 'VEHICLES' | 'CROWDS') {
+  const quality = resolvedGraphicsQuality()
   if (kind === 'BUILDINGS') return quality === 'HIGH' ? 10.7 : quality === 'ECO' ? 12.4 : 11.5
   if (kind === 'BUILDINGS_3D') return quality === 'HIGH' ? 12.0 : quality === 'ECO' ? 14.2 : 13.2
-  return quality === 'HIGH' ? 7.8 : quality === 'ECO' ? 10.2 : 8.4
+  if (kind === 'VEHICLES') return quality === 'HIGH' ? 7.8 : quality === 'ECO' ? 10.2 : 8.4
+  return quality === 'HIGH' ? 11.1 : quality === 'ECO' ? 15.2 : 12.4
 }
 
 function generatedDetailZoom(kind: 'BLOCKS' | 'STREETS' | 'BUILDINGS' | 'BUILDINGS_3D' | 'POI') {
-  const quality = props.graphicsQuality ?? 'BALANCED'
+  const quality = resolvedGraphicsQuality()
   if (kind === 'BLOCKS') return quality === 'ECO' ? 7.1 : quality === 'HIGH' ? 5.95 : 6.15
   if (kind === 'STREETS') return quality === 'ECO' ? 9.5 : quality === 'HIGH' ? 7.65 : 8.15
   if (kind === 'BUILDINGS') return quality === 'ECO' ? 10.7 : quality === 'HIGH' ? 8.25 : 8.75
@@ -263,48 +418,199 @@ function territoryNameExpression(): any {
   ]
 }
 
-function lineWidthAtZoom(scale: number, extra = 0): any {
+function lineWidthAtZoom(scale: number, extra: any = 0): any {
   const scaledWidth: any = ['*', ['get', 'width'], scale]
   return extra === 0 ? scaledWidth : ['+', scaledWidth, extra]
 }
 
-function lineWidthExpression(extra = 0): any {
-  // MapLibre impose que `zoom` soit l'entrée directe d'un `interpolate`/`step`.
-  // Les calculs dépendant de la largeur de ligne restent donc dans les sorties
-  // de l'interpolation, jamais autour de l'expression de zoom.
+function corridorOffsetExpression(): any {
+  // LOD du faisceau : vu du ciel, les câbles restent lisibles sans occuper
+  // des dizaines de pixels. Ils s'écartent progressivement en zoomant et
+  // retrouvent leur espacement complet à partir d'environ z12.
   return [
     'interpolate',
     ['linear'],
     ['zoom'],
-    6, lineWidthAtZoom(.62, extra),
-    9, lineWidthAtZoom(.84, extra),
-    12, lineWidthAtZoom(1, extra),
-    15, lineWidthAtZoom(1.14, extra),
+    5, ['*', ['get', 'corridorOffset'], .18],
+    6, ['*', ['get', 'corridorOffset'], .24],
+    8, ['*', ['get', 'corridorOffset'], .38],
+    10, ['*', ['get', 'corridorOffset'], .62],
+    12, ['get', 'corridorOffset'],
+    15, ['*', ['get', 'corridorOffset'], 1.14],
+  ]
+}
+
+function corridorOffsetScaleAtZoom(zoom: number) {
+  const stops: Array<[number, number]> = [
+    [5, .18],
+    [6, .24],
+    [8, .38],
+    [10, .62],
+    [12, 1],
+    [15, 1.14],
+  ]
+  if (zoom <= stops[0]![0]) return stops[0]![1]
+  for (let index = 1; index < stops.length; index += 1) {
+    const [z1, scale1] = stops[index]!
+    const [z0, scale0] = stops[index - 1]!
+    if (zoom > z1) continue
+    const ratio = (zoom - z0) / Math.max(.001, z1 - z0)
+    return scale0 + (scale1 - scale0) * ratio
+  }
+  return stops[stops.length - 1]![1]
+}
+
+function shiftedBundledCoordinate(
+  hint: GameBundledPositionRenderHint | GameBundledStationRenderHint,
+  fallback: [number, number],
+): [number, number] {
+  if (!map || hint.corridorCount <= 1) return fallback
+
+  const anchor = map.project(hint.coordinate)
+  const tangentStart = map.project(hint.tangentStart)
+  const tangentEnd = map.project(hint.tangentEnd)
+  const dx = tangentEnd.x - tangentStart.x
+  const dy = tangentEnd.y - tangentStart.y
+  const tangentLength = Math.hypot(dx, dy)
+  if (tangentLength <= .001) return hint.coordinate
+
+  const pixelOffset = hint.corridorOffset * corridorOffsetScaleAtZoom(map.getZoom())
+  // MapLibre `line-offset` positif = côté droit du sens de la géométrie.
+  const rightX = -dy / tangentLength
+  const rightY = dx / tangentLength
+  const shifted = map.unproject([
+    anchor.x + rightX * pixelOffset,
+    anchor.y + rightY * pixelOffset,
+  ])
+  return [shifted.lng, shifted.lat]
+}
+
+function renderedStationCoordinate(lineId: string, station: { id: string; longitude: number; latitude: number }): [number, number] {
+  const fallback: [number, number] = [station.longitude, station.latitude]
+  const hint = cachedBundledStationRenderHints().get(`${lineId}:${station.id}`)
+  return hint ? shiftedBundledCoordinate(hint, fallback) : fallback
+}
+
+function vehicleSequenceId(line: GameLine, vehicle: GameVisualVehicle) {
+  if (vehicle.routeStationIds.length < 2) return null
+  const maxSegment = vehicle.routeStationIds.length - 2
+  const segmentIndex = Math.max(0, Math.min(maxSegment, Math.floor(vehicle.routePosition)))
+  const fromId = vehicle.routeStationIds[segmentIndex]
+  const toId = vehicle.routeStationIds[segmentIndex + 1]
+  if (!fromId || !toId) return null
+
+  const from = findLineStationLocation(line, fromId)
+  const to = findLineStationLocation(line, toId)
+  const branchId = !from?.isMain ? from?.branchId : !to?.isMain ? to?.branchId : null
+  return branchId ? `${line.id}:branch:${branchId}` : `${line.id}:main`
+}
+
+function corridorWidthAtScale(
+  isolatedScale: number,
+  bundledScale: number,
+  sharedExtra = 0,
+  isolatedExtra = 0,
+): any {
+  const bundledExtra = sharedExtra === 0 ? 0 : sharedExtra * bundledScale
+  return [
+    'case',
+    ['>', ['get', 'corridorCount'], 1], lineWidthAtZoom(bundledScale, bundledExtra),
+    lineWidthAtZoom(isolatedScale, isolatedExtra),
+  ]
+}
+
+function sharedCorridorExtra(sharedExtra: number, isolatedExtra: number): any {
+  return [
+    'case',
+    ['>', ['get', 'corridorCount'], 1], sharedExtra,
+    isolatedExtra,
+  ]
+}
+
+function shadowLineWidthExpression(): any {
+  return [
+    'interpolate', ['linear'], ['zoom'],
+    5, corridorWidthAtScale(.62, .18, .4, 4.2),
+    6, corridorWidthAtScale(.62, .24, .4, 4.2),
+    8, corridorWidthAtScale(.7667, .38, .4, 4.2),
+    10, corridorWidthAtScale(.8933, .62, .4, 4.2),
+    12, corridorWidthAtScale(1, 1, .4, 4.2),
+    15, corridorWidthAtScale(1.14, 1.14, .4, 4.2),
+  ]
+}
+
+function focusLineWidthExpression(): any {
+  return [
+    'interpolate', ['linear'], ['zoom'],
+    5, corridorWidthAtScale(.62, .18, .4, 7.2),
+    6, corridorWidthAtScale(.62, .24, .4, 7.2),
+    8, corridorWidthAtScale(.7667, .38, .4, 7.2),
+    10, corridorWidthAtScale(.8933, .62, .4, 7.2),
+    12, corridorWidthAtScale(1, 1, .4, 7.2),
+    15, corridorWidthAtScale(1.14, 1.14, .4, 7.2),
   ]
 }
 
 function selectedLineWidthExpression(): any {
-  const widthFor = (scale: number): any => [
+  const widthFor = (isolatedScale: number, bundledScale: number): any => [
     'case',
-    ['==', ['get', 'active'], 1], lineWidthAtZoom(scale, 1.35),
-    ['==', ['get', 'selected'], 1], lineWidthAtZoom(scale, .8),
-    lineWidthAtZoom(scale),
+    ['>', ['get', 'corridorCount'], 1], lineWidthAtZoom(bundledScale),
+    ['==', ['get', 'active'], 1], lineWidthAtZoom(isolatedScale, 1.35),
+    ['==', ['get', 'selected'], 1], lineWidthAtZoom(isolatedScale, .8),
+    lineWidthAtZoom(isolatedScale),
   ]
 
   return [
     'interpolate',
     ['linear'],
     ['zoom'],
-    6, widthFor(.62),
-    9, widthFor(.84),
-    12, widthFor(1),
-    15, widthFor(1.14),
+    5, widthFor(.62, .18),
+    6, widthFor(.62, .24),
+    8, widthFor(.7667, .38),
+    10, widthFor(.8933, .62),
+    12, widthFor(1, 1),
+    15, widthFor(1.14, 1.14),
+  ]
+}
+
+function stableCoreLineWidthExpression(): any {
+  const widthFor = (bundledScale: number, isolatedWidth: number): any => [
+    'case',
+    ['>', ['get', 'corridorCount'], 1], lineWidthAtZoom(bundledScale),
+    isolatedWidth,
+  ]
+  return [
+    'interpolate', ['linear'], ['zoom'],
+    5, widthFor(.18, 1.6),
+    6, widthFor(.24, 1.85),
+    8, widthFor(.38, 2.3),
+    10, widthFor(.62, 2.7),
+    12, widthFor(1, 3.1),
+    15, widthFor(1.14, 3.7),
+    16, widthFor(1.14, 4),
+  ]
+}
+
+function workLineWidthExpression(): any {
+  const widthFor = (bundled: number, isolated: number): any => [
+    'case',
+    ['>', ['get', 'corridorCount'], 1], bundled,
+    isolated,
+  ]
+  return [
+    'interpolate', ['linear'], ['zoom'],
+    5, widthFor(.35, .8),
+    8, widthFor(.5, .95),
+    10, widthFor(.75, 1.1),
+    12, widthFor(1.25, 1.25),
+    15, widthFor(1.6, 1.6),
   ]
 }
 
 function focusedLineOpacity(): any {
   return [
     'case',
+    ['==', ['get', 'dimmed'], 1], .055,
     ['all', ['==', ['get', 'focusContext'], 1], ['!=', ['get', 'focused'], 1]], .22,
     ['==', ['get', 'status'], 'PROJECT'], .84,
     1,
@@ -414,51 +720,139 @@ Promise<GeoJsonCollection> {
   return { type: 'FeatureCollection', features: allFeatures }
 }
 
+function networkInsightColor(score: number, mode: GameMapInsightMode | undefined, fallback: string) {
+  if (mode === 'FLOW') {
+    if (score >= .78) return '#f3b65f'
+    if (score >= .48) return '#72e5ea'
+    if (score >= .20) return '#6fa7c9'
+    return '#435866'
+  }
+  if (mode === 'SATURATION') {
+    if (score >= 1.05) return '#ef7373'
+    if (score >= .85) return '#efb75f'
+    if (score >= .60) return '#d7d46f'
+    return '#72d5a0'
+  }
+  return fallback
+}
+
 function getLineCollection() {
   const focusLineId = props.activeLineId ?? props.selectedLineId ?? null
   const focusContext = focusLineId ? 1 : 0
-  const corridorOffsets = calculateLineCorridorOffsets(props.lines)
+  const bundledChunks = cachedBundledLineRenderChunks()
+  const viewport = activeRenderViewport()
+  const reports = new Map((props.lineReports ?? []).map(report => [report.lineId, report] as const))
+  const maxFlow = Math.max(1, ...(props.lineReports ?? []).map(report => Math.max(0, report.networkRoutedPassengers ?? report.passengers ?? 0)))
   return {
     type: 'FeatureCollection',
     features: props.lines.flatMap((line, lineIndex) => {
       const mode = getTransportModeDefinition(line.mode)
-      return getRenderedLineSequences(line).map((sequence, sequenceIndex) => ({
+      const report = reports.get(line.id)
+      const flowScore = Math.min(1, Math.max(0, Number(report?.networkRoutedPassengers ?? report?.passengers ?? 0) / maxFlow))
+      const saturationScore = Math.max(0, Number(report?.networkLoadRate ?? 0), Number(report?.occupancyRate ?? 0), Number(report?.queuePressureRate ?? 0), Number(report?.bottleneckSegmentLoadRate ?? 0))
+      const insightScore = props.insightMode === 'FLOW' ? flowScore : saturationScore
+      const widthBoost = props.insightMode === 'FLOW' ? 1 + flowScore * .85 : props.insightMode === 'SATURATION' ? 1 + Math.min(1.25, saturationScore) * .55 : 1
+      const displayColor = networkInsightColor(insightScore, props.insightMode, line.color)
+      const chunks = (bundledChunks.get(line.id) ?? [])
+        .filter(chunk => coordinatesIntersectActiveViewport(chunk.coordinates, viewport))
+
+      return chunks.map((chunk, sequenceIndex) => ({
         type: 'Feature',
         properties: {
           id: line.id,
-          segmentId: sequence.id,
+          segmentId: chunk.id,
+          sequenceId: chunk.sequenceId,
           sequenceIndex,
           lineIndex,
-          branch: sequence.kind === 'BRANCH' ? 1 : 0,
+          branch: chunk.kind === 'BRANCH' ? 1 : 0,
           name: line.name,
           mode: line.mode,
           status: line.status,
-          color: line.color,
-          width: mode.mapLineWidth,
+          color: displayColor,
+          baseColor: line.color,
+          // Dans un faisceau, l'épaisseur reste fixe : les overlays d'analyse
+          // ne peuvent pas regonfler une ligne jusqu'à toucher sa voisine.
+          width: chunk.corridorCount > 1 ? mode.mapLineWidth : mode.mapLineWidth * widthBoost,
+          flowScore,
+          saturationScore,
           stationRadius: mode.stationRadius,
           active: line.id === props.activeLineId ? 1 : 0,
           selected: line.id === props.selectedLineId ? 1 : 0,
           focused: line.id === focusLineId ? 1 : 0,
           focusContext,
-          corridorOffset: corridorOffsets.get(line.id) ?? 0,
+          dimmed: (props.dimmedLineIds ?? []).includes(line.id) ? 1 : 0,
+          corridorOffset: chunk.corridorOffset,
+          corridorCount: chunk.corridorCount,
         },
         geometry: {
           type: 'LineString',
-          coordinates: sequence.coordinates,
+          coordinates: chunk.coordinates,
         },
       }))
     }),
   }
 }
 
+function getOperationsOverlayCollection() {
+  const viewport = activeRenderViewport()
+  const lineById = new Map(props.lines.map(line => [line.id, line] as const))
+  const features: GeoJsonFeature[] = []
+  for (const disruption of props.operationsDisruptions ?? []) {
+    const line = lineById.get(disruption.lineId)
+    if (!line) continue
+    const renderData = cachedLineRenderData(line)
+    const stations = new Map(renderData.stations.map(station => [station.id, station] as const))
+    if (disruption.scope === 'LINE') {
+      for (const sequence of renderData.sequences.filter(sequence => coordinatesIntersectActiveViewport(sequence.coordinates, viewport))) {
+        features.push({ type: 'Feature', properties: { kind: 'DISRUPTION', severity: disruption.severity, lineId: line.id }, geometry: { type: 'LineString', coordinates: sequence.coordinates } })
+      }
+    }
+    else if (disruption.scope === 'SEGMENT' && disruption.segmentFromStationId && disruption.segmentToStationId) {
+      const from = stations.get(disruption.segmentFromStationId)
+      const to = stations.get(disruption.segmentToStationId)
+      if (from && to && coordinatesIntersectActiveViewport([[from.longitude, from.latitude], [to.longitude, to.latitude]], viewport)) features.push({ type: 'Feature', properties: { kind: 'DISRUPTION', severity: disruption.severity, lineId: line.id }, geometry: { type: 'LineString', coordinates: [[from.longitude, from.latitude], [to.longitude, to.latitude]] } })
+    }
+    for (const id of disruption.scope === 'STATIONS' ? disruption.stationIds : []) {
+      const station = stations.get(id)
+      if (!station || !pointInActiveViewport(station.longitude, station.latitude, viewport)) continue
+      features.push({ type: 'Feature', properties: { kind: 'DISRUPTION_STATION', severity: disruption.severity, lineId: line.id }, geometry: { type: 'Point', coordinates: [station.longitude, station.latitude] } })
+    }
+  }
+  for (const service of props.substitutionServices ?? []) {
+    const line = lineById.get(service.lineId)
+    if (!line) continue
+    const stations = new Map(cachedLineRenderData(line).stations.map(station => [station.id, station] as const))
+    const coordinates = service.stationIds.map(id => stations.get(id)).filter((station): station is NonNullable<typeof station> => Boolean(station)).map(station => [station.longitude, station.latitude])
+    if (coordinates.length >= 2 && coordinatesIntersectActiveViewport(coordinates as [number, number][], viewport)) features.push({ type: 'Feature', properties: { kind: 'SUBSTITUTION', lineId: line.id }, geometry: { type: 'LineString', coordinates } })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function stationRenderStrideForZoom(zoom: number) {
+  const quality = resolvedGraphicsQuality()
+  return zoom >= 10.2
+    ? 1
+    : zoom >= 8.4
+      ? quality === 'ECO' ? 3 : quality === 'BALANCED' ? 2 : 1
+      : quality === 'ECO' ? 6 : quality === 'BALANCED' ? 4 : 2
+}
+
+function stationRenderDensityKey() {
+  if (!map) return ''
+  return `${resolvedGraphicsQuality()}:${stationRenderStrideForZoom(map.getZoom())}`
+}
+
 function getStationCollection() {
   const focusLineId = props.activeLineId ?? props.selectedLineId ?? null
   const focusContext = focusLineId ? 1 : 0
+  const reports = new Map((props.lineReports ?? []).map(report => [report.lineId, report] as const))
   const interchangeStationIds = new Set<string>()
   for (const link of props.interchanges ?? []) {
     interchangeStationIds.add(`${link.fromLineId}:${link.fromStationId}`)
     interchangeStationIds.add(`${link.toLineId}:${link.toStationId}`)
   }
+  const viewport = activeRenderViewport()
+  const stationStride = stationRenderStrideForZoom(map?.getZoom() ?? 12)
 
   return {
     type: 'FeatureCollection',
@@ -468,11 +862,27 @@ function getStationCollection() {
           getTransportModeDefinition(
             line.mode,
           )
-        const terminusIds = new Set(getLineTerminusStations(line).map(station => station.id))
-        const junctionIds = getLineJunctionStationIds(line)
+        const renderData = cachedLineRenderData(line)
+        const terminusIds = renderData.terminusIds
+        const junctionIds = renderData.junctionIds
+        const lineReport = reports.get(line.id)
+        const stationReports = new Map((lineReport?.stations ?? []).map(item => [item.stationId, item] as const))
 
-        return getLineAllStations(line).map(
-          (station, index) => ({
+        return renderData.stations.filter((station, index) => {
+          if (!pointInActiveViewport(station.longitude, station.latitude, viewport)) return false
+          if (stationStride <= 1 || line.id === focusLineId) return true
+          const important = terminusIds.has(station.id)
+            || junctionIds.has(station.id)
+            || interchangeStationIds.has(`${line.id}:${station.id}`)
+            || station.id === props.selectedStationId
+            || station.id === props.draftAnchor?.stationId
+          return important || index % stationStride === 0
+        }).map(
+          (station, index) => {
+            const stationReport = stationReports.get(station.id)
+            const stationFlow = Math.max(0, Number(stationReport?.boardings ?? 0) + Number(stationReport?.alightings ?? 0) + Number(stationReport?.transferBoardings ?? 0))
+            const stationUtilization = Math.max(0, Number(stationReport?.utilizationRate ?? 0))
+            return ({
             type: 'Feature',
             properties: {
               id: station.id,
@@ -480,9 +890,14 @@ function getStationCollection() {
               lineName: line.name,
               mode: line.mode,
               name: station.name,
-              color: line.color,
+              color: networkInsightColor(stationUtilization, props.insightMode === 'SATURATION' ? 'SATURATION' : undefined, line.color),
+              baseColor: line.color,
               stationRadius:
                 mode.stationRadius,
+              stationFlow,
+              stationUtilization,
+              hubScore: stationReport?.hubScore ?? 0,
+              networkRole: stationReport?.networkRole ?? 'LOCAL',
               active:
                 line.id === props.activeLineId
                   ? 1
@@ -499,12 +914,9 @@ function getStationCollection() {
             },
             geometry: {
               type: 'Point',
-              coordinates: [
-                station.longitude,
-                station.latitude,
-              ],
+              coordinates: renderedStationCoordinate(line.id, station),
             },
-          }),
+          })},
         )
       },
     ),
@@ -516,8 +928,8 @@ function activeDraftLine() {
   return id ? props.lines.find(line => line.id === id) ?? null : null
 }
 
-function routingCorridorKinds(mode: GameTransportMode) {
-  if (mode === 'TRAIN' || mode === 'RER') return ['rail', 'major_road']
+function routingCorridorKinds(mode: GameTransportMode, routingMode: GameLineRoutingMode) {
+  if (isRailAutoRouting(mode, routingMode)) return ['rail']
   if (mode === 'TRAM') return ['rail', 'major_road', 'minor_road', 'street']
   if (mode === 'BUS' || mode === 'BRT') return ['highway', 'major_road', 'minor_road', 'street']
   return ['rail', 'major_road']
@@ -526,7 +938,8 @@ function routingCorridorKinds(mode: GameTransportMode) {
 function routingCorridorFilter(local: boolean): any {
   const line = activeDraftLine()
   const mode = line?.mode ?? 'METRO'
-  const kinds = routingCorridorKinds(mode)
+  const routingMode = props.routingMode ?? line?.routingMode ?? 'ASSISTED'
+  const kinds = routingCorridorKinds(mode, routingMode)
   const kindFilter: any = ['in', ['get', 'kind'], ['literal', kinds]]
   return local
     ? ['all', ['==', ['get', 'layer'], 'road'], kindFilter]
@@ -536,7 +949,7 @@ function routingCorridorFilter(local: boolean): any {
 function refreshRoutingCorridors() {
   if (!map || !mapReady.value) return
   const line = activeDraftLine()
-  const assisted = props.building && Boolean(line) && (props.routingMode ?? line?.routingMode ?? 'ASSISTED') === 'ASSISTED'
+  const assisted = props.building && Boolean(line) && (props.routingMode ?? line?.routingMode ?? 'ASSISTED') !== 'FREE'
   const layerId = localTerritoryRuntime() ? 'game-routing-corridors-local' : 'game-routing-corridors-static'
   try {
     if (!map.getLayer(layerId)) return
@@ -546,45 +959,98 @@ function refreshRoutingCorridors() {
   catch {}
 }
 
-function routingGraphKey(mode: GameTransportMode) {
+function routingGraphKey(mode: GameTransportMode, routingMode: GameLineRoutingMode = 'ASSISTED') {
   const definition = territoryDefinition()
   const generated = props.territoryId === 'GENERATED' ? normalizeGeneratedTerritorySettings(props.generatedTerritory) : null
-  return `${definition.id}:${generated?.seed ?? ''}:${generated?.size ?? ''}:${mode}`
+  return `${definition.id}:${generated?.seed ?? ''}:${generated?.size ?? ''}:${mode}:${routingMode}`
 }
 
-function staticRoadFeatureCollection() {
+function staticRoadFeatureCollection(
+  mode?: GameTransportMode,
+  routingMode: GameLineRoutingMode = 'ASSISTED',
+) {
   if (!map || localTerritoryRuntime()) return null
   try {
     const features = map.querySourceFeatures('basemap', { sourceLayer: 'roads' } as any)
-    if (!features?.length) return null
+    if (!features?.length && staticStrictRailFeatureCache.size === 0) return null
+
+    const strictRail = mode !== undefined && isRailAutoRouting(mode, routingMode)
+    const normalized = (features ?? []).map((feature: any) => ({
+      type: 'Feature',
+      properties: { ...(feature.properties ?? {}), layer: 'road' },
+      geometry: feature.geometry,
+    }))
+
+    if (!strictRail) {
+      return {
+        type: 'FeatureCollection',
+        features: normalized,
+      }
+    }
+
+    // `querySourceFeatures()` ne renvoie que les tuiles vectorielles chargées.
+    // Pour Rail auto strict, on mémorise les fragments de voie déjà traversés
+    // par la caméra afin qu'un long détour reste routable après un pan/zoom.
+    for (const feature of normalized) {
+      if (String(feature.properties?.kind ?? '') !== 'rail' || !feature.geometry) continue
+      const key = `${String(feature.geometry.type ?? '')}:${JSON.stringify(feature.geometry.coordinates ?? null)}`
+      if (!staticStrictRailFeatureCache.has(key)) staticStrictRailFeatureCache.set(key, feature)
+    }
+
+    if (!staticStrictRailFeatureCache.size) return null
     return {
       type: 'FeatureCollection',
-      features: features.map((feature: any) => ({
-        type: 'Feature',
-        properties: { ...(feature.properties ?? {}), layer: 'road' },
-        geometry: feature.geometry,
-      })),
+      features: [...staticStrictRailFeatureCache.values()],
     }
   }
   catch {
-    return null
+    return staticStrictRailFeatureCache.size
+      ? { type: 'FeatureCollection', features: [...staticStrictRailFeatureCache.values()] }
+      : null
   }
 }
 
-function smartRoutingGraph(mode: GameTransportMode) {
+function smartRoutingGraph(mode: GameTransportMode, routingMode: GameLineRoutingMode = 'ASSISTED') {
   const runtime = localTerritoryRuntime()
   if (runtime) {
-    const key = routingGraphKey(mode)
-    if (!routingGraphCache.has(key)) routingGraphCache.set(key, buildSmartRoutingGraph(runtime.basemapGeoJson as any, mode))
+    const key = routingGraphKey(mode, routingMode)
+    const profile = isRailAutoRouting(mode, routingMode) ? 'RAIL' : mode === 'RER' || mode === 'TRAIN' ? 'LIGHT' : 'DEFAULT'
+    if (!routingGraphCache.has(key)) routingGraphCache.set(key, buildSmartRoutingGraph(runtime.basemapGeoJson as any, mode, profile))
     return routingGraphCache.get(key) ?? null
   }
-  const key = `STATIC:${props.territoryId ?? 'ILE_DE_FRANCE'}:${mode}:${staticRoutingRevision}`
+  const key = `STATIC:${props.territoryId ?? 'ILE_DE_FRANCE'}:${mode}:${routingMode}:${staticRoutingRevision}`
   if (lastStaticGraphRevision !== staticRoutingRevision) {
     for (const cacheKey of [...routingGraphCache.keys()]) if (cacheKey.startsWith('STATIC:')) routingGraphCache.delete(cacheKey)
     lastStaticGraphRevision = staticRoutingRevision
   }
-  if (!routingGraphCache.has(key)) routingGraphCache.set(key, buildSmartRoutingGraph(staticRoadFeatureCollection() as any, mode))
+  const profile = isRailAutoRouting(mode, routingMode) ? 'RAIL' : mode === 'RER' || mode === 'TRAIN' ? 'LIGHT' : 'DEFAULT'
+  if (!routingGraphCache.has(key)) routingGraphCache.set(key, buildSmartRoutingGraph(staticRoadFeatureCollection(mode, routingMode) as any, mode, profile))
   return routingGraphCache.get(key) ?? null
+}
+
+const STRICT_RAIL_SNAP_METERS = 850
+const STRICT_EXISTING_STATION_SNAP_METERS = 220
+
+function strictRailAutoContext() {
+  const line = activeDraftLine()
+  const mode = line?.mode ?? 'METRO'
+  const routingMode = props.routingMode ?? line?.routingMode ?? 'ASSISTED'
+  const strict = isRailAutoRouting(mode, routingMode)
+  return { line, mode, routingMode, strict }
+}
+
+function snapStrictRailPoint(
+  longitude: number,
+  latitude: number,
+  maxDistanceMeters = STRICT_RAIL_SNAP_METERS,
+) {
+  const context = strictRailAutoContext()
+  if (!context.strict) return [longitude, latitude] as SmartRouteCoordinate
+  return snapPointToSmartGraph(
+    smartRoutingGraph(context.mode, context.routingMode),
+    [longitude, latitude],
+    maxDistanceMeters,
+  )
 }
 
 function buildDraftPreviewCoordinates(cursor?: { longitude: number; latitude: number } | null) {
@@ -593,13 +1059,143 @@ function buildDraftPreviewCoordinates(cursor?: { longitude: number; latitude: nu
   const line = activeDraftLine()
   const mode = line?.mode ?? 'METRO'
   const routingMode = props.routingMode ?? line?.routingMode ?? 'ASSISTED'
+  const strictRail = isRailAutoRouting(mode, routingMode)
+  const snappedCursor = strictRail
+    ? snapPointToSmartGraph(smartRoutingGraph(mode, routingMode), [cursor.longitude, cursor.latitude], STRICT_RAIL_SNAP_METERS)
+    : [cursor.longitude, cursor.latitude] as SmartRouteCoordinate
+  if (!snappedCursor) return [] as SmartRouteCoordinate[]
   const points: SmartRouteCoordinate[] = [
     [anchor.longitude, anchor.latitude],
     ...(props.draftGuidePoints ?? []).map(point => [point[0], point[1]] as SmartRouteCoordinate),
-    [cursor.longitude, cursor.latitude],
+    snappedCursor,
   ]
-  if (routingMode === 'FREE') return routeThroughWaypoints(null, points, false)
-  return routeThroughWaypoints(smartRoutingGraph(mode), points, true)
+  if (mode === 'FERRY' || routingMode === 'FREE') return routeThroughWaypoints(null, points, false)
+  return routeThroughWaypoints(smartRoutingGraph(mode, routingMode), points, true)
+}
+
+
+function waterValidationLayerIds() {
+  if (!map) return [] as string[]
+  return [
+    'generated-water-polygons',
+    'generated-water-lines',
+    'base-water',
+    'base-water-lines',
+  ].filter(id => {
+    try { return Boolean(map?.getLayer(id)) }
+    catch { return false }
+  })
+}
+
+function pointTouchesNavigableWater(longitude: number, latitude: number, tolerancePx = 5) {
+  if (!map || !mapReady.value) return false
+  const layers = waterValidationLayerIds()
+  if (!layers.length) return false
+  try {
+    const point = map.project([longitude, latitude])
+    const box: any = [
+      [point.x - tolerancePx, point.y - tolerancePx],
+      [point.x + tolerancePx, point.y + tolerancePx],
+    ]
+    return map.queryRenderedFeatures(box, { layers }).length > 0
+  }
+  catch {
+    return false
+  }
+}
+
+function routeStaysOnNavigableWater(coordinates: SmartRouteCoordinate[]) {
+  if (!map || !mapReady.value || coordinates.length < 2) return false
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const from = coordinates[index - 1]!
+    const to = coordinates[index]!
+    let pixelDistance = 80
+    try {
+      const a = map.project(from)
+      const b = map.project(to)
+      pixelDistance = Math.hypot(b.x - a.x, b.y - a.y)
+    }
+    catch {}
+    const steps = Math.min(40, Math.max(2, Math.ceil(pixelDistance / 7)))
+    for (let step = 0; step <= steps; step += 1) {
+      const t = step / steps
+      const longitude = from[0] + (to[0] - from[0]) * t
+      const latitude = from[1] + (to[1] - from[1]) * t
+      if (!pointTouchesNavigableWater(longitude, latitude, 5)) return false
+    }
+  }
+  return true
+}
+
+function ferryPlacementIsValid(
+  longitude: number,
+  latitude: number,
+  routeCoordinates?: SmartRouteCoordinate[],
+) {
+  const line = activeDraftLine()
+  if (line?.mode !== 'FERRY') return true
+  if (!pointTouchesNavigableWater(longitude, latitude, 6)) return false
+  if (!props.draftAnchor) return true
+  if (!routeCoordinates?.length || routeCoordinates.length < 2) return false
+  return routeStaysOnNavigableWater(routeCoordinates)
+}
+
+function rejectInvalidFerryPlacement() {
+  emit(
+    'buildRejected',
+    'Navette fluviale : placez la halte sur l’eau et gardez tout le tracé dans la voie d’eau. Ajoutez des points de guidage pour suivre une rivière ou un canal.',
+  )
+}
+
+function rejectInvalidRailAutoPlacement(kind: 'SNAP' | 'PATH') {
+  emit(
+    'buildRejected',
+    kind === 'SNAP'
+      ? 'Rail auto : cliquez plus près d’une voie ferrée existante, ou passez sur Aide légère / Libre.'
+      : 'Rail auto : aucune continuité ferroviaire n’a été trouvée entre ces points. Passez sur Aide légère / Libre pour créer une nouvelle emprise.',
+  )
+}
+
+function projectCatchmentRadiusMeters(mode: GameTransportMode) {
+  if (mode === 'RER' || mode === 'TRAIN') return 1400
+  if (mode === 'METRO') return 900
+  if (mode === 'TRAM') return 700
+  if (mode === 'CABLE') return 850
+  if (mode === 'FERRY') return 900
+  if (mode === 'BRT') return 600
+  return 480
+}
+
+function circlePolygon(longitude: number, latitude: number, radiusMeters: number, steps = 28) {
+  const latRadius = radiusMeters / 111_320
+  const lonRadius = radiusMeters / Math.max(1, 111_320 * Math.cos(latitude * Math.PI / 180))
+  const coordinates: Array<[number, number]> = []
+  for (let index = 0; index <= steps; index += 1) {
+    const angle = (index / steps) * Math.PI * 2
+    coordinates.push([
+      longitude + Math.cos(angle) * lonRadius,
+      latitude + Math.sin(angle) * latRadius,
+    ])
+  }
+  return coordinates
+}
+
+function getProjectCatchmentCollection() {
+  if (!props.building) return { type: 'FeatureCollection', features: [] }
+  const line = activeDraftLine()
+  if (!line) return { type: 'FeatureCollection', features: [] }
+  const radiusMeters = projectCatchmentRadiusMeters(line.mode)
+  return {
+    type: 'FeatureCollection',
+    features: cachedLineRenderData(line).stations.map(station => ({
+      type: 'Feature',
+      properties: { stationId: station.id, radiusMeters, mode: line.mode },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [circlePolygon(station.longitude, station.latitude, radiusMeters)],
+      },
+    })),
+  }
 }
 
 function getDraftPreviewCollection(cursor?: { longitude: number; latitude: number } | null) {
@@ -607,7 +1203,12 @@ function getDraftPreviewCollection(cursor?: { longitude: number; latitude: numbe
   const features: unknown[] = []
   draftPreviewCoordinates = buildDraftPreviewCoordinates(cursor)
   if (anchor && cursor && draftPreviewCoordinates.length >= 2) {
-    const properties = { kind: props.draftAnchor?.kind ?? 'BUILD', routingMode: props.routingMode ?? activeDraftLine()?.routingMode ?? 'ASSISTED' }
+    const waterValid = ferryPlacementIsValid(cursor.longitude, cursor.latitude, draftPreviewCoordinates)
+    const properties = {
+      kind: props.draftAnchor?.kind ?? 'BUILD',
+      routingMode: props.routingMode ?? activeDraftLine()?.routingMode ?? 'ASSISTED',
+      waterValid: waterValid ? 1 : 0,
+    }
     features.push({
       type: 'Feature',
       properties,
@@ -617,7 +1218,11 @@ function getDraftPreviewCollection(cursor?: { longitude: number; latitude: numbe
       },
     })
     for (const point of props.draftGuidePoints ?? []) {
-      features.push({ type: 'Feature', properties: { kind: 'GUIDE' }, geometry: { type: 'Point', coordinates: point } })
+      features.push({
+        type: 'Feature',
+        properties: { kind: 'GUIDE', waterValid: pointTouchesNavigableWater(point[0], point[1], 6) ? 1 : 0 },
+        geometry: { type: 'Point', coordinates: point },
+      })
     }
     features.push({
       type: 'Feature',
@@ -633,21 +1238,27 @@ function getDraftPreviewCollection(cursor?: { longitude: number; latitude: numbe
 
 
 function getInterchangeCollection() {
+  const viewport = activeRenderViewport()
   const links = props.interchanges ?? []
   const lineById = new Map(props.lines.map(line => [line.id, line]))
   return {
     type: 'FeatureCollection',
     features: links
-      .filter(link => link.distanceMeters > 1 && link.distanceMeters <= 800)
+      .filter(link => link.distanceMeters > 1 && (link.kind === 'WALKING' || link.distanceMeters <= 800))
       .map(link => {
         const fromLine = lineById.get(link.fromLineId)
         const from = fromLine ? findLineStation(fromLine, link.fromStationId) : null
         const toLine = lineById.get(link.toLineId)
         const to = toLine ? findLineStation(toLine, link.toStationId) : null
-        if (!from || !to) return null
+        if (!from || !to || !coordinatesIntersectActiveViewport([[from.longitude, from.latitude], [to.longitude, to.latitude]], viewport)) return null
         return {
           type: 'Feature',
-          properties: { quality: link.quality, distance: Math.round(link.distanceMeters) },
+          properties: {
+            quality: link.quality,
+            distance: Math.round(link.distanceMeters),
+            walkingMinutes: link.walkingMinutes,
+            kind: link.kind,
+          },
           geometry: { type: 'LineString', coordinates: [[from.longitude, from.latitude], [to.longitude, to.latitude]] },
         }
       })
@@ -655,20 +1266,136 @@ function getInterchangeCollection() {
   }
 }
 
-function getVehicleCollection() {
+function getDepotCollection() {
   return {
     type: 'FeatureCollection',
-    features: (props.vehicles ?? []).map(vehicle => ({
+    features: (props.depots ?? []).filter(depot => pointInActiveViewport(depot.longitude, depot.latitude)).map(depot => ({
       type: 'Feature',
       properties: {
-        id: vehicle.id,
-        lineId: vehicle.lineId,
-        color: vehicle.color,
-        shortCode: vehicle.shortCode,
+        id: depot.id,
+        name: depot.name,
+        mode: depot.mode,
+        capacity: depot.capacity,
+        accent: getTransportModeDefinition(depot.mode).accent,
       },
-      geometry: { type: 'Point', coordinates: [vehicle.longitude, vehicle.latitude] },
+      geometry: { type: 'Point', coordinates: [depot.longitude, depot.latitude] },
     })),
   }
+}
+
+function getVehicleCollection() {
+  const lineById = new Map(props.lines.map(line => [line.id, line] as const))
+  const vehicles = (props.vehicles ?? []).filter(vehicle => pointInActiveViewport(vehicle.longitude, vehicle.latitude))
+  const renderHints = getBundledLineRenderHintsAtCoordinates(
+    props.lines,
+    vehicles.flatMap(vehicle => {
+      const line = lineById.get(vehicle.lineId)
+      if (!line) return []
+      return [{
+        key: vehicle.id,
+        lineId: line.id,
+        target: [vehicle.longitude, vehicle.latitude] as [number, number],
+        sequenceId: vehicleSequenceId(line, vehicle),
+        maxDistanceMeters: 2_500,
+      }]
+    }),
+  )
+  return {
+    type: 'FeatureCollection',
+    features: vehicles.map(vehicle => {
+      const fallback: [number, number] = [vehicle.longitude, vehicle.latitude]
+      const hint = renderHints.get(vehicle.id)
+      const coordinates = hint ? shiftedBundledCoordinate(hint, fallback) : fallback
+      return {
+        type: 'Feature',
+        properties: {
+          id: vehicle.id,
+          lineId: vehicle.lineId,
+          color: vehicle.color,
+          shortCode: vehicle.shortCode,
+        },
+        geometry: { type: 'Point', coordinates },
+      }
+    }),
+  }
+}
+
+function getPassengerFlowCollection() {
+  const viewport = activeRenderViewport()
+  const reports = props.lineReports ?? []
+  const maxPassengers = Math.max(1, ...reports.flatMap(report => (report.segments ?? []).map(segment => Math.max(0, segment.routedPassengers))))
+  const lineById = new Map(props.lines.map(line => [line.id, line] as const))
+  const features: GeoJsonFeature[] = []
+  for (const report of reports) {
+    const line = lineById.get(report.lineId)
+    if (!line) continue
+    const stationById = new Map(cachedLineRenderData(line).stations.map(station => [station.id, station] as const))
+    for (const segment of report.segments ?? []) {
+      const from = stationById.get(segment.fromStationId)
+      const to = stationById.get(segment.toStationId)
+      if (!from || !to) continue
+      const coordinates = getSegmentCoordinates(line, from, to) ?? [[from.longitude, from.latitude], [to.longitude, to.latitude]]
+      if (!coordinatesIntersectActiveViewport(coordinates as [number, number][], viewport)) continue
+      const score = Math.max(0, Math.min(1, Math.log1p(Math.max(0, segment.routedPassengers)) / Math.log1p(maxPassengers)))
+      features.push({
+        type: 'Feature',
+        properties: {
+          lineId: line.id,
+          color: line.color,
+          passengers: Math.max(0, Math.round(segment.routedPassengers)),
+          flowScore: score,
+          loadRate: Math.max(0, segment.loadRate),
+        },
+        geometry: { type: 'LineString', coordinates },
+      })
+    }
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function getStationCrowdCollection() {
+  const viewport = activeRenderViewport()
+  const groups = new Map<string, { name: string; longitude: number; latitude: number; waiting: number; peak: number; leftBehind: number; utilization: number }>()
+  const reports = new Map((props.lineReports ?? []).map(report => [report.lineId, report] as const))
+  for (const line of props.lines) {
+    const lineReport = reports.get(line.id)
+    const stationReports = new Map((lineReport?.stations ?? []).map(item => [item.stationId, item] as const))
+    for (const station of cachedLineRenderData(line).stations) {
+      if (!pointInActiveViewport(station.longitude, station.latitude, viewport)) continue
+      const report = stationReports.get(station.id)
+      if (!report) continue
+      const key = station.sharedStationId ? `shared:${station.sharedStationId}` : `point:${station.longitude.toFixed(5)}:${station.latitude.toFixed(5)}`
+      const existing = groups.get(key) ?? { name: station.name, longitude: station.longitude, latitude: station.latitude, waiting: 0, peak: 0, leftBehind: 0, utilization: 0 }
+      existing.waiting += Math.max(0, Number(report.estimatedPlatformPassengers ?? 0))
+      existing.peak += Math.max(0, Number(report.estimatedPeakPlatformPassengers ?? report.estimatedPlatformPassengers ?? 0))
+      existing.leftBehind += Math.max(0, Number(report.leftBehindPassengers ?? 0))
+      existing.utilization = Math.max(existing.utilization, Math.max(0, Number(report.utilizationRate ?? 0)))
+      groups.set(key, existing)
+    }
+  }
+  const maxCrowd = Math.max(1, ...[...groups.values()].map(item => Math.max(item.waiting, item.peak * .55) + item.leftBehind * .35))
+  const features: GeoJsonFeature[] = []
+  for (const item of groups.values()) {
+    const crowd = Math.max(item.waiting, item.peak * .55) + item.leftBehind * .35
+    if (crowd < 40 && item.utilization < .55) continue
+    const normalized = Math.max(0, Math.min(1, Math.log1p(crowd) / Math.log1p(maxCrowd)))
+    const level = item.utilization >= 1.05 || item.leftBehind >= 500 || crowd >= 2200 ? 4 : crowd >= 1100 ? 3 : crowd >= 420 ? 2 : 1
+    features.push({
+      type: 'Feature',
+      properties: {
+        name: item.name,
+        waiting: Math.round(item.waiting),
+        peak: Math.round(item.peak),
+        leftBehind: Math.round(item.leftBehind),
+        utilization: item.utilization,
+        crowdScore: normalized,
+        crowdLevel: level,
+        color: item.utilization >= 1.05 || item.leftBehind >= 500 ? '#ef7373' : item.utilization >= .85 ? '#efb75f' : '#72d5a0',
+      },
+      geometry: { type: 'Point', coordinates: [item.longitude, item.latitude] },
+    })
+  }
+  return { type: 'FeatureCollection', features }
 }
 
 function clearInterchangeMarkers(resetSignature = true) {
@@ -676,102 +1403,90 @@ function clearInterchangeMarkers(resetSignature = true) {
     try { item.marker.remove() } catch {}
   }
   interchangeMarkers = []
+  interchangeMarkerVisibilityState = null
   if (resetSignature) interchangeMarkerSignature = ''
 }
 
 function clearStationMarkers(resetSignature = true) {
-  for (const item of stationMarkers) item.marker.remove()
+  // Phase 21 : les stations sont rendues nativement par MapLibre. Les anciens
+  // Marker DOM étaient très coûteux sur les réseaux de plusieurs centaines
+  // d'arrêts et faisaient laguer aussi bien les clics que le déplacement carte.
+  for (const item of stationMarkers) {
+    try { item.marker.remove() } catch {}
+  }
   stationMarkers = []
   if (resetSignature) stationMarkerSignature = ''
 }
 
 function updateStationMarkerVisibility() {
-  if (!map) return
-  const zoom = map.getZoom()
-  const focusLineId = props.activeLineId ?? props.selectedLineId ?? null
-  for (const item of stationMarkers) {
-    const hidden = zoom < 4.3
-    item.element.style.display = hidden ? 'none' : 'block'
-    item.element.style.opacity = focusLineId && item.lineId !== focusLineId ? '.46' : '1'
-    const base = zoom < 7 ? 6 : zoom < 10 ? 7 : zoom < 13 ? 8 : 9
-    item.element.style.width = `${base}px`
-    item.element.style.height = `${base}px`
-  }
+  // Les minzoom/filtres sont désormais gérés directement par les couches
+  // `game-network-station-*`, sans parcourir des centaines de nœuds DOM.
 }
 
 async function rebuildStationMarkers() {
-  if (!map || !mapReady.value || !maplibreApi) return
-  const signature = JSON.stringify({
-    focus: props.activeLineId ?? props.selectedLineId ?? null,
-    selected: props.selectedStationId ?? null,
-    lines: props.lines.map(line => [line.id, line.color, getLineAllStations(line).map(station => [station.id, station.longitude, station.latitude])]),
-  })
-  if (signature === stationMarkerSignature) { updateStationMarkerVisibility(); return }
-  stationMarkerSignature = signature
-  clearStationMarkers(false)
-
-  for (const line of props.lines) {
-    for (const station of getLineAllStations(line)) {
-      const element = document.createElement('button')
-      element.type = 'button'
-      element.className = 'clu-station-dot'
-      element.dataset.i18nSkip = '1'
-      element.title = `${station.name} · ${line.name}`
-      element.setAttribute('aria-label', `${station.name}, ${line.name}`)
-      const selected = station.id === props.selectedStationId
-      element.style.cssText = [
-        'display:block',
-        'width:8px',
-        'height:8px',
-        'padding:0',
-        'border:2px solid #ffffff',
-        'border-radius:999px',
-        `background:${line.color}`,
-        `box-shadow:0 0 0 ${selected ? '2px' : '1px'} rgba(5,10,14,.82),0 1px 5px rgba(0,0,0,.55)`,
-        'cursor:pointer',
-        'pointer-events:auto',
-        'transition:width .12s ease,height .12s ease,opacity .12s ease,transform .12s ease',
-        `transform:${selected ? 'scale(1.35)' : 'scale(1)'}`,
-      ].join(';')
-      element.addEventListener('click', event => {
-        event.preventDefault()
-        event.stopPropagation()
-        emit('stationClick', line.id, station.id)
-      })
-      const marker = new maplibreApi.Marker({ element, anchor: 'center' })
-        .setLngLat([station.longitude, station.latitude])
-        .addTo(map)
-      stationMarkers.push({ marker, element, lineId: line.id })
-    }
-  }
-  updateStationMarkerVisibility()
+  if (stationMarkers.length) clearStationMarkers(false)
+  stationMarkerSignature = 'MAPLIBRE_NATIVE_V21'
 }
 
-function updateInterchangeMarkerVisibility() {
+function interchangeDetailZoom() {
+  const quality = resolvedGraphicsQuality()
+  // Les badges DOM de correspondance sont coûteux (layout + events). En AUTO/ECO
+  // on privilégie donc la carte et les lignes jusqu'à un zoom réellement utile.
+  return quality === 'ECO' ? 11.2 : quality === 'BALANCED' ? 10.1 : 9.2
+}
+
+function updateInterchangeMarkerVisibility(force = false) {
   if (!map) return
-  const zoom = map.getZoom()
+  const visible = map.getZoom() >= interchangeDetailZoom()
   const focusLineId = props.activeLineId ?? props.selectedLineId ?? null
+  if (
+    !force
+    && interchangeMarkerVisibilityState?.visible === visible
+    && interchangeMarkerVisibilityState.focusLineId === focusLineId
+  ) return
+  interchangeMarkerVisibilityState = { visible, focusLineId }
   for (const item of interchangeMarkers) {
-    item.element.style.display = zoom >= 9.3 ? 'flex' : 'none'
+    item.element.style.display = visible ? 'flex' : 'none'
     const lineIds = (item.element.dataset.lineIds ?? '').split(',').filter(Boolean)
     item.element.style.opacity = focusLineId && !lineIds.includes(focusLineId) ? '.32' : '1'
     const label = item.element.querySelector<HTMLElement>('[data-interchange-name]')
-    if (label) label.style.display = zoom >= 11 ? 'block' : 'none'
+    if (label) label.style.display = 'block'
   }
+}
+
+function scheduleInterchangeMarkerRebuild() {
+  if (interchangeMarkerFrame !== null) return
+  interchangeMarkerFrame = window.requestAnimationFrame(() => {
+    interchangeMarkerFrame = null
+    void rebuildInterchangeMarkers()
+  })
 }
 
 async function rebuildInterchangeMarkers() {
   if (!map || !mapReady.value || !maplibreApi) return
+  const zoom = map.getZoom()
+  if (zoom < interchangeDetailZoom() - .15) {
+    if (interchangeMarkers.length) clearInterchangeMarkers(false)
+    interchangeMarkerSignature = 'hidden'
+    return
+  }
+  const bounds = map.getBounds()
   const links = props.interchanges ?? []
+  const viewportKey = [
+    Math.floor(zoom * 2) / 2,
+    bounds.getWest().toFixed(2), bounds.getSouth().toFixed(2),
+    bounds.getEast().toFixed(2), bounds.getNorth().toFixed(2),
+  ].join(':')
   const markerSignature = JSON.stringify({
+    viewportKey,
     links: links.map(link => [link.fromLineId, link.fromStationId, link.toLineId, link.toStationId, Math.round(link.distanceMeters)]),
-    lines: props.lines.map(line => [line.id, line.name, line.shortCode, line.color, line.customLogoDataUrl?.length ?? 0, getLineAllStations(line).map(station => [station.id, station.name, station.longitude, station.latitude, station.sharedStationId ?? ''])]),
+    lines: props.lines.map(line => [line.id, line.updatedAt, line.name, line.shortCode, line.color, line.customLogoDataUrl?.length ?? 0]),
   })
   if (markerSignature === interchangeMarkerSignature) { updateInterchangeMarkerVisibility(); return }
   interchangeMarkerSignature = markerSignature
   clearInterchangeMarkers(false)
   const lineById = new Map(props.lines.map(line => [line.id, line]))
-  const groups = new Map<string, { name: string; longitude: number; latitude: number; lineIds: Set<string>; lineId: string; stationId: string }>()
+  const groups = new Map<string, { name: string; longitude: number; latitude: number; lineIds: Set<string>; lineId: string; stationId: string; stationIds: Map<string, string> }>()
 
   function addStation(lineId: string, stationId: string, otherLineId: string) {
     const line = lineById.get(lineId)
@@ -787,9 +1502,11 @@ async function rebuildInterchangeMarkers() {
       lineIds: new Set<string>(),
       lineId,
       stationId,
+      stationIds: new Map<string, string>(),
     }
     existing.lineIds.add(lineId)
     existing.lineIds.add(otherLineId)
+    existing.stationIds.set(lineId, stationId)
     groups.set(sharedKey, existing)
   }
 
@@ -800,27 +1517,28 @@ async function rebuildInterchangeMarkers() {
 
   for (const group of groups.values()) {
     if (group.lineIds.size < 2) continue
+    if (!bounds.contains([group.longitude, group.latitude])) continue
     const element = document.createElement('div')
     element.className = 'clu-interchange-marker'
     element.dataset.i18nSkip = '1'
     element.dataset.lineIds = [...group.lineIds].join(',')
-    element.style.cssText = 'display:none;align-items:center;gap:5px;max-width:210px;padding:4px 6px;border:1px solid rgba(255,255,255,.82);border-radius:10px;background:rgba(8,14,19,.88);box-shadow:0 5px 15px rgba(0,0,0,.36);backdrop-filter:blur(8px);color:#eef7f8;font:700 calc(10px * var(--clu-text-scale,1))/1.1 Inter,system-ui,sans-serif;pointer-events:auto;white-space:nowrap;transition:opacity .15s ease;'
+    element.style.cssText = 'display:none;align-items:center;gap:5px;max-width:250px;padding:4px 7px;border:1px solid rgba(255,255,255,.72);border-radius:9px;background:rgba(8,14,19,.91);box-shadow:0 5px 15px rgba(0,0,0,.32);color:#eef7f8;font:750 calc(10px * var(--clu-text-scale,1))/1.1 Inter,system-ui,sans-serif;pointer-events:auto;white-space:nowrap;transition:opacity .15s ease;'
     element.title = `${group.name} · ${group.lineIds.size} lignes`
 
     const name = document.createElement('span')
     name.dataset.interchangeName = '1'
     name.textContent = group.name
-    name.style.cssText = 'display:none;max-width:100px;overflow:hidden;text-overflow:ellipsis;'
+    name.style.cssText = 'display:block;max-width:135px;overflow:hidden;text-overflow:ellipsis;'
     element.appendChild(name)
 
     const badges = document.createElement('span')
-    badges.style.cssText = 'display:flex;align-items:center;gap:3px;'
-    for (const lineId of [...group.lineIds].slice(0, 5)) {
+    badges.style.cssText = 'display:flex;align-items:center;gap:2px;flex:none;'
+    for (const lineId of [...group.lineIds]) {
       const line = lineById.get(lineId)
       if (!line) continue
       const badge = document.createElement('span')
       badge.title = line.name
-      badge.style.cssText = `width:20px;height:20px;border-radius:6px;display:grid;place-items:center;overflow:hidden;background:${line.color};color:#081014;font:900 calc(8px * var(--clu-text-scale,1))/1 Inter,system-ui,sans-serif;`
+      badge.style.cssText = `min-width:17px;height:17px;padding:0 3px;border-radius:5px;display:grid;place-items:center;overflow:hidden;background:${line.color};color:#081014;font:900 calc(7px * var(--clu-text-scale,1))/1 Inter,system-ui,sans-serif;`
       if (line.customLogoDataUrl) {
         const image = document.createElement('img')
         image.src = line.customLogoDataUrl
@@ -834,15 +1552,29 @@ async function rebuildInterchangeMarkers() {
     element.appendChild(badges)
     element.addEventListener('click', event => {
       event.stopPropagation()
-      emit('stationClick', group.lineId, group.stationId)
+      const preferredLineId = props.activeLineId && group.stationIds.has(props.activeLineId) ? props.activeLineId : group.lineId
+      if (strictRailAutoContext().strict && !snapStrictRailPoint(group.longitude, group.latitude, STRICT_EXISTING_STATION_SNAP_METERS)) { rejectInvalidRailAutoPlacement('SNAP'); return }
+      const routeCoordinates = props.draftAnchor
+        ? buildDraftPreviewCoordinates({ longitude: group.longitude, latitude: group.latitude })
+        : undefined
+      if (strictRailAutoContext().strict && props.draftAnchor && (!routeCoordinates || routeCoordinates.length < 2)) { rejectInvalidRailAutoPlacement('PATH'); return }
+      if (
+        props.building
+        && activeDraftLine()?.mode === 'FERRY'
+        && !ferryPlacementIsValid(group.longitude, group.latitude, routeCoordinates)
+      ) {
+        rejectInvalidFerryPlacement()
+        return
+      }
+      emit('stationClick', preferredLineId, group.stationIds.get(preferredLineId) ?? group.stationId, routeCoordinates?.length >= 2 ? routeCoordinates : undefined)
     })
 
-    const marker = new maplibreApi.Marker({ element, anchor: 'bottom', offset: [0, -10] })
+    const marker = new maplibreApi.Marker({ element, anchor: 'bottom-left', offset: [5, -9] })
       .setLngLat([group.longitude, group.latitude])
       .addTo(map)
     interchangeMarkers.push({ marker, element })
   }
-  updateInterchangeMarkerVisibility()
+  updateInterchangeMarkerVisibility(true)
 }
 
 function raiseNetworkPointLayers() {
@@ -860,46 +1592,144 @@ function raiseNetworkPointLayers() {
   }
 }
 
-function refreshNetworkLayers() {
+function refreshLineStationLayers() {
   if (!map || !mapReady.value) return
-
   const lineSource = map.getSource('game-network-lines')
   const stationSource = map.getSource('game-network-stations')
-
   if (hasSetData(lineSource)) lineSource.setData(getLineCollection())
   if (hasSetData(stationSource)) stationSource.setData(getStationCollection())
   raiseNetworkPointLayers()
-  void rebuildStationMarkers()
 }
 
-function refreshInterchangeLayers() {
+function refreshStationLayer() {
   if (!map || !mapReady.value) return
-  const interchangeSource = map.getSource('game-network-interchanges')
   const stationSource = map.getSource('game-network-stations')
-  if (hasSetData(interchangeSource)) interchangeSource.setData(getInterchangeCollection())
-  // Les stations changent légèrement de rendu lorsqu'elles deviennent un pôle.
   if (hasSetData(stationSource)) stationSource.setData(getStationCollection())
   raiseNetworkPointLayers()
-  void rebuildInterchangeMarkers()
+}
+
+function refreshOperationsLayer() {
+  if (!map || !mapReady.value) return
+  const operationsSource = map.getSource('game-operations-overlay')
+  if (hasSetData(operationsSource)) operationsSource.setData(getOperationsOverlayCollection())
+}
+
+function refreshPassengerMetricLayers() {
+  if (!map || !mapReady.value) return
+  const empty = { type: 'FeatureCollection', features: [] }
+  const flowSource = map.getSource('game-passenger-flows')
+  const crowdSource = map.getSource('game-station-crowds')
+  const flowVisible = props.insightMode === 'FLOW'
+  const crowdVisible = resolvedGraphicsQuality() !== 'ECO' && map.getZoom() >= detailZoom('CROWDS') - .35
+  // Les GeoJSON de flux/foules sont parmi les plus coûteux du rendu. Ne pas les
+  // reconstruire lorsque leurs couches sont invisibles économise du CPU sans
+  // retirer aucune donnée : elles sont recalculées dès que l'utilisateur zoome
+  // ou active la lecture des flux.
+  if (hasSetData(flowSource)) flowSource.setData(flowVisible ? getPassengerFlowCollection() : empty)
+  if (hasSetData(crowdSource)) crowdSource.setData(crowdVisible ? getStationCrowdCollection() : empty)
+  try {
+    if (map.getLayer('game-passenger-flows')) map.setLayoutProperty('game-passenger-flows', 'visibility', flowVisible ? 'visible' : 'none')
+  }
+  catch {}
+}
+
+function refreshNetworkLayers() {
+  if (!map || !mapReady.value) return
+  refreshLineStationLayers()
+  refreshOperationsLayer()
+  refreshPassengerMetricLayers()
+  void rebuildStationMarkers()
+  refreshProjectCatchment()
+}
+
+function refreshProjectCatchment() {
+  if (!map || !mapReady.value) return
+  const source = map.getSource('game-project-catchment')
+  if (hasSetData(source)) source.setData(getProjectCatchmentCollection())
+}
+
+function refreshInterchangeLayers(refreshStations = true) {
+  if (!map || !mapReady.value) return
+  const interchangeSource = map.getSource('game-network-interchanges')
+  if (hasSetData(interchangeSource)) interchangeSource.setData(getInterchangeCollection())
+  // Les stations changent légèrement de rendu lorsqu'elles deviennent un pôle.
+  // Si LINE_STATION est déjà traité dans la même frame, ne reconstruisons pas
+  // deux fois le même GeoJSON de stations.
+  if (refreshStations) {
+    const stationSource = map.getSource('game-network-stations')
+    if (hasSetData(stationSource)) stationSource.setData(getStationCollection())
+    raiseNetworkPointLayers()
+  }
+  scheduleInterchangeMarkerRebuild()
+}
+
+function refreshDepotLayer() {
+  if (!map || !mapReady.value) return
+  const source = map.getSource('game-network-depots')
+  if (hasSetData(source)) source.setData(getDepotCollection())
 }
 
 function refreshVehicleLayer() {
   if (!map || !mapReady.value) return
   const vehicleSource = map.getSource('game-network-vehicles')
-  if (hasSetData(vehicleSource)) vehicleSource.setData(getVehicleCollection())
+  const visible = props.showVehicleAnimations !== false && map.getZoom() >= detailZoom('VEHICLES') - .35
+  if (hasSetData(vehicleSource)) vehicleSource.setData(visible ? getVehicleCollection() : { type: 'FeatureCollection', features: [] })
 }
 
+
+function emitDraftPreviewMetrics() {
+  draftPreviewLastEmitAt = performance.now()
+  const strictRail = strictRailAutoContext().strict
+  if (strictRail && props.draftAnchor && draftPreviewCoordinates.length < 2) {
+    emit('draftPreview', null, null, undefined)
+    return
+  }
+  const snappedPreviewEnd = strictRail && draftPreviewCoordinates.length >= 2
+    ? draftPreviewCoordinates[draftPreviewCoordinates.length - 1]
+    : null
+  emit(
+    'draftPreview',
+    snappedPreviewEnd?.[0] ?? draftCursor?.longitude ?? null,
+    snappedPreviewEnd?.[1] ?? draftCursor?.latitude ?? null,
+    draftCursor && draftPreviewCoordinates.length >= 2 ? [...draftPreviewCoordinates] : undefined,
+  )
+}
+
+function scheduleDraftPreviewMetrics() {
+  // Le trait visuel reste rafraîchi à chaque frame, mais le calcul parent de coût,
+  // distance et faisabilité clone le projet complet. Sur une grande ligne, l'émettre
+  // 60 fois/s rendait le tracé nettement moins fluide. ~12–14 calculs/s suffisent
+  // largement pour l'aperçu chiffré sans ralentir le curseur.
+  if (!draftCursor) {
+    if (draftPreviewEmitTimer !== null) {
+      window.clearTimeout(draftPreviewEmitTimer)
+      draftPreviewEmitTimer = null
+    }
+    emitDraftPreviewMetrics()
+    return
+  }
+  const elapsed = performance.now() - draftPreviewLastEmitAt
+  const delay = 75
+  if (elapsed >= delay) {
+    if (draftPreviewEmitTimer !== null) {
+      window.clearTimeout(draftPreviewEmitTimer)
+      draftPreviewEmitTimer = null
+    }
+    emitDraftPreviewMetrics()
+    return
+  }
+  if (draftPreviewEmitTimer !== null) return
+  draftPreviewEmitTimer = window.setTimeout(() => {
+    draftPreviewEmitTimer = null
+    emitDraftPreviewMetrics()
+  }, Math.max(1, delay - elapsed))
+}
 
 function refreshDraftPreview() {
   if (!map || !mapReady.value) return
   const source = map.getSource('game-network-preview')
   if (hasSetData(source)) source.setData(getDraftPreviewCollection(draftCursor))
-  emit(
-    'draftPreview',
-    draftCursor?.longitude ?? null,
-    draftCursor?.latitude ?? null,
-    draftCursor && draftPreviewCoordinates.length >= 2 ? [...draftPreviewCoordinates] : undefined,
-  )
+  scheduleDraftPreviewMetrics()
 }
 
 function scheduleDraftPreviewRefresh() {
@@ -913,7 +1743,7 @@ function scheduleDraftPreviewRefresh() {
 function refreshVisualPreferences() {
   if (!map || !mapReady.value) return
   try {
-    const buildings3DVisible = props.showBuildings2D5 !== false && (props.graphicsQuality ?? 'BALANCED') !== 'ECO'
+    const buildings3DVisible = props.showBuildings2D5 !== false && resolvedGraphicsQuality() !== 'ECO'
     const localRuntime = localTerritoryRuntime()
     const buildingLayer = localRuntime ? 'generated-buildings' : 'base-buildings'
     const building3DLayer = localRuntime ? 'generated-buildings-3d' : 'base-buildings-3d'
@@ -926,16 +1756,195 @@ function refreshVisualPreferences() {
       if (map.getLayer('generated-poi-dots')) map.setLayerZoomRange('generated-poi-dots', generatedDetailZoom('POI'), 24)
       if (map.getLayer('generated-poi-symbols')) map.setLayerZoomRange('generated-poi-symbols', generatedDetailZoom('POI'), 24)
     }
-    map.setLayerZoomRange('game-network-vehicles-halo', detailZoom('VEHICLES'), 24)
-    map.setLayerZoomRange('game-network-vehicles', detailZoom('VEHICLES'), 24)
-    map.setLayoutProperty('game-network-vehicles-halo', 'visibility', props.showVehicleAnimations === false ? 'none' : 'visible')
-    map.setLayoutProperty('game-network-vehicles', 'visibility', props.showVehicleAnimations === false ? 'none' : 'visible')
+    for (const layerId of ['game-network-vehicles-halo', 'game-network-vehicles']) {
+      if (map.getLayer(layerId)) {
+        map.setLayerZoomRange(layerId, detailZoom('VEHICLES'), 24)
+        map.setLayoutProperty(layerId, 'visibility', props.showVehicleAnimations === false ? 'none' : 'visible')
+      }
+    }
+    for (const layerId of ['game-station-crowds-halo', 'game-station-crowds-symbol']) {
+      if (map.getLayer(layerId)) {
+        map.setLayerZoomRange(layerId, detailZoom('CROWDS'), 24)
+        map.setLayoutProperty(layerId, 'visibility', resolvedGraphicsQuality() === 'ECO' ? 'none' : 'visible')
+      }
+    }
     if (map.getLayer(building3DLayer)) map.setPaintProperty(building3DLayer, 'fill-extrusion-opacity', props.building ? .24 : .42)
   }
   catch {
     // Les préférences peuvent arriver pendant le chargement du style : le
     // prochain refresh / styledata les réappliquera.
   }
+}
+
+function refreshMunicipalityInsights() {
+  if (!map || !mapReady.value || !map.getSource('territory-communes')) return
+  const insights = props.municipalityInsights ?? []
+  if (!insights.length && !previousProjectMunicipalityCodes.size) return
+
+  const populations = insights.map(item => Math.max(1, item.population))
+  const minLog = populations.length ? Math.log(Math.min(...populations)) : 0
+  const maxLog = populations.length ? Math.log(Math.max(...populations)) : 1
+  const spread = Math.max(0.0001, maxLog - minLog)
+  const currentProjectCodes = new Set(props.projectMunicipalityCodes ?? [])
+  const codes = new Set<string>([
+    ...insights.map(item => item.code),
+    ...previousProjectMunicipalityCodes,
+    ...currentProjectCodes,
+  ])
+
+  for (const code of codes) {
+    const insight = insights.find(item => item.code === code)
+    const populationScore = insight
+      ? Math.max(0, Math.min(1, (Math.log(Math.max(1, insight.population)) - minLog) / spread))
+      : 0
+    const accessibilityScore = insight ? Math.max(0, Math.min(1, insight.accessibility / 100)) : 0
+    const growthScore = insight ? Math.max(0, Math.min(1, (insight.growthRate + 0.04) / 0.12)) : 0.5
+    const potentialScore = insight ? Math.max(0, Math.min(1, insight.potential / 100)) : 0
+    try {
+      map.setFeatureState({ source: 'territory-communes', id: code }, {
+        populationScore,
+        accessibilityScore,
+        growthScore,
+        potentialScore,
+        projectCovered: currentProjectCodes.has(code),
+      })
+    }
+    catch {}
+  }
+  previousProjectMunicipalityCodes = currentProjectCodes
+  refreshMunicipalityInsightStyle()
+}
+
+function getWorldSignalCollection(): GeoJsonCollection {
+  const features: GeoJsonFeature[] = []
+  for (const insight of props.municipalityInsights ?? []) {
+    const longitude = Number(insight.centerLongitude)
+    const latitude = Number(insight.centerLatitude)
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) continue
+    const hasEvent = Boolean(insight.localEventTitle && insight.localEventStatus !== 'FINISHED')
+    const hasProject = Boolean(insight.urbanProjectTitle)
+    if (hasEvent) {
+      features.push({
+        type: 'Feature',
+        properties: {
+          code: insight.code,
+          nom: insight.name ?? '',
+          kind: 'EVENT',
+          symbol: insight.localEventStatus === 'ACTIVE' ? '!' : '•',
+          color: insight.localEventStatus === 'ACTIVE' ? '#ffb65c' : '#dca85e',
+          label: insight.localEventTitle ?? '',
+          population: insight.population,
+        },
+        geometry: { type: 'Point', coordinates: [longitude, latitude] },
+      })
+    }
+    if (hasProject) {
+      const offset = hasEvent ? 0.008 : 0
+      features.push({
+        type: 'Feature',
+        properties: {
+          code: insight.code,
+          nom: insight.name ?? '',
+          kind: 'PROJECT',
+          symbol: '◇',
+          color: '#6fd4dc',
+          label: insight.urbanProjectTitle ?? '',
+          population: insight.population,
+        },
+        geometry: { type: 'Point', coordinates: [longitude + offset, latitude] },
+      })
+    }
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function refreshWorldSignals() {
+  if (!map || !mapReady.value) return
+  const source = map.getSource('game-world-signals')
+  if (hasSetData(source)) source.setData(getWorldSignalCollection())
+}
+
+function selectWorldSignal(code: string) {
+  const insight = (props.municipalityInsights ?? []).find(item => item.code === code)
+  if (!insight) return
+  selectedCommune.value = {
+    name: insight.name ?? 'Commune',
+    code: insight.code,
+    department: insight.departmentCode ?? '',
+    population: insight.population,
+    accessibility: insight.accessibility,
+    growthRate: insight.growthRate,
+    lineCount: insight.lineCount,
+    stationCount: insight.stationCount,
+    potential: insight.potential,
+    urbanProjectTitle: insight.urbanProjectTitle,
+    urbanProjectKind: insight.urbanProjectKind,
+    urbanProjectOpeningDay: insight.urbanProjectOpeningDay,
+    urbanProjectConstructionStartDay: insight.urbanProjectConstructionStartDay,
+    urbanProjectMaturityDay: insight.urbanProjectMaturityDay,
+    urbanProjectStatus: insight.urbanProjectStatus,
+    localEventTitle: insight.localEventTitle,
+    localEventKind: insight.localEventKind,
+    localEventStartsDay: insight.localEventStartsDay,
+    localEventVisitors: insight.localEventVisitors,
+  }
+}
+
+function refreshMunicipalityInsightStyle() {
+  if (!map || !mapReady.value || !map.getLayer('territory-communes-fill')) return
+  const mode = props.insightMode ?? 'NONE'
+  try {
+    if (mode === 'POPULATION') {
+      map.setPaintProperty('territory-communes-fill', 'fill-color', [
+        'interpolate', ['linear'], ['coalesce', ['feature-state', 'populationScore'], 0],
+        0, '#172129', .35, '#275a63', .7, '#3c9ca5', 1, '#72e5ea',
+      ])
+      map.setPaintProperty('territory-communes-fill', 'fill-opacity', [
+        'case', ['boolean', ['feature-state', 'hover'], false], .62,
+        ['interpolate', ['linear'], ['coalesce', ['feature-state', 'populationScore'], 0], 0, .13, 1, .48],
+      ])
+    }
+    else if (mode === 'ACCESSIBILITY') {
+      map.setPaintProperty('territory-communes-fill', 'fill-color', [
+        'interpolate', ['linear'], ['coalesce', ['feature-state', 'accessibilityScore'], 0],
+        0, '#8c4a51', .45, '#b6934a', .7, '#75a95e', 1, '#4ac889',
+      ])
+      map.setPaintProperty('territory-communes-fill', 'fill-opacity', [
+        'case', ['boolean', ['feature-state', 'hover'], false], .62,
+        ['interpolate', ['linear'], ['coalesce', ['feature-state', 'accessibilityScore'], 0], 0, .22, 1, .50],
+      ])
+    }
+    else if (mode === 'GROWTH') {
+      map.setPaintProperty('territory-communes-fill', 'fill-color', [
+        'interpolate', ['linear'], ['coalesce', ['feature-state', 'growthScore'], .5],
+        0, '#8d5260', .48, '#35434a', .62, '#477a62', 1, '#61ce8c',
+      ])
+      map.setPaintProperty('territory-communes-fill', 'fill-opacity', [
+        'case', ['boolean', ['feature-state', 'hover'], false], .62,
+        ['interpolate', ['linear'], ['abs', ['-', ['coalesce', ['feature-state', 'growthScore'], .5], .5]], 0, .12, .5, .50],
+      ])
+    }
+    else if (mode === 'POTENTIAL') {
+      map.setPaintProperty('territory-communes-fill', 'fill-color', [
+        'interpolate', ['linear'], ['coalesce', ['feature-state', 'potentialScore'], 0],
+        0, '#1f2a30', .35, '#55513c', .65, '#a8733e', 1, '#f3b65f',
+      ])
+      map.setPaintProperty('territory-communes-fill', 'fill-opacity', [
+        'case', ['boolean', ['feature-state', 'hover'], false], .66,
+        ['interpolate', ['linear'], ['coalesce', ['feature-state', 'potentialScore'], 0], 0, .10, 1, .56],
+      ])
+    }
+    else {
+      const definition = territoryDefinition()
+      map.setPaintProperty('territory-communes-fill', 'fill-color', territoryDepartmentColorExpression())
+      map.setPaintProperty('territory-communes-fill', 'fill-opacity', [
+        'case', ['boolean', ['feature-state', 'hover'], false],
+        definition.kind === 'GENERATED' ? .12 : .16,
+        definition.kind === 'GENERATED' ? .018 : .055,
+      ])
+    }
+  }
+  catch {}
 }
 
 function clearCommuneHover() {
@@ -1005,72 +2014,149 @@ function formatPopulation(
     return 'Inconnue'
   }
 
-  return new Intl.NumberFormat(
-    currentGameLocaleTag(),
-  ).format(population)
+  return formatGameNumber(population)
+}
+
+type DeferredMapRefresh = 'LINE_STATION' | 'STATIONS' | 'OPERATIONS' | 'METRICS' | 'INTERCHANGES' | 'DEPOTS' | 'VEHICLES' | 'VISUAL'
+const deferredMapRefreshes = new Set<DeferredMapRefresh>()
+let deferredMapRefreshFrame: number | null = null
+
+function scheduleMapRefresh(...kinds: DeferredMapRefresh[]) {
+  for (const kind of kinds) deferredMapRefreshes.add(kind)
+  if (deferredMapRefreshFrame !== null) return
+  deferredMapRefreshFrame = window.requestAnimationFrame(() => {
+    deferredMapRefreshFrame = null
+    const pending = new Set(deferredMapRefreshes)
+    deferredMapRefreshes.clear()
+    if (pending.has('LINE_STATION')) refreshLineStationLayers()
+    else if (pending.has('STATIONS')) refreshStationLayer()
+    if (pending.has('OPERATIONS')) refreshOperationsLayer()
+    if (pending.has('METRICS')) refreshPassengerMetricLayers()
+    if (pending.has('INTERCHANGES')) refreshInterchangeLayers(!pending.has('LINE_STATION') && !pending.has('STATIONS'))
+    if (pending.has('DEPOTS')) refreshDepotLayer()
+    if (pending.has('VEHICLES')) refreshVehicleLayer()
+    if (pending.has('VISUAL')) refreshVisualPreferences()
+  })
+}
+
+function lineRevisionSignature() {
+  return props.lines.map(line => `${line.id}:${line.updatedAt}:${line.status}:${line.color}:${line.mode}`).join('|')
+}
+
+function disruptionRevisionSignature() {
+  return (props.operationsDisruptions ?? []).map(item => `${item.id}:${item.severity}:${item.resolvedAt ?? ''}:${item.endsAtAbsoluteMinute}`).join('|')
+}
+
+function substitutionRevisionSignature() {
+  return (props.substitutionServices ?? []).map(item => `${item.id}:${item.endedAt ?? ''}:${item.endsAtAbsoluteMinute}:${item.buses}`).join('|')
+}
+
+function interchangeRevisionSignature() {
+  return (props.interchanges ?? []).map(item => `${item.fromLineId}:${item.fromStationId}>${item.toLineId}:${item.toStationId}:${Math.round(item.distanceMeters)}`).join('|')
+}
+
+function depotRevisionSignature() {
+  return (props.depots ?? []).map(item => `${item.id}:${item.updatedAt}:${item.capacity}`).join('|')
 }
 
 watch(
-  () => props.lines,
-  () => {
-    refreshNetworkLayers()
-    refreshInterchangeLayers()
-  },
-  {
-    deep: true,
-  },
+  lineRevisionSignature,
+  () => scheduleMapRefresh('LINE_STATION', 'OPERATIONS', 'METRICS', 'INTERCHANGES', 'VISUAL'),
 )
 
 watch(
-  [
-    () => props.activeLineId,
-    () => props.selectedLineId,
-    () => props.selectedStationId,
-  ],
+  () => props.lineReports,
+  () => scheduleMapRefresh('LINE_STATION', 'METRICS'),
+)
+
+watch(
+  () => props.insightMode,
+  () => scheduleMapRefresh('LINE_STATION', 'METRICS', 'VISUAL'),
+)
+
+watch(
+  [disruptionRevisionSignature, substitutionRevisionSignature],
+  () => scheduleMapRefresh('OPERATIONS'),
+)
+
+watch(
+  [() => props.activeLineId, () => props.selectedLineId],
   () => {
-    refreshNetworkLayers()
-    updateStationMarkerVisibility()
+    scheduleMapRefresh('LINE_STATION')
     updateInterchangeMarkerVisibility()
   },
 )
 
 watch(
-  [() => props.draftAnchor, () => props.draftGuidePoints, () => props.routingMode],
-  () => {
-    refreshNetworkLayers()
-    refreshDraftPreview()
-    refreshRoutingCorridors()
-  },
-  { deep: true },
+  () => (props.dimmedLineIds ?? []).join('|'),
+  () => scheduleMapRefresh('LINE_STATION'),
 )
 
 watch(
-  () => props.interchanges,
-  () => refreshInterchangeLayers(),
-  { deep: true },
-)
-
-watch(
-  () => props.vehicles,
-  () => refreshVehicleLayer(),
-  { deep: true },
+  () => props.selectedStationId,
+  () => scheduleMapRefresh('STATIONS'),
 )
 
 watch(
   [
-    () => props.graphicsQuality,
-    () => props.showVehicleAnimations,
-    () => props.showBuildings2D5,
+    () => props.draftAnchor?.longitude ?? null,
+    () => props.draftAnchor?.latitude ?? null,
+    () => props.draftAnchor?.stationId ?? null,
+    () => JSON.stringify(props.draftGuidePoints ?? []),
+    () => props.routingMode,
   ],
-  () => refreshVisualPreferences(),
+  () => {
+    scheduleMapRefresh('LINE_STATION')
+    refreshDraftPreview()
+    refreshRoutingCorridors()
+    refreshProjectCatchment()
+  },
+)
+
+watch(
+  interchangeRevisionSignature,
+  () => scheduleMapRefresh('INTERCHANGES', 'LINE_STATION'),
+)
+
+watch(
+  depotRevisionSignature,
+  () => scheduleMapRefresh('DEPOTS'),
+)
+
+watch(
+  () => props.vehicles,
+  () => scheduleMapRefresh('VEHICLES'),
+)
+
+watch(
+  [() => props.graphicsQuality, () => props.showVehicleAnimations, () => props.showBuildings2D5],
+  () => {
+    lastStationRenderDensityKey = stationRenderDensityKey()
+    scheduleMapRefresh('VISUAL', 'VEHICLES', 'STATIONS')
+    updateInterchangeMarkerVisibility()
+  },
+)
+
+watch(
+  [() => props.municipalityInsights, () => props.projectMunicipalityCodes],
+  () => {
+    refreshMunicipalityInsights()
+    refreshWorldSignals()
+  },
 )
 
 watch(
   () => props.building,
   building => {
-    if (!building) draftCursor = null
+    if (!building) {
+      draftCursor = null
+      resetStaticStrictRailFeatureCache()
+      staticRoutingRevision += 1
+      for (const key of [...routingGraphCache.keys()]) if (key.startsWith('STATIC:')) routingGraphCache.delete(key)
+    }
     updateCursor()
     refreshDraftPreview()
+    refreshProjectCatchment()
     refreshVisualPreferences()
     refreshRoutingCorridors()
   },
@@ -1188,7 +2274,7 @@ function generatedBaseStyleLayers() {
     {
       id: 'generated-buildings-3d', type: 'fill-extrusion', source: 'generated-basemap', minzoom: generatedDetailZoom('BUILDINGS_3D'),
       filter: ['==', ['get', 'layer'], 'building'],
-      layout: { visibility: props.showBuildings2D5 === false || (props.graphicsQuality ?? 'BALANCED') === 'ECO' ? 'none' : 'visible' },
+      layout: { visibility: props.showBuildings2D5 === false || resolvedGraphicsQuality() === 'ECO' ? 'none' : 'visible' },
       paint: { 'fill-extrusion-color': ['interpolate', ['linear'], ['get', 'height'], 7, '#363d43', 16, '#424850', 34, '#50555d'], 'fill-extrusion-height': ['coalesce', ['get', 'height'], 8], 'fill-extrusion-base': 0, 'fill-extrusion-opacity': .48 },
     },
     {
@@ -1482,7 +2568,7 @@ onMounted(async () => {
               type: 'line',
               source: 'basemap',
               'source-layer': 'roads',
-              minzoom: 9,
+              minzoom: resolvedGraphicsQuality() === 'ECO' ? 12 : resolvedGraphicsQuality() === 'BALANCED' ? 10.5 : 9,
               filter: [
                 'any',
                 [
@@ -1610,7 +2696,7 @@ onMounted(async () => {
               source: 'basemap',
               'source-layer': 'buildings',
               minzoom: detailZoom('BUILDINGS_3D'),
-              layout: { visibility: props.showBuildings2D5 === false || (props.graphicsQuality ?? 'BALANCED') === 'ECO' ? 'none' : 'visible' },
+              layout: { visibility: props.showBuildings2D5 === false || resolvedGraphicsQuality() === 'ECO' ? 'none' : 'visible' },
               paint: {
                 'fill-extrusion-color': '#3b424a',
                 'fill-extrusion-height': [
@@ -1671,7 +2757,7 @@ onMounted(async () => {
               type: 'symbol',
               source: 'basemap',
               'source-layer': 'roads',
-              minzoom: 11,
+              minzoom: resolvedGraphicsQuality() === 'ECO' ? 13.5 : resolvedGraphicsQuality() === 'BALANCED' ? 12 : 11,
               filter: [
                 'any',
                 [
@@ -1734,7 +2820,11 @@ onMounted(async () => {
 
         attributionControl:
           false,
+        renderWorldCopies: false,
+        fadeDuration: 0,
       })
+
+    registerGameMapInstance(map)
 
     if (typeof ResizeObserver !== 'undefined' && mapContainer.value) {
       resizeObserver = new ResizeObserver(() => {
@@ -1829,6 +2919,27 @@ onMounted(async () => {
         })
 
         map.addLayer({
+          id: 'territory-project-coverage',
+          type: 'fill',
+          source: 'territory-communes',
+          paint: {
+            'fill-color': '#4fd3dc',
+            'fill-opacity': ['case', ['boolean', ['feature-state', 'projectCovered'], false], .13, 0],
+          },
+        })
+
+        map.addLayer({
+          id: 'territory-project-coverage-border',
+          type: 'line',
+          source: 'territory-communes',
+          paint: {
+            'line-color': '#7be7ed',
+            'line-opacity': ['case', ['boolean', ['feature-state', 'projectCovered'], false], .72, 0],
+            'line-width': ['case', ['boolean', ['feature-state', 'projectCovered'], false], 1.4, 0],
+          },
+        })
+
+        map.addLayer({
           id: 'territory-communes-border',
           type: 'line',
           source: 'territory-communes',
@@ -1911,6 +3022,49 @@ onMounted(async () => {
         })
 
         /* ================================================
+           SIGNAUX DU MONDE VIVANT
+           ================================================ */
+
+        map.addSource('game-world-signals', {
+          type: 'geojson',
+          data: getWorldSignalCollection(),
+        })
+
+        map.addLayer({
+          id: 'game-world-signals-halo',
+          type: 'circle',
+          source: 'game-world-signals',
+          minzoom: 6,
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 7, 10, 10, 14, 13],
+            'circle-color': ['get', 'color'],
+            'circle-opacity': ['case', ['==', ['get', 'kind'], 'EVENT'], .24, .15],
+            'circle-stroke-color': ['get', 'color'],
+            'circle-stroke-width': 1.2,
+            'circle-stroke-opacity': .72,
+          },
+        })
+
+        map.addLayer({
+          id: 'game-world-signals-symbol',
+          type: 'symbol',
+          source: 'game-world-signals',
+          minzoom: 6,
+          layout: {
+            'text-field': ['get', 'symbol'],
+            'text-font': ['Arial', 'Segoe UI'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 6, 11, 10, 13, 14, 15],
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
+          paint: {
+            'text-color': ['get', 'color'],
+            'text-halo-color': 'rgba(6,12,16,.95)',
+            'text-halo-width': 1.2,
+          },
+        })
+
+        /* ================================================
            RÉSEAU DU JOUEUR
            ================================================ */
 
@@ -1966,9 +3120,11 @@ onMounted(async () => {
           },
           paint: {
             'line-color': '#071014',
-            'line-width': lineWidthExpression(4.2),
+            'line-width': shadowLineWidthExpression(),
+            'line-offset': corridorOffsetExpression(),
             'line-opacity': [
               'case',
+              ['==', ['get', 'dimmed'], 1], .025,
               ['all', ['==', ['get', 'focusContext'], 1], ['!=', ['get', 'focused'], 1]], .18,
               .86,
             ],
@@ -1985,9 +3141,10 @@ onMounted(async () => {
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
             'line-color': '#eaffff',
-            'line-width': lineWidthExpression(7.2),
-            'line-opacity': .16,
-            'line-blur': 3.2,
+            'line-width': focusLineWidthExpression(),
+            'line-offset': corridorOffsetExpression(),
+            'line-opacity': ['case', ['==', ['get', 'dimmed'], 1], .02, .16],
+            'line-blur': sharedCorridorExtra(.6, 3.2),
           },
         })
 
@@ -2002,6 +3159,7 @@ onMounted(async () => {
           paint: {
             'line-color': ['get', 'color'],
             'line-width': selectedLineWidthExpression(),
+            'line-offset': corridorOffsetExpression(),
             'line-opacity': focusedLineOpacity(),
           },
         })
@@ -2020,7 +3178,8 @@ onMounted(async () => {
           },
           paint: {
             'line-color': ['get', 'color'],
-            'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.6, 7, 2.1, 10, 2.7, 13, 3.25, 16, 4],
+            'line-width': stableCoreLineWidthExpression(),
+            'line-offset': corridorOffsetExpression(),
             'line-opacity': focusedLineOpacity(),
           },
         })
@@ -2033,9 +3192,11 @@ onMounted(async () => {
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
             'line-color': '#ffffff',
-            'line-width': ['interpolate', ['linear'], ['zoom'], 6, .8, 12, 1.25, 15, 1.6],
+            'line-width': workLineWidthExpression(),
+            'line-offset': corridorOffsetExpression(),
             'line-opacity': [
               'case',
+              ['==', ['get', 'dimmed'], 1], .04,
               ['all', ['==', ['get', 'focusContext'], 1], ['!=', ['get', 'focused'], 1]], .16,
               .62,
             ],
@@ -2053,8 +3214,55 @@ onMounted(async () => {
           paint: {
             'line-color': '#ffffff',
             'line-width': ['interpolate', ['linear'], ['zoom'], 5, 13, 14, 20],
+            'line-offset': corridorOffsetExpression(),
             'line-opacity': .001,
           },
+        })
+
+        // Phase 20 : flux réellement routés par Voyageurs 2.0, tronçon par tronçon.
+        map.addSource('game-passenger-flows', { type: 'geojson', data: getPassengerFlowCollection() })
+        map.addLayer({
+          id: 'game-passenger-flows',
+          type: 'line',
+          source: 'game-passenger-flows',
+          minzoom: 5.4,
+          layout: { 'line-cap': 'round', 'line-join': 'round', visibility: props.insightMode === 'FLOW' ? 'visible' : 'none' },
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': ['interpolate', ['linear'], ['get', 'flowScore'], 0, 1.2, .35, 3.2, .7, 6.2, 1, 9.5],
+            'line-opacity': ['interpolate', ['linear'], ['get', 'flowScore'], 0, .18, 1, .86],
+            'line-blur': ['interpolate', ['linear'], ['get', 'flowScore'], 0, .2, 1, 1.1],
+          },
+        })
+
+        map.addSource('game-operations-overlay', { type: 'geojson', data: getOperationsOverlayCollection() })
+        map.addLayer({
+          id: 'game-operations-disruptions',
+          type: 'line',
+          source: 'game-operations-overlay',
+          filter: ['==', ['get', 'kind'], 'DISRUPTION'],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': ['case', ['==', ['get', 'severity'], 'CRITICAL'], '#ff555f', ['==', ['get', 'severity'], 'MAJOR'], '#ff765e', '#f0b657'],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 5, 4, 12, 7, 16, 10],
+            'line-opacity': .92,
+            'line-dasharray': [1.1, 1.1],
+          },
+        })
+        map.addLayer({
+          id: 'game-operations-substitutions',
+          type: 'line',
+          source: 'game-operations-overlay',
+          filter: ['==', ['get', 'kind'], 'SUBSTITUTION'],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#59dce6', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 12, 5.5, 16, 8], 'line-opacity': .9, 'line-dasharray': [2, 1.4] },
+        })
+        map.addLayer({
+          id: 'game-operations-disruption-stations',
+          type: 'circle',
+          source: 'game-operations-overlay',
+          filter: ['==', ['get', 'kind'], 'DISRUPTION_STATION'],
+          paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 7, 13, 11], 'circle-color': '#ff665f', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2, 'circle-opacity': .9 },
         })
 
         map.addSource(
@@ -2065,6 +3273,40 @@ onMounted(async () => {
           },
         )
 
+        // Phase 20 : foule agrégée. Une représentation visuelle symbolise des
+        // centaines/milliers de voyageurs ; aucun humain individuel n'est simulé.
+        map.addSource('game-station-crowds', { type: 'geojson', data: getStationCrowdCollection() })
+        map.addLayer({
+          id: 'game-station-crowds-halo',
+          type: 'circle',
+          source: 'game-station-crowds',
+          minzoom: detailZoom('CROWDS'),
+          layout: { visibility: resolvedGraphicsQuality() === 'ECO' ? 'none' : 'visible' },
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['get', 'crowdScore'], 0, 5, 1, 18],
+            'circle-color': ['get', 'color'],
+            'circle-opacity': ['interpolate', ['linear'], ['get', 'crowdScore'], 0, .05, 1, .18],
+            'circle-blur': .4,
+          },
+        })
+        map.addLayer({
+          id: 'game-station-crowds-symbol',
+          type: 'symbol',
+          source: 'game-station-crowds',
+          minzoom: detailZoom('CROWDS'),
+          layout: {
+            visibility: resolvedGraphicsQuality() === 'ECO' ? 'none' : 'visible',
+            'text-field': ['step', ['get', 'crowdLevel'], '', 1, '•', 2, '••', 3, '•••', 4, '••••'],
+            'text-font': ['Arial', 'Segoe UI'],
+            'text-size': ['interpolate', ['linear'], ['get', 'crowdScore'], 0, 9, 1, 13],
+            'text-offset': [0, 1.25],
+            'text-anchor': 'top',
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
+          paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#071014', 'text-halo-width': 1.2, 'text-opacity': .88 },
+        })
+
         // V36 : le contour blanc et le cœur coloré sont deux couches distinctes.
         // Cette approche est volontairement plus robuste que circle-stroke : le
         // halo reste visible même lorsqu'un tracé épais passe exactement sous l'arrêt.
@@ -2072,24 +3314,42 @@ onMounted(async () => {
           id: 'game-network-station-halo',
           type: 'circle',
           source: 'game-network-stations',
-          minzoom: 3.0,
-          layout: { visibility: 'none' },
+          minzoom: 4.3,
           paint: {
-            'circle-radius': 1,
+            'circle-radius': [
+              'interpolate', ['linear'], ['zoom'],
+              5, ['+', ['*', ['get', 'stationRadius'], .62], 1.4],
+              11, ['+', ['*', ['get', 'stationRadius'], .86], 1.7],
+              15, ['+', ['*', ['get', 'stationRadius'], 1.05], 2.1],
+            ],
             'circle-color': '#ffffff',
-            'circle-opacity': 0,
+            'circle-opacity': [
+              'case',
+              ['==', ['get', 'focusContext'], 1], ['case', ['==', ['get', 'focused'], 1], .96, .46],
+              .92,
+            ],
           },
         })
         map.addLayer({
           id: 'game-network-station-core',
           type: 'circle',
           source: 'game-network-stations',
-          minzoom: 3.0,
-          layout: { visibility: 'none' },
+          minzoom: 4.3,
           paint: {
-            'circle-radius': 1,
+            'circle-radius': [
+              'interpolate', ['linear'], ['zoom'],
+              5, ['*', ['get', 'stationRadius'], .62],
+              11, ['*', ['get', 'stationRadius'], .86],
+              15, ['*', ['get', 'stationRadius'], 1.05],
+            ],
             'circle-color': ['get', 'color'],
-            'circle-opacity': 0,
+            'circle-opacity': [
+              'case',
+              ['==', ['get', 'focusContext'], 1], ['case', ['==', ['get', 'focused'], 1], 1, .48],
+              1,
+            ],
+            'circle-stroke-color': ['case', ['==', ['get', 'selectedStation'], 1], '#071014', 'rgba(7,16,20,.72)'],
+            'circle-stroke-width': ['case', ['==', ['get', 'selectedStation'], 1], 2.4, ['>=', ['get', 'hubScore'], 68], 1.6, .8],
           },
         })
 
@@ -2114,10 +3374,14 @@ onMounted(async () => {
           source: 'game-network-stations',
           minzoom: 10.4,
           filter: [
-            'any',
-            ['==', ['get', 'focused'], 1],
-            ['==', ['get', 'selectedStation'], 1],
-            ['==', ['get', 'draftAnchor'], 1],
+            'all',
+            ['==', ['get', 'interchange'], 0],
+            [
+              'any',
+              ['==', ['get', 'focused'], 1],
+              ['==', ['get', 'selectedStation'], 1],
+              ['==', ['get', 'draftAnchor'], 1],
+            ],
           ],
           layout: {
             'text-field': ['get', 'name'],
@@ -2135,6 +3399,18 @@ onMounted(async () => {
             'text-opacity': .92,
           },
         })
+
+        map.addSource('game-project-catchment', { type: 'geojson', data: getProjectCatchmentCollection() })
+        map.addLayer({
+          id: 'game-project-catchment',
+          type: 'fill',
+          source: 'game-project-catchment',
+          paint: {
+            'fill-color': '#4fd3dc',
+            'fill-opacity': .055,
+            'fill-outline-color': 'rgba(79,211,220,.22)',
+          },
+        }, 'game-network-lines')
 
         map.addSource('game-network-preview', { type: 'geojson', data: getDraftPreviewCollection() })
         map.addLayer({
@@ -2156,7 +3432,7 @@ onMounted(async () => {
           filter: ['==', ['geometry-type'], 'LineString'],
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#9ff5ff',
+            'line-color': ['case', ['==', ['get', 'waterValid'], 0], '#ff6b6b', '#9ff5ff'],
             'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.5, 14, 4.5],
             'line-opacity': .88,
             'line-dasharray': [1.4, 1.15],
@@ -2170,7 +3446,7 @@ onMounted(async () => {
           paint: {
             'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 3.2, 14, 5.2],
             'circle-color': '#0b1117',
-            'circle-stroke-color': '#9ff5ff',
+            'circle-stroke-color': ['case', ['==', ['get', 'waterValid'], 0], '#ff6b6b', '#9ff5ff'],
             'circle-stroke-width': 1.8,
             'circle-opacity': .88,
           },
@@ -2182,10 +3458,52 @@ onMounted(async () => {
           filter: ['all', ['==', ['geometry-type'], 'Point'], ['==', ['get', 'kind'], 'CURSOR']],
           paint: {
             'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 4.5, 14, 7],
-            'circle-color': '#9ff5ff',
+            'circle-color': ['case', ['==', ['get', 'waterValid'], 0], '#ff6b6b', '#9ff5ff'],
             'circle-stroke-color': '#071014',
             'circle-stroke-width': 2.5,
             'circle-opacity': .92,
+          },
+        })
+
+        map.addSource('game-network-depots', { type: 'geojson', data: getDepotCollection() })
+        map.addLayer({
+          id: 'game-network-depots-halo',
+          type: 'circle',
+          source: 'game-network-depots',
+          minzoom: 6,
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 5, 12, 8],
+            'circle-color': '#071014',
+            'circle-opacity': .88,
+          },
+        })
+        map.addLayer({
+          id: 'game-network-depots',
+          type: 'circle',
+          source: 'game-network-depots',
+          minzoom: 6,
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3.4, 12, 5.6],
+            'circle-color': ['get', 'accent'],
+            'circle-stroke-color': '#f5fbfc',
+            'circle-stroke-width': 1.2,
+          },
+        })
+        map.addLayer({
+          id: 'game-network-depot-labels',
+          type: 'symbol',
+          source: 'game-network-depots',
+          minzoom: 10,
+          layout: {
+            'text-field': ['get', 'name'],
+            'text-size': 10,
+            'text-offset': [0, 1.25],
+            'text-anchor': 'top',
+          },
+          paint: {
+            'text-color': '#eaf7f8',
+            'text-halo-color': '#071014',
+            'text-halo-width': 1.4,
           },
         })
 
@@ -2237,7 +3555,15 @@ onMounted(async () => {
         // Le helper est aussi rappelé lors de chaque mise à jour des sources.
         raiseNetworkPointLayers()
 
-        map.on('zoom', updateStationMarkerVisibility)
+        lastStationRenderDensityKey = stationRenderDensityKey()
+        map.on('zoom', () => {
+          updateStationMarkerVisibility()
+          const densityKey = stationRenderDensityKey()
+          if (densityKey !== lastStationRenderDensityKey) {
+            lastStationRenderDensityKey = densityKey
+            scheduleMapRefresh('STATIONS')
+          }
+        })
         map.on('click', 'game-network-lines-hit', event => {
           if (props.building) return
           event.originalEvent?.preventDefault?.()
@@ -2254,7 +3580,24 @@ onMounted(async () => {
           const feature = event.features?.[0]
           const lineId = feature?.properties?.lineId
           const stationId = feature?.properties?.id
-          if (lineId && stationId) emit('stationClick', String(lineId), String(stationId))
+          if (!lineId || !stationId) return
+          const sourceLine = props.lines.find(item => item.id === String(lineId))
+          const station = sourceLine ? findLineStation(sourceLine, String(stationId)) : null
+          if (station && strictRailAutoContext().strict && !snapStrictRailPoint(station.longitude, station.latitude, STRICT_EXISTING_STATION_SNAP_METERS)) { rejectInvalidRailAutoPlacement('SNAP'); return }
+          const routeCoordinates = station && props.draftAnchor
+            ? buildDraftPreviewCoordinates({ longitude: station.longitude, latitude: station.latitude })
+            : undefined
+          if (strictRailAutoContext().strict && props.draftAnchor && (!routeCoordinates || routeCoordinates.length < 2)) { rejectInvalidRailAutoPlacement('PATH'); return }
+          if (
+            props.building
+            && activeDraftLine()?.mode === 'FERRY'
+            && station
+            && !ferryPlacementIsValid(station.longitude, station.latitude, routeCoordinates)
+          ) {
+            rejectInvalidFerryPlacement()
+            return
+          }
+          emit('stationClick', String(lineId), String(stationId), routeCoordinates?.length >= 2 ? routeCoordinates : undefined)
         })
         map.on('mouseenter', 'game-network-stations-hit', () => { if (map) map.getCanvas().style.cursor = 'pointer' })
         map.on('mouseleave', 'game-network-stations-hit', () => updateCursor())
@@ -2266,12 +3609,17 @@ onMounted(async () => {
         })
         map.on('mouseenter', 'game-network-vehicles', () => { if (map) map.getCanvas().style.cursor = 'pointer' })
         map.on('mouseleave', 'game-network-vehicles', () => updateCursor())
-        map.on('zoom', updateInterchangeMarkerVisibility)
+        map.on('zoom', () => updateInterchangeMarkerVisibility())
+        map.on('zoomend', scheduleInterchangeMarkerRebuild)
         map.on('moveend', () => {
-          if (!localTerritoryRuntime()) {
+          const refreshKinds: DeferredMapRefresh[] = ['LINE_STATION', 'OPERATIONS', 'INTERCHANGES', 'DEPOTS', 'VEHICLES']
+          if (props.insightMode === 'FLOW' || (resolvedGraphicsQuality() !== 'ECO' && (map?.getZoom() ?? 0) >= detailZoom('CROWDS') - .35)) refreshKinds.push('METRICS')
+          scheduleMapRefresh(...refreshKinds)
+          if (!localTerritoryRuntime() && props.building) {
             staticRoutingRevision += 1
-            routingGraphCache.clear()
-            if (props.building && draftCursor) refreshDraftPreview()
+            for (const key of [...routingGraphCache.keys()]) if (key.startsWith('STATIC:')) routingGraphCache.delete(key)
+            // Le graphe de routage statique est reconstruit au prochain mouvement
+            // du curseur, pas immédiatement à la fin de chaque pan/zoom.
           }
         })
 
@@ -2374,31 +3722,46 @@ onMounted(async () => {
                 properties?.population,
               )
 
+            const communeCode = String(properties?.code ?? '')
+            const liveInsight = (props.municipalityInsights ?? []).find(item => item.code === communeCode)
             selectedCommune.value = {
-              name:
-                String(
-                  properties?.nom
-                  ?? 'Commune',
-                ),
-              code:
-                String(
-                  properties?.code
-                  ?? '',
-                ),
-              department:
-                String(
-                  properties?.codeDepartement
-                  ?? '',
-                ),
-              population:
-                Number.isFinite(
-                  rawPopulation,
-                )
-                  ? rawPopulation
-                  : null,
+              name: String(properties?.nom ?? 'Commune'),
+              code: communeCode,
+              department: String(properties?.codeDepartement ?? ''),
+              population: liveInsight?.population ?? (Number.isFinite(rawPopulation) ? rawPopulation : null),
+              accessibility: liveInsight?.accessibility ?? null,
+              growthRate: liveInsight?.growthRate ?? null,
+              lineCount: liveInsight?.lineCount ?? 0,
+              stationCount: liveInsight?.stationCount ?? 0,
+              potential: liveInsight?.potential ?? null,
+              urbanProjectTitle: liveInsight?.urbanProjectTitle,
+              urbanProjectKind: liveInsight?.urbanProjectKind,
+              urbanProjectOpeningDay: liveInsight?.urbanProjectOpeningDay,
+              urbanProjectConstructionStartDay: liveInsight?.urbanProjectConstructionStartDay,
+              urbanProjectMaturityDay: liveInsight?.urbanProjectMaturityDay,
+              urbanProjectStatus: liveInsight?.urbanProjectStatus,
+              localEventTitle: liveInsight?.localEventTitle,
+              localEventKind: liveInsight?.localEventKind,
+              localEventStartsDay: liveInsight?.localEventStartsDay,
+              localEventVisitors: liveInsight?.localEventVisitors,
             }
           },
         )
+
+        map.on('mouseenter', 'game-world-signals-symbol', () => {
+          if (map) map.getCanvas().style.cursor = 'pointer'
+        })
+        map.on('mouseleave', 'game-world-signals-symbol', () => {
+          if (map && !props.building) map.getCanvas().style.cursor = ''
+        })
+        map.on('click', 'game-world-signals-symbol', event => {
+          const code = String(event.features?.[0]?.properties?.code ?? '')
+          if (code) selectWorldSignal(code)
+        })
+        map.on('click', 'game-world-signals-halo', event => {
+          const code = String(event.features?.[0]?.properties?.code ?? '')
+          if (code) selectWorldSignal(code)
+        })
 
         /* ================================================
            CONSTRUCTION
@@ -2432,14 +3795,33 @@ onMounted(async () => {
             selectedCommune.value =
               null
 
-            if (!draftPreviewCoordinates.length && props.draftAnchor) {
-              draftPreviewCoordinates = buildDraftPreviewCoordinates({ longitude: event.lngLat.lng, latitude: event.lngLat.lat })
+            const strictRail = strictRailAutoContext().strict
+            const snapped = snapStrictRailPoint(event.lngLat.lng, event.lngLat.lat)
+            if (strictRail && !snapped) { rejectInvalidRailAutoPlacement('SNAP'); return }
+            const targetLongitude = snapped?.[0] ?? event.lngLat.lng
+            const targetLatitude = snapped?.[1] ?? event.lngLat.lat
+            if (props.draftAnchor) {
+              draftPreviewCoordinates = buildDraftPreviewCoordinates({ longitude: targetLongitude, latitude: targetLatitude })
+            }
+            else {
+              draftPreviewCoordinates = []
+            }
+            const routeCoordinates = draftPreviewCoordinates.length >= 2 ? [...draftPreviewCoordinates] : undefined
+            // Rail auto est désormais strict : sans chemin ferré connecté, on ne
+            // transforme jamais silencieusement le clic en segment libre.
+            if (strictRail && props.draftAnchor && !routeCoordinates) { rejectInvalidRailAutoPlacement('PATH'); return }
+            if (
+              activeDraftLine()?.mode === 'FERRY'
+              && !ferryPlacementIsValid(targetLongitude, targetLatitude, routeCoordinates)
+            ) {
+              rejectInvalidFerryPlacement()
+              return
             }
             emit(
               'mapClick',
-              event.lngLat.lng,
-              event.lngLat.lat,
-              draftPreviewCoordinates.length >= 2 ? [...draftPreviewCoordinates] : undefined,
+              targetLongitude,
+              targetLatitude,
+              routeCoordinates,
             )
           },
         )
@@ -2475,10 +3857,11 @@ onMounted(async () => {
                 }
 
                 refreshNetworkLayers()
-                refreshInterchangeLayers()
+                refreshInterchangeLayers(false)
                 refreshVehicleLayer()
                 refreshDraftPreview()
                 refreshVisualPreferences()
+                refreshMunicipalityInsights()
                 refreshRoutingCorridors()
                 updateCursor()
                 setLoading('Carte prête', 100)
@@ -2508,11 +3891,15 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (startupTimeout !== null) { window.clearTimeout(startupTimeout); startupTimeout = null }
   if (draftPreviewFrame !== null) { window.cancelAnimationFrame(draftPreviewFrame); draftPreviewFrame = null }
+  if (deferredMapRefreshFrame !== null) { window.cancelAnimationFrame(deferredMapRefreshFrame); deferredMapRefreshFrame = null }
+  if (interchangeMarkerFrame !== null) { window.cancelAnimationFrame(interchangeMarkerFrame); interchangeMarkerFrame = null }
+  if (draftPreviewEmitTimer !== null) { window.clearTimeout(draftPreviewEmitTimer); draftPreviewEmitTimer = null }
   clearStationMarkers()
   clearInterchangeMarkers()
   resizeObserver?.disconnect()
   resizeObserver = null
   if (map) {
+    registerGameMapInstance(null)
     map.remove()
     map = null
   }
@@ -2637,9 +4024,51 @@ onBeforeUnmount(() => {
               }}
             </strong>
           </div>
+
+          <div v-if="selectedCommune.accessibility !== null && selectedCommune.accessibility !== undefined">
+            <span>Accessibilité TC</span>
+            <strong>{{ Math.round(selectedCommune.accessibility) }}/100</strong>
+          </div>
+
+          <div v-if="selectedCommune.growthRate !== null && selectedCommune.growthRate !== undefined">
+            <span>Évolution</span>
+            <strong>{{ selectedCommune.growthRate >= 0 ? '+' : '' }}{{ (selectedCommune.growthRate * 100).toFixed(1) }} %</strong>
+          </div>
+
+          <div v-if="selectedCommune.potential !== null && selectedCommune.potential !== undefined">
+            <span>{{ translateGameText('Besoin de desserte', currentGameLocale()) }}</span>
+            <strong>{{ selectedCommune.potential >= 72 ? translateGameText('Fort', currentGameLocale()) : selectedCommune.potential >= 45 ? translateGameText('Moyen', currentGameLocale()) : translateGameText('Faible', currentGameLocale()) }}</strong>
+          </div>
+
+          <div>
+            <span>{{ translateGameText('Réseau', currentGameLocale()) }}</span>
+            <strong>{{ selectedCommune.lineCount ?? 0 }} {{ translateGameText('ligne(s)', currentGameLocale()) }} · {{ selectedCommune.stationCount ?? 0 }} {{ translateGameText('station(s)', currentGameLocale()) }}</strong>
+          </div>
+
+          <div v-if="selectedCommune.urbanProjectTitle" class="commune-live-item">
+            <span>{{ translateGameText('Projet urbain', currentGameLocale()) }}</span>
+            <strong>{{ translateGameText(selectedCommune.urbanProjectKind === 'RESIDENTIAL_DISTRICT' ? 'Nouveau quartier' : selectedCommune.urbanProjectKind === 'BUSINESS_DISTRICT' ? 'Nouveau pôle d’emplois' : selectedCommune.urbanProjectKind === 'CAMPUS' ? 'Nouveau campus' : selectedCommune.urbanProjectKind === 'LEISURE_HUB' ? 'Nouveau pôle de loisirs' : selectedCommune.urbanProjectTitle, currentGameLocale()) }} · {{ selectedCommune.name }}</strong>
+            <small v-if="selectedCommune.urbanProjectStatus === 'PLANNED' && selectedCommune.urbanProjectConstructionStartDay">Chantier · Jour {{ selectedCommune.urbanProjectConstructionStartDay }} · Ouverture J{{ selectedCommune.urbanProjectOpeningDay }}</small>
+            <small v-else-if="selectedCommune.urbanProjectStatus === 'CONSTRUCTION'">En chantier · Ouverture J{{ selectedCommune.urbanProjectOpeningDay }}</small>
+            <small v-else-if="selectedCommune.urbanProjectStatus === 'OPENED' && selectedCommune.urbanProjectMaturityDay">Ouvert · montée en puissance jusqu’au jour {{ selectedCommune.urbanProjectMaturityDay }}</small>
+            <small v-else-if="selectedCommune.urbanProjectOpeningDay">{{ translateGameText('Ouverture', currentGameLocale()) }} · Jour {{ selectedCommune.urbanProjectOpeningDay }}</small>
+          </div>
+
+          <div v-if="selectedCommune.localEventTitle" class="commune-live-item commune-live-item--event">
+            <span>{{ translateGameText('Événement', currentGameLocale()) }}</span>
+            <strong>{{ translateGameText(selectedCommune.localEventKind === 'CONCERT' ? 'Grand concert' : selectedCommune.localEventKind === 'FOOTBALL' ? 'Match à forte affluence' : selectedCommune.localEventKind === 'FESTIVAL' ? 'Festival' : selectedCommune.localEventKind === 'EXHIBITION' ? 'Salon majeur' : selectedCommune.localEventTitle, currentGameLocale()) }} · {{ selectedCommune.name }}</strong>
+            <small>{{ selectedCommune.localEventVisitors ? formatPopulation(selectedCommune.localEventVisitors) + ' ' + translateGameText('visiteurs attendus', currentGameLocale()) : '' }}<template v-if="selectedCommune.localEventStartsDay"> · Jour {{ selectedCommune.localEventStartsDay }}</template></small>
+          </div>
+
+          <button class="commune-build-action" type="button" @click="emit('municipalityBuild', selectedCommune.code)">＋ {{ translateGameText('Desservir ce secteur', currentGameLocale()) }}</button>
         </div>
       </section>
     </Transition>
+
+    <div v-if="insightMode && insightMode !== 'NONE'" class="map-insight-legend">
+      <strong>{{ translateGameText(insightMode === 'POPULATION' ? 'Population' : insightMode === 'ACCESSIBILITY' ? 'Accessibilité TC' : insightMode === 'GROWTH' ? 'Croissance' : insightMode === 'FLOW' ? 'Flux voyageurs' : insightMode === 'SATURATION' ? 'Saturation réseau' : 'Besoin de desserte', currentGameLocale()) }}</strong>
+      <span>{{ translateGameText(insightMode === 'POPULATION' ? 'Clair = bassin plus peuplé' : insightMode === 'ACCESSIBILITY' ? 'Rouge = peu desservi · vert = bien relié' : insightMode === 'GROWTH' ? 'Vert = progression · rouge = recul' : insightMode === 'FLOW' ? 'Épaisseur et taille = volume réellement routé par Voyageurs 2.0' : insightMode === 'SATURATION' ? 'Vert = fluide · orange = chargé · rouge = capacité dépassée' : 'Plus la zone est vive, plus le potentiel de nouvelle desserte est important', currentGameLocale()) }}</span>
+    </div>
 
     <div class="map-attribution">
       <a
@@ -2908,4 +4337,34 @@ onBeforeUnmount(() => {
     bottom: 11rem;
   }
 }
+
+.map-insight-legend {
+  position: absolute;
+  left: 18px;
+  bottom: 84px;
+  z-index: 8;
+  max-width: min(310px, calc(100vw - 100px));
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  background: rgba(7,13,18,.88);
+  box-shadow: 0 8px 24px rgba(0,0,0,.24);
+  backdrop-filter: blur(10px);
+  display: grid;
+  gap: 2px;
+  pointer-events: none;
+}
+.map-insight-legend strong { font-size: 11px; color: #dff9fa; }
+.map-insight-legend span { font-size: 9px; opacity: .62; }
+@media (max-width: 760px) {
+  .map-insight-legend { left: 10px; bottom: 142px; max-width: calc(100vw - 90px); }
+}
+
+/* Phase 12 : la légende territoriale ne se place plus derrière recherche/horloge. */
+.map-insight-legend{left:auto!important;right:12px!important;top:86px!important;bottom:auto!important;max-width:min(320px,calc(100vw - 24px))!important;z-index:24!important;padding:9px 11px!important}
+@media(max-width:760px){.map-insight-legend{top:76px!important;right:8px!important;left:8px!important;max-width:none!important}}
+
+.commune-build-action{width:100%;margin-top:4px;padding:9px 10px;border:1px solid rgba(79,211,220,.28);border-radius:10px;background:rgba(79,211,220,.11);color:#d8fbfd;font-weight:850;cursor:pointer;text-align:center}.commune-build-action:hover{background:rgba(79,211,220,.17)}
+
+.commune-live-item{grid-column:1/-1!important;padding:9px 10px!important;border:1px solid rgba(85,205,135,.18)!important;border-radius:10px!important;background:rgba(85,205,135,.06)!important;display:grid!important;gap:2px!important}.commune-live-item--event{border-color:rgba(229,170,85,.25)!important;background:rgba(229,170,85,.07)!important}.commune-live-item small{font-size:9px;opacity:.55}.commune-live-item strong{white-space:normal!important;line-height:1.25!important}
 </style>

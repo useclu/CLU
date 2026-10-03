@@ -30,6 +30,10 @@ export interface GameMunicipality {
   name: string
   departmentCode: string
   population: number
+  /** Métropole 2.0 : activité supplémentaire liée aux projets et événements locaux. */
+  mobilityDemandMultiplier?: number
+  /** Renforts temporaires de fréquence décidés pour un événement local. */
+  lineServiceMultipliers?: Record<string, number>
   geometry: GameMunicipalityGeometry
   bounds: GameMunicipalityBounds
 }
@@ -39,6 +43,8 @@ export interface GameMunicipalityCoverage {
   name: string
   departmentCode: string
   population: number
+  mobilityDemandMultiplier?: number
+  lineServiceMultipliers?: Record<string, number>
   stationCount: number
   lineCount: number
 }

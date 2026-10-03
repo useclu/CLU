@@ -1,8 +1,6 @@
 import { getTransportModeDefinition } from '../../config/transportModes'
-import {
-  calculateLineConstructionDays,
-  calculateLineProjectCost,
-} from '../economy'
+import { getDefaultRollingStockModel } from '../../config/rollingStock'
+import { calculateLineProjectCost } from '../economy'
 import type {
   GameInfrastructureType,
   GameLine,
@@ -38,7 +36,7 @@ function createId() {
 }
 
 export function createEmptyNetwork(): GameNetworkState {
-  return { lines: [] }
+  return { lines: [], walkingTransfers: [], depots: [] }
 }
 
 export function createGameLine(
@@ -60,8 +58,9 @@ export function createGameLine(
     mode,
     status: 'PROJECT',
     infrastructureType: 'AUTO',
-    routingMode: 'ASSISTED',
+    routingMode: mode === 'CABLE' || mode === 'FERRY' ? 'FREE' : 'ASSISTED',
     routeSegments: [],
+    infrastructureSegments: [],
     serviceLevel: 'STANDARD',
     serviceProfileMode: 'SIMPLE',
     serviceProfile: {
@@ -69,9 +68,12 @@ export function createGameLine(
       normal: 'STANDARD',
       peak: 'FREQUENT',
     },
+    schedule: { mode: 'FREQUENCY', missions: [] },
     maintenanceLevel: 'STANDARD',
     fleetCondition: 100,
     vehicleCount: 0,
+    rollingStockModelId: getDefaultRollingStockModel(mode).id,
+    depotId: undefined,
     rollingStockUpgrades: { capacity: 0, speed: 0, reliability: 0, efficiency: 0, boarding: 0 },
     regulationMode: 'AUTO',
     manualBoostVehicles: 0,
@@ -108,8 +110,10 @@ export function refreshProjectEstimate(line: GameLine) {
 }
 
 export function prepareLineConstruction(line: GameLine) {
-  line.status = 'CONSTRUCTION'
-  line.constructionDaysRemaining = calculateLineConstructionDays(line)
+  // Phase 18 : la construction d'une ligne ne bloque plus le joueur dans le temps.
+  // Le coût reste intégralement facturé, mais la mise en service est immédiate.
+  line.status = 'OPERATIONAL'
+  line.constructionDaysRemaining = 0
   line.updatedAt = new Date().toISOString()
 }
 
@@ -118,17 +122,11 @@ export function processNetworkConstructionDay(network: GameNetworkState) {
 
   for (const line of network.lines) {
     if (line.status !== 'CONSTRUCTION') continue
-
-    line.constructionDaysRemaining = Math.max(
-      0,
-      Math.floor(line.constructionDaysRemaining ?? 0) - 1,
-    )
-
-    if (line.constructionDaysRemaining <= 0) {
-      line.status = 'OPERATIONAL'
-      line.constructionDaysRemaining = 0
-      commissionedLineIds.push(line.id)
-    }
+    // Compatibilité des sauvegardes Phase 17 et antérieures : toute ligne déjà
+    // lancée en chantier devient exploitable immédiatement avec la règle Phase 18.
+    line.status = 'OPERATIONAL'
+    line.constructionDaysRemaining = 0
+    commissionedLineIds.push(line.id)
     line.updatedAt = new Date().toISOString()
   }
 
@@ -146,7 +144,7 @@ export function normalizeBadgeStyle(value: unknown): GameLineBadgeStyle {
 }
 
 export function normalizeInfrastructureType(value: unknown): GameInfrastructureType {
-  return ['AUTO', 'SURFACE', 'TUNNEL', 'VIADUCT', 'DEDICATED', 'ROAD', 'RAIL'].includes(String(value))
+  return ['AUTO', 'SURFACE', 'TUNNEL', 'VIADUCT', 'DEDICATED', 'ROAD', 'RAIL', 'CABLE', 'WATER'].includes(String(value))
     ? value as GameInfrastructureType
     : 'AUTO'
 }
@@ -161,7 +159,7 @@ export function normalizeServiceProfileLevel(
 }
 
 export function normalizeLineEmblem(value: unknown): GameLineEmblem {
-  return ['NONE', 'METRO', 'TRAM', 'RER', 'TRAIN', 'BUS', 'EXPRESS', 'STAR'].includes(String(value))
+  return ['NONE', 'METRO', 'TRAM', 'RER', 'TRAIN', 'BUS', 'EXPRESS', 'CABLE', 'FERRY', 'STAR'].includes(String(value))
     ? value as GameLineEmblem
     : 'NONE'
 }

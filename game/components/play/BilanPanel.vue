@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { currentGameLocaleTag } from '../../config/i18n'
+import { formatGameInteger, formatGameNumberCompact, formatGameCurrencyCompact, formatGameDecimal1 } from '../../config/i18n'
 import { computed, ref, watch } from 'vue'
 import { useGameStatistics } from '../../composables/useGameStatistics'
 import type { GameWeeklySnapshot } from '../../types/statistics'
@@ -33,15 +33,15 @@ const selectedEconomyFlow = computed(() => selectedSnapshot.value ? statistics.e
 
 function integer(value: number | null | undefined) {
   if (!Number.isFinite(Number(value))) return '—'
-  return new Intl.NumberFormat(currentGameLocaleTag(), { maximumFractionDigits: 0 }).format(Number(value))
+  return formatGameInteger(Number(value))
 }
 function compact(value: number | null | undefined) {
   if (!Number.isFinite(Number(value))) return '—'
-  return new Intl.NumberFormat(currentGameLocaleTag(), { notation: 'compact', maximumFractionDigits: 1 }).format(Number(value))
+  return formatGameNumberCompact(Number(value))
 }
 function money(value: number | null | undefined) {
   if (!Number.isFinite(Number(value))) return '—'
-  return new Intl.NumberFormat(currentGameLocaleTag(), { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 }).format(Number(value))
+  return formatGameCurrencyCompact(Number(value))
 }
 function percent(value: number | null | undefined) {
   if (!Number.isFinite(Number(value))) return '—'
@@ -53,7 +53,7 @@ function score(value: number | null | undefined) {
 }
 function km(value: number | null | undefined) {
   if (!Number.isFinite(Number(value))) return '—'
-  return `${new Intl.NumberFormat(currentGameLocaleTag(), { maximumFractionDigits: 1 }).format(Number(value))} km`
+  return `${formatGameDecimal1(Number(value))} km`
 }
 function delta(currentValue: number | null | undefined, previousValue: number | null | undefined, format: 'number' | 'money' | 'points' = 'number') {
   if (!Number.isFinite(Number(currentValue)) || !Number.isFinite(Number(previousValue))) return null
@@ -168,9 +168,9 @@ const migrationNotice = computed(() => state.value?.migratedFromOlderSave && (st
         </section>
 
         <section class="bilan-section">
-          <div class="section-title"><div><span class="eyebrow">Patrimoine</span><h3>Construction du réseau</h3></div><small>Créé = projet réellement validé et lancé en travaux.</small></div>
+          <div class="section-title"><div><span class="eyebrow">Patrimoine</span><h3>Mise en service du réseau</h3></div><small>Une ligne est comptée dès qu’elle est réellement validée et mise en service.</small></div>
           <div class="stat-grid">
-            <article><span>Lignes créées</span><b>{{ integer(totals.linesLaunched) }}</b><small>Lignes dont les travaux ont été lancés.</small></article>
+            <article><span>Lignes mises en service</span><b>{{ integer(totals.linesLaunched) }}</b><small>Lignes réellement validées et ouvertes à l’exploitation.</small></article>
             <article><span>Lignes supprimées</span><b>{{ integer(totals.linesDeleted) }}</b><small>Lignes retirées au cours de la partie.</small></article>
             <article><span>Stations posées</span><b>{{ integer(totals.stationsBuilt) }}</b><small>Stations ajoutées lors des créations et modifications.</small></article>
             <article><span>Stations retirées</span><b>{{ integer(totals.stationsRemoved) }}</b><small>Stations supprimées lors des modifications/suppressions.</small></article>

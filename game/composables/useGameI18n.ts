@@ -1,5 +1,5 @@
 import { computed } from 'vue'
-import { gameLocaleTag, translateGameText } from '../config/i18n'
+import { formatGameNumber, gameDateFormatter, gameLocaleTag, translateGameText } from '../config/i18n'
 import { useGameSettings } from './useGameSettings'
 import type { GameLocale } from '../types/i18n'
 
@@ -73,19 +73,19 @@ export function useGameI18n() {
   }
 
   function number(value: number, options?: Intl.NumberFormatOptions) {
-    return new Intl.NumberFormat(localeTag.value, options).format(value)
+    return formatGameNumber(value, options, localeTag.value)
   }
 
   function currency(value: number, options?: Intl.NumberFormatOptions) {
-    return new Intl.NumberFormat(localeTag.value, {
+    return formatGameNumber(value, {
       style: 'currency', currency: 'EUR', ...options,
-    }).format(value)
+    }, localeTag.value)
   }
 
   function date(value: string | Date, options?: Intl.DateTimeFormatOptions) {
     const parsed = value instanceof Date ? value : new Date(value)
     if (Number.isNaN(parsed.getTime())) return t('date inconnue')
-    return new Intl.DateTimeFormat(localeTag.value, options).format(parsed)
+    return gameDateFormatter(options, localeTag.value).format(parsed)
   }
 
   function applyDocumentLanguage() {
@@ -104,7 +104,12 @@ export function useGameI18n() {
     }
     finally {
       translating = false
-      if (observer && observedRoot) observer.observe(observedRoot, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...TRANSLATED_ATTRIBUTES] })
+      // Le français est la langue source de tous les templates : observer puis
+      // reparcourir le DOM à chaque ouverture de panneau n'apporte absolument
+      // rien dans ce mode. On coupe donc l'observer tant que l'UI reste en FR.
+      if (observer && observedRoot && locale.value !== 'fr') {
+        observer.observe(observedRoot, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...TRANSLATED_ATTRIBUTES] })
+      }
     }
   }
 
@@ -125,7 +130,9 @@ export function useGameI18n() {
       }
       finally {
         translating = false
-        if (observer && observedRoot) observer.observe(observedRoot, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...TRANSLATED_ATTRIBUTES] })
+        if (observer && observedRoot && locale.value !== 'fr') {
+          observer.observe(observedRoot, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...TRANSLATED_ATTRIBUTES] })
+        }
       }
     })
     refreshDom(root)

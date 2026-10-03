@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "clu-api",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-02",
+  "routes": [
+    {
+      "pattern": "api.useclu.pro",
+      "custom_domain": true
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "db",
+      "database_name": "clu-auth",
+      "database_id": "de95800e-a327-4b97-994f-4ccae9b5e04a"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "RATE_LIMIT_CONNEXION",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
+    },
+    {
+      "name": "RATE_LIMIT_RECUPERATION",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 3,
+        "period": 60
+      }
+    },
+    {
+      "name": "RATE_LIMIT_ONLINE_JOIN",
+      "namespace_id": "1003",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CLU_ONLINE",
+        "class_name": "CluOnlinePartie"
+      }
+    ]
+  },
+  "exports": {
+    "CluOnlinePartie": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "observability": {
+    "enabled": true
+  },
+  "keep_vars": true
+}

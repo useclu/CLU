@@ -47,7 +47,7 @@ export function createDefaultFreePlaySettings(): GameFreePlaySettings {
     inspectionGuidance: 'GUIDED',
     regulationGuidance: 'GUIDED',
     graphics: {
-      quality: 'BALANCED',
+      quality: 'AUTO',
       vehicleAnimations: true,
       buildings2D5: true,
     },
@@ -73,9 +73,9 @@ export function normalizeEventFrequency(value: unknown): GameEventFrequency {
 }
 
 export function normalizeGraphicsQuality(value: unknown): GameGraphicsQuality {
-  return ['ECO', 'BALANCED', 'HIGH'].includes(String(value))
+  return ['AUTO', 'ECO', 'BALANCED', 'HIGH'].includes(String(value))
     ? value as GameGraphicsQuality
-    : 'BALANCED'
+    : 'AUTO'
 }
 
 export function normalizeFreePlaySettings(value?: Partial<GameFreePlaySettings> | null): GameFreePlaySettings {

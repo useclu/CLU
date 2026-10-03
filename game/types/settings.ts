@@ -1,11 +1,12 @@
 import type { GameLocale } from './i18n'
 import type { GameGraphicsQuality } from './freePlay'
-import type { GameRoastFrequency } from './roast'
 
 export type GameTextSize = 'SMALL' | 'MEDIUM' | 'LARGE'
+export type GameTheme = 'DARK' | 'LIGHT'
 
 export interface GameUserSettings {
   locale: GameLocale
+  theme: GameTheme
   graphicsQuality: GameGraphicsQuality
   vehicleAnimations: boolean
   buildings2D5: boolean
@@ -15,8 +16,6 @@ export interface GameUserSettings {
   contextualTips: boolean
   tutorialEnabled: boolean
   wikiEnabled: boolean
-  cluRoastEnabled: boolean
-  cluRoastFrequency: GameRoastFrequency
   masterVolume: number
   musicVolume: number
   sfxVolume: number

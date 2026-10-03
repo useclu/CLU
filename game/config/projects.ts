@@ -71,6 +71,24 @@ export const GAME_INFRASTRUCTURES: Record<
     operatingCostMultiplier: 1.02,
     speedMultiplier: 1.04,
   },
+  CABLE: {
+    value: 'CABLE',
+    label: 'Câble aérien',
+    description: 'Ligne aérienne indépendante de la voirie, avec pylônes et stations dédiées.',
+    constructionCostMultiplier: 1,
+    constructionTimeMultiplier: 0.9,
+    operatingCostMultiplier: 0.9,
+    speedMultiplier: 1,
+  },
+  WATER: {
+    value: 'WATER',
+    label: 'Voie d’eau',
+    description: 'Parcours fluvial utilisant le cours d’eau existant et des haltes aménagées.',
+    constructionCostMultiplier: 1,
+    constructionTimeMultiplier: 0.65,
+    operatingCostMultiplier: 1.08,
+    speedMultiplier: 1,
+  },
 }
 
 export const GAME_DEFAULT_INFRASTRUCTURE: Record<GameTransportMode, GameInfrastructureType> = {
@@ -80,6 +98,8 @@ export const GAME_DEFAULT_INFRASTRUCTURE: Record<GameTransportMode, GameInfrastr
   TRAIN: 'RAIL',
   BUS: 'ROAD',
   BRT: 'DEDICATED',
+  CABLE: 'CABLE',
+  FERRY: 'WATER',
 }
 
 export function resolveInfrastructureType(

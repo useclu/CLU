@@ -22,6 +22,13 @@ const customTheme = definePreset(Aura, {
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
+  runtimeConfig: {
+    public: {
+      cluApiBaseUrl: 'https://api.useclu.pro',
+      cluGoogleClientId: '451693879310-tq2mti1fbrpqnaut77mu4u83pkb2pdmu.apps.googleusercontent.com',
+    },
+  },
+
   app: {
     head: {
       title: 'CLU • Créateur de lignes urbaines',
@@ -34,28 +41,6 @@ export default defineNuxtConfig({
         },
       ],
 
-      script: [
-        // Google Analytics
-        {
-          src: 'https://www.googletagmanager.com/gtag/js?id=G-246N628L35',
-          async: true,
-        },
-        {
-          innerHTML: `
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', 'G-246N628L35');
-          `,
-        },
-
-        // Google AdSense
-        {
-          src: 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8786106294126792',
-          async: true,
-          crossorigin: 'anonymous',
-        },
-      ],
     },
   },
 
@@ -83,6 +68,25 @@ export default defineNuxtConfig({
   },
 
   vite: {
+    server: {
+      proxy: {
+        '/clu-api': {
+          target: 'https://api.useclu.pro',
+          changeOrigin: true,
+          secure: true,
+          rewrite: path => path.replace(/^\/clu-api/, ''),
+          configure: proxy => {
+            proxy.on('proxyReq', proxyReq => {
+              // En développement, le navigateur envoie Origin: http://localhost:....
+              // Le Worker CLU refuse volontairement cette origine. Comme /clu-api
+              // est un proxy local same-origin, on retire Origin avant le transfert.
+              proxyReq.removeHeader('origin')
+            })
+          },
+        },
+      },
+    },
+
     vue: {
       script: {
         defineModel: true,
@@ -125,6 +129,13 @@ export default defineNuxtConfig({
     '@nuxt/fonts',
     '@le-pepe/nuxt-snow-effect',
   ],
+
+  fonts: {
+    // Les familles sont déclarées directement dans le CSS de CLU.
+    // Évite que @nuxt/fonts interprète des variables comme --font-size
+    // comme des noms de familles à résoudre auprès d'un provider.
+    processCSSVariables: false,
+  },
 
   colorMode: {
     preference: 'system',

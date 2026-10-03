@@ -447,6 +447,8 @@ function summarizeLineCoverage(
         name: municipality.name,
         departmentCode: municipality.departmentCode,
         population: municipality.population,
+        mobilityDemandMultiplier: municipality.mobilityDemandMultiplier,
+        lineServiceMultipliers: municipality.lineServiceMultipliers ? { ...municipality.lineServiceMultipliers } : undefined,
         stationCount: 1,
         lineCount: 1,
       },

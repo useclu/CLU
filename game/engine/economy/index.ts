@@ -3,6 +3,8 @@ import {
   GAME_ECONOMY_TRANSACTION_HISTORY_LIMIT,
   GAME_INITIAL_BUDGET,
   GAME_MAX_BORROWS_PER_DAY,
+  GAME_PROJECT_CREDIT_MAX,
+  GAME_PROJECT_CREDIT_MULTIPLIER,
   GAME_PUBLIC_DEVELOPMENT_FIRST_DAY,
   GAME_PUBLIC_DEVELOPMENT_MAX_GRANT,
   GAME_PUBLIC_DEVELOPMENT_MIN_GRANT,
@@ -10,6 +12,7 @@ import {
   getModeEconomyDefinition,
 } from '../../config/economy'
 import { normalizeCustomFarePolicy } from '../../config/fares'
+import { getModeSimulationDefinition } from '../../config/simulation'
 import {
   GAME_PROJECT_BASE_DAYS,
   GAME_PROJECT_DAYS_PER_10_KM,
@@ -56,6 +59,26 @@ export function calculateCreditLimit(
     GAME_MINIMUM_CREDIT_LIMIT + networkValue + assetValue + revenueValue,
   )
   return Math.max(GAME_MINIMUM_CREDIT_LIMIT, Math.round(raw * scoreMultiplier))
+}
+
+
+/**
+ * Phase 18 — financement de projet.
+ * Le crédit classique reste volontairement plus prudent, tandis qu'un projet
+ * d'infrastructure peut mobiliser une capacité supérieure. Le joueur peut donc
+ * construire plusieurs lignes le même jour sans devoir faire avancer le temps.
+ */
+export function calculateProjectCreditLimit(
+  lineCount: number,
+  totalOperatingRevenue = 0,
+  totalInvestment = 0,
+  creditScore = 100,
+) {
+  const standard = calculateCreditLimit(lineCount, totalOperatingRevenue, totalInvestment, creditScore)
+  return Math.max(
+    GAME_MINIMUM_CREDIT_LIMIT,
+    Math.min(GAME_PROJECT_CREDIT_MAX, Math.round(standard * GAME_PROJECT_CREDIT_MULTIPLIER)),
+  )
 }
 
 export interface GameBorrowRequestResult {
@@ -245,6 +268,40 @@ export function calculateLineProjectCost(line: GameLine) {
   return Math.max(0, Math.round(stationsCost + segmentsCost))
 }
 
+export function calculateBusSubstitutionCost(
+  line: GameLine,
+  stationIds: string[],
+  durationMinutes: number,
+  headwayMinutes = 10,
+) {
+  const stationMap = new Map(getLineAllStations(line).map(station => [station.id, station] as const))
+  const corridor = stationIds.map(id => stationMap.get(id)).filter((station): station is GameStation => Boolean(station))
+  let oneWayKm = 0
+  for (let index = 1; index < corridor.length; index += 1) oneWayKm += distanceBetweenStationsKm(corridor[index - 1]!, corridor[index]!)
+  oneWayKm = Math.max(1.2, oneWayKm)
+  const bus = getModeSimulationDefinition('BUS')
+  const serviceHours = Math.max(1, Math.min(24, durationMinutes / 60))
+  const roundTrips = Math.max(1, Math.ceil(serviceHours * 60 / Math.max(3, headwayMinutes)))
+  const vehicleKm = oneWayKm * 2 * roundTrips
+  const stationFactor = Math.max(2, corridor.length) * bus.operatingCostPerStationPerDay * (serviceHours / 24)
+  const fixed = bus.fixedOperatingCostPerDay * Math.max(.18, serviceHours / 24)
+  // Une substitution d'urgence coûte davantage qu'un service bus planifié : mobilisation, information et régulation.
+  return Math.max(7_500, Math.round((vehicleKm * bus.operatingCostPerKmPerDay / Math.max(1, bus.departuresPerHour * bus.serviceHoursPerDay) + stationFactor + fixed) * 1.35))
+}
+
+export function calculateReinforcementTripCost(line: GameLine) {
+  const simulation = getModeSimulationDefinition(line.mode)
+  const lengthKm = calculateLineLengthKm(line)
+  const stationCount = getLineAllStations(line).length
+  const referenceTrips = Math.max(1, simulation.departuresPerHour * simulation.serviceHoursPerDay)
+  const dailyVariableCost = (
+    lengthKm * simulation.operatingCostPerKmPerDay
+    + stationCount * simulation.operatingCostPerStationPerDay
+    + simulation.fixedOperatingCostPerDay * 0.25
+  )
+  return Math.max(200, Math.round(dailyVariableCost / referenceTrips))
+}
+
 export function calculateLineConstructionDays(line: GameLine) {
   const infrastructure = getInfrastructureDefinition(line.mode, line.infrastructureType)
   const lengthKm = calculateLineLengthKm(line)
@@ -305,6 +362,74 @@ function applyInvestment(
   if (['STATION_CONSTRUCTION', 'SEGMENT_CONSTRUCTION', 'LINE_PROJECT', 'LINE_MODIFICATION'].includes(kind)) {
     line.constructionCost += normalizedAmount
   }
+  return transaction
+}
+
+export function applyNetworkInvestment(
+  economy: GameEconomyState,
+  amount: number,
+  kind: GameEconomyTransactionKind,
+  note: string,
+) {
+  const normalizedAmount = Math.max(0, Math.round(amount))
+  if (normalizedAmount <= 0 || !canAffordInvestment(economy, normalizedAmount)) return null
+  const transaction = createTransaction(kind, normalizedAmount, undefined, { note })
+  if (!economy.unlimitedMoney) economy.balance -= normalizedAmount
+  economy.totalSpent += normalizedAmount
+  economy.totalInvestment += normalizedAmount
+  appendEconomyTransaction(economy, transaction)
+  return transaction
+}
+
+/**
+ * Métropole 2.0 Phase 15 — coût ponctuel d'un service temporaire.
+ * Ce n'est pas un investissement d'infrastructure : il est comptabilisé dans
+ * les coûts d'exploitation et reste visible dans l'historique financier.
+ */
+export function applyTemporaryServiceCost(
+  economy: GameEconomyState,
+  line: GameLine,
+  amount: number,
+  note: string,
+) {
+  const normalizedAmount = Math.max(0, Math.round(amount))
+  if (normalizedAmount <= 0) return null
+  if (!canAffordInvestment(economy, normalizedAmount)) return null
+  const transaction = createTransaction('TEMPORARY_SERVICE', normalizedAmount, line, { note })
+  if (!economy.unlimitedMoney) economy.balance -= normalizedAmount
+  economy.totalOperatingCosts += normalizedAmount
+  appendEconomyTransaction(economy, transaction)
+  return transaction
+}
+
+export function applyBusSubstitutionCost(
+  economy: GameEconomyState,
+  line: GameLine,
+  amount: number,
+  note = 'Bus de substitution',
+) {
+  const normalizedAmount = Math.max(0, Math.round(amount))
+  if (normalizedAmount <= 0 || !canAffordInvestment(economy, normalizedAmount)) return null
+  const transaction = createTransaction('SERVICE_SUBSTITUTION', normalizedAmount, line, { note })
+  if (!economy.unlimitedMoney) economy.balance -= normalizedAmount
+  economy.totalOperatingCosts += normalizedAmount
+  appendEconomyTransaction(economy, transaction)
+  return transaction
+}
+
+export function applyServiceReinforcementCost(
+  economy: GameEconomyState,
+  line: GameLine,
+  amount = calculateReinforcementTripCost(line),
+  note = 'Circulation de renfort sur infrastructure existante',
+) {
+  const normalizedAmount = Math.max(0, Math.round(amount))
+  if (normalizedAmount <= 0) return null
+  if (!canAffordInvestment(economy, normalizedAmount)) return null
+  const transaction = createTransaction('SERVICE_REINFORCEMENT', normalizedAmount, line, { note })
+  if (!economy.unlimitedMoney) economy.balance -= normalizedAmount
+  economy.totalOperatingCosts += normalizedAmount
+  appendEconomyTransaction(economy, transaction)
   return transaction
 }
 
@@ -369,6 +494,17 @@ export function applyVehicleSale(
   return transaction
 }
 
+
+export function applyInfrastructureUpgradeCost(
+  economy: GameEconomyState,
+  line: GameLine,
+  amount: number,
+  note: string,
+) {
+  const normalized = Math.max(0, Math.round(amount))
+  if (normalized <= 0) return null
+  return applyInvestment(economy, line, normalized, 'INFRASTRUCTURE_UPGRADE', { note })
+}
 
 export function applyFleetUpgradeCost(
   economy: GameEconomyState,
@@ -528,6 +664,56 @@ export function borrowMoney(
   const transaction = createTransaction('DEBT_BORROW', -normalized, undefined, { note: `Emprunt ${economy.borrowCountOnLastDay}/${GAME_MAX_BORROWS_PER_DAY} aujourd’hui · plafond ${creditLimit.toLocaleString(currentGameLocaleTag())} €` })
   appendEconomyTransaction(economy, transaction)
   return { ok: true, code: 'OK', message: `Emprunt de ${new Intl.NumberFormat(currentGameLocaleTag(), { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 }).format(normalized)} accordé.`, transaction, maximumAmount: remainingCapacity - normalized }
+}
+
+
+export function borrowProjectMoney(
+  economy: GameEconomyState,
+  amount: number,
+  day: number,
+  lineCount: number,
+  creditMultiplier = 1,
+): GameBorrowRequestResult {
+  if (economy.unlimitedMoney) {
+    return { ok: false, code: 'CHEAT_MODE', message: 'Les emprunts sont inutiles quand l’argent illimité est activé.' }
+  }
+  if (economy.insolvencyStatus === 'BANKRUPT') {
+    return { ok: false, code: 'BANKRUPT', message: 'Aucun nouveau financement de projet n’est possible en situation d’insolvabilité.' }
+  }
+
+  const operatingRevenue = Math.max(0, economy.totalPassengerRevenue + economy.totalFineRevenue)
+  const projectCreditLimit = Math.round(
+    calculateProjectCreditLimit(lineCount, operatingRevenue, economy.totalInvestment, economy.creditScore)
+    * Math.max(0.2, creditMultiplier),
+  )
+  const remainingCapacity = Math.max(0, projectCreditLimit - economy.debtPrincipal)
+  if (remainingCapacity <= 0) {
+    return { ok: false, code: 'NO_CREDIT', message: 'Votre capacité de financement de projet est entièrement utilisée.', maximumAmount: 0 }
+  }
+
+  const normalized = Math.max(0, Math.round(amount))
+  if (normalized < 1_000_000) {
+    return { ok: false, code: 'INVALID_AMOUNT', message: 'Le montant minimum d’un financement de projet est de 1 M€.', maximumAmount: remainingCapacity }
+  }
+  if (normalized > remainingCapacity) {
+    return {
+      ok: false,
+      code: 'AMOUNT_TOO_HIGH',
+      message: `Montant trop élevé : le financement de projet disponible est de ${new Intl.NumberFormat(currentGameLocaleTag(), { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 }).format(remainingCapacity)}.`,
+      maximumAmount: remainingCapacity,
+    }
+  }
+
+  const currentDay = Math.max(1, Math.floor(day))
+  economy.balance += normalized
+  economy.debtPrincipal += normalized
+  if (economy.debtNextPaymentDay <= currentDay) economy.debtNextPaymentDay = currentDay + GAME_DEBT_PAYMENT_PERIOD_DAYS
+  economy.debtMinimumPayment = Math.max(1_000_000, Math.round(economy.debtPrincipal * 0.05))
+  const transaction = createTransaction('DEBT_BORROW', -normalized, undefined, {
+    note: `Financement de projet · capacité ${projectCreditLimit.toLocaleString(currentGameLocaleTag())} €`,
+  })
+  appendEconomyTransaction(economy, transaction)
+  return { ok: true, code: 'OK', message: `Financement de projet de ${new Intl.NumberFormat(currentGameLocaleTag(), { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 }).format(normalized)} accordé.`, transaction, maximumAmount: remainingCapacity - normalized }
 }
 
 export function repayDebt(economy: GameEconomyState, amount: number) {

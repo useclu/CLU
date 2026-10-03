@@ -64,18 +64,6 @@ export function totalVehicleCount(save: Pick<GameSave, 'data'>) {
   return save.data.network.lines.reduce((total, line) => total + Math.max(0, Math.floor(line.vehicleCount ?? 0)), 0)
 }
 
-function average(values: number[]) {
-  if (!values.length) return null
-  return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function weightedNetworkMorale(report: GameSimulationDayReport) {
-  if (Number.isFinite(report.networkMoraleScore)) return Number(report.networkMoraleScore)
-  const total = report.lines.reduce((sum, line) => sum + Math.max(0, line.passengers), 0)
-  if (total <= 0) return null
-  return report.lines.reduce((sum, line) => sum + (line.moraleScoreAfter ?? 76) * Math.max(0, line.passengers), 0) / total
-}
-
 export function buildWeeklySnapshot(
   save: Pick<GameSave, 'data'>,
   week: number,
@@ -86,14 +74,84 @@ export function buildWeeklySnapshot(
   const theoreticalEnd = week * 7
   const currentDay = Math.max(1, Math.floor(save.data.simulationDay || 1))
   const endDay = completed ? theoreticalEnd : Math.min(theoreticalEnd, currentDay)
-  const reports = (save.data.simulation.history ?? []).filter(report => report.day >= startDay && report.day <= endDay)
   const structuralData = options.structuralData !== false
-  const peak = reports.reduce<GameSimulationDayReport | null>((best, report) => !best || report.passengers > best.passengers ? report : best, null)
-  const quality = reports.map(report => report.serviceQualityScore).filter((value): value is number => Number.isFinite(value))
-  const satisfaction = reports.map(report => report.demandSatisfactionRate).filter((value): value is number => Number.isFinite(value))
-  const morale = reports.map(weightedNetworkMorale).filter((value): value is number => Number.isFinite(value))
-  const wait = reports.map(report => report.averageWaitMinutes).filter((value): value is number => Number.isFinite(value))
+
+  let reportedDays = 0
+  let passengers = 0
+  let lostPassengers = 0
+  let revenue = 0
+  let operatingCost = 0
+  let netResult = 0
+  let qualitySum = 0
+  let qualityCount = 0
+  let satisfactionSum = 0
+  let satisfactionCount = 0
+  let moraleSum = 0
+  let moraleCount = 0
+  let waitSum = 0
+  let waitCount = 0
+  let peakPassengers = 0
+  let peakPassengersDay: number | null = null
+  let municipalitiesServed: number | null = null
+
+  // Une semaine ne contient que sept jours, mais ce calcul est aussi réévalué
+  // par le panneau Bilan pendant la semaine en cours. Agréger toutes les
+  // métriques en un seul passage évite une dizaine de map/filter/reduce.
+  for (const report of save.data.simulation.history ?? []) {
+    if (report.day < startDay || report.day > endDay) continue
+    reportedDays += 1
+    passengers += Math.max(0, report.passengers)
+    lostPassengers += Math.max(0, report.lostPassengers)
+    revenue += report.revenue
+    operatingCost += report.operatingCost
+    netResult += report.netResult
+    municipalitiesServed = report.municipalitiesServed ?? null
+
+    if (peakPassengersDay === null || report.passengers > peakPassengers) {
+      peakPassengers = report.passengers
+      peakPassengersDay = report.day
+    }
+
+    if (Number.isFinite(report.serviceQualityScore)) {
+      qualitySum += Number(report.serviceQualityScore)
+      qualityCount += 1
+    }
+    if (Number.isFinite(report.demandSatisfactionRate)) {
+      satisfactionSum += Number(report.demandSatisfactionRate)
+      satisfactionCount += 1
+    }
+    if (Number.isFinite(report.averageWaitMinutes)) {
+      waitSum += Number(report.averageWaitMinutes)
+      waitCount += 1
+    }
+
+    let morale: number | null = null
+    if (Number.isFinite(report.networkMoraleScore)) morale = Number(report.networkMoraleScore)
+    else {
+      let weighted = 0
+      let weight = 0
+      for (const line of report.lines) {
+        const linePassengers = Math.max(0, line.passengers)
+        weight += linePassengers
+        weighted += (line.moraleScoreAfter ?? 76) * linePassengers
+      }
+      if (weight > 0) morale = weighted / weight
+    }
+    if (morale !== null && Number.isFinite(morale)) {
+      moraleSum += morale
+      moraleCount += 1
+    }
+  }
+
   const lines = save.data.network.lines
+  let operationalLineCount = 0
+  let constructionLineCount = 0
+  if (structuralData) {
+    for (const line of lines) {
+      if (line.status === 'OPERATIONAL') operationalLineCount += 1
+      else if (line.status === 'CONSTRUCTION') constructionLineCount += 1
+    }
+  }
 
   return {
     week,
@@ -102,27 +160,27 @@ export function buildWeeklySnapshot(
     capturedDay: currentDay,
     completed,
     reconstructed: options.reconstructed === true || undefined,
-    reportedDays: reports.length,
-    passengers: reports.reduce((sum, report) => sum + Math.max(0, report.passengers), 0),
-    lostPassengers: reports.reduce((sum, report) => sum + Math.max(0, report.lostPassengers), 0),
-    revenue: reports.reduce((sum, report) => sum + report.revenue, 0),
-    operatingCost: reports.reduce((sum, report) => sum + report.operatingCost, 0),
-    netResult: reports.reduce((sum, report) => sum + report.netResult, 0),
-    averageServiceQuality: average(quality),
-    averageDemandSatisfaction: average(satisfaction),
-    averageMorale: average(morale),
-    averageWaitMinutes: average(wait),
-    peakPassengers: peak?.passengers ?? 0,
-    peakPassengersDay: peak?.day ?? null,
+    reportedDays,
+    passengers,
+    lostPassengers,
+    revenue,
+    operatingCost,
+    netResult,
+    averageServiceQuality: qualityCount ? qualitySum / qualityCount : null,
+    averageDemandSatisfaction: satisfactionCount ? satisfactionSum / satisfactionCount : null,
+    averageMorale: moraleCount ? moraleSum / moraleCount : null,
+    averageWaitMinutes: waitCount ? waitSum / waitCount : null,
+    peakPassengers,
+    peakPassengersDay,
     balance: structuralData ? save.data.economy.balance : null,
     debt: structuralData ? save.data.economy.debtPrincipal : null,
     lineCount: structuralData ? lines.length : null,
-    operationalLineCount: structuralData ? lines.filter(line => line.status === 'OPERATIONAL').length : null,
-    constructionLineCount: structuralData ? lines.filter(line => line.status === 'CONSTRUCTION').length : null,
+    operationalLineCount: structuralData ? operationalLineCount : null,
+    constructionLineCount: structuralData ? constructionLineCount : null,
     stationCount: structuralData ? countUniqueNetworkStations(save) : null,
     vehicleCount: structuralData ? totalVehicleCount(save) : null,
     networkLengthKm: structuralData ? networkLengthKm(save) : null,
-    municipalitiesServed: structuralData ? (reports.at(-1)?.municipalitiesServed ?? null) : (reports.at(-1)?.municipalitiesServed ?? null),
+    municipalitiesServed,
     economyTotals: structuralData ? economyTotalsFromSave(save) : null,
   }
 }
@@ -276,7 +334,7 @@ export function normalizeStatisticsState(
   const milestones: GameStatisticsMilestone[] = Array.isArray(raw.milestones)
     ? raw.milestones.filter(item => item && Number.isFinite(Number(item.day)) && typeof item.title === 'string').slice(-MAX_MILESTONES).map(item => ({
       id: typeof item.id === 'string' && item.id ? item.id : createId('milestone'),
-      kind: ['LINE_LAUNCHED','LINE_DELETED','OBJECTIVE_COMPLETED','PASSENGER_RECORD','OPERATING_RECORD'].includes(String(item.kind)) ? item.kind : 'LINE_LAUNCHED',
+      kind: ['LINE_LAUNCHED','LINE_DELETED','OBJECTIVE_COMPLETED','PASSENGER_RECORD','OPERATING_RECORD','EVENT_RESOLVED','URBAN_PROJECT_OPENED','LOCAL_EVENT_FINISHED','STATION_WORK_COMPLETED','INCIDENT_RESOLVED'].includes(String(item.kind)) ? item.kind : 'LINE_LAUNCHED',
       day: Math.max(1, Math.floor(Number(item.day))),
       title: item.title.slice(0, 100),
       detail: typeof item.detail === 'string' ? item.detail.slice(0, 240) : '',
@@ -308,6 +366,99 @@ export function normalizeStatisticsState(
   }
 }
 
+function addSourceMilestone(
+  statistics: GameStatisticsState,
+  sourceId: string,
+  kind: GameStatisticsMilestoneKind,
+  day: number,
+  title: string,
+  detail: string,
+  amount?: number,
+) {
+  const id = `world:${sourceId}`
+  if (statistics.milestones.some(item => item.id === id)) return null
+  const milestone: GameStatisticsMilestone = {
+    id,
+    kind,
+    day: Math.max(1, Math.floor(day)),
+    title: title.slice(0, 100),
+    detail: detail.slice(0, 240),
+    amount: Number.isFinite(Number(amount)) ? Number(amount) : undefined,
+  }
+  statistics.milestones.push(milestone)
+  if (statistics.milestones.length > MAX_MILESTONES) statistics.milestones.splice(0, statistics.milestones.length - MAX_MILESTONES)
+  return milestone
+}
+
+function syncWorldHistoryMilestones(save: GameSave) {
+  const statistics = save.data.statistics
+  if (!statistics) return
+
+  for (const event of save.data.events?.history ?? []) {
+    addSourceMilestone(
+      statistics,
+      `event:${event.id}`,
+      'EVENT_RESOLVED',
+      event.resolvedDay,
+      event.status === 'EXPIRED' ? `Événement expiré · ${event.title}` : `Événement résolu · ${event.title}`,
+      event.choiceLabel ? `${event.choiceLabel}${event.choiceDescription ? ` · ${event.choiceDescription}` : ''}` : (event.description || 'Aucune décision particulière.'),
+      event.balanceImpact,
+    )
+  }
+
+  for (const project of save.data.municipalities?.urbanProjects ?? []) {
+    if (!project.openedDay) continue
+    addSourceMilestone(
+      statistics,
+      `urban:${project.id}:opened`,
+      'URBAN_PROJECT_OPENED',
+      project.openedDay,
+      `Ouverture · ${project.title}`,
+      `${project.municipalityName} · le territoire génère désormais de nouveaux habitants et déplacements.`,
+    )
+  }
+
+  for (const event of save.data.municipalities?.localEvents ?? []) {
+    if (!event.outcome) continue
+    addSourceMilestone(
+      statistics,
+      `local-event:${event.id}`,
+      'LOCAL_EVENT_FINISHED',
+      event.outcome.resolvedDay,
+      `Événement terminé · ${event.title}`,
+      `${Math.round(event.outcome.transportedVisitors).toLocaleString(currentGameLocaleTag())} visiteurs transportés · ${Math.round(event.outcome.leftBehindVisitors).toLocaleString(currentGameLocaleTag())} non absorbés.`,
+      event.outcome.netImpact,
+    )
+  }
+
+  for (const work of save.data.operations?.stationWorks ?? []) {
+    if (work.status !== 'COMPLETED') continue
+    addSourceMilestone(
+      statistics,
+      `station-work:${work.id}`,
+      'STATION_WORK_COMPLETED',
+      work.endDay,
+      `Station agrandie · ${work.stationName}`,
+      `Nouvelle capacité mise en service après amélioration de la station.`,
+      work.cost,
+    )
+  }
+
+  for (const disruption of save.data.operations?.disruptions ?? []) {
+    if (!disruption.resolvedAt || !['MAJOR', 'CRITICAL'].includes(disruption.severity)) continue
+    const resolvedDay = Math.max(1, Math.floor(Math.max(disruption.startsAtAbsoluteMinute, disruption.endsAtAbsoluteMinute) / 1440) + 1)
+    const lineName = save.data.network.lines.find(line => line.id === disruption.lineId)?.name ?? 'Ligne'
+    addSourceMilestone(
+      statistics,
+      `incident:${disruption.id}`,
+      'INCIDENT_RESOLVED',
+      resolvedDay,
+      `Incident résolu · ${lineName}`,
+      `${disruption.title} · ${disruption.suspended ? 'interruption' : disruption.delayMinutes > 0 ? `retard jusqu’à +${Math.round(disruption.delayMinutes)} min` : 'service perturbé'}.`,
+    )
+  }
+}
+
 export function addStatisticsMilestone(
   statistics: GameStatisticsState,
   kind: GameStatisticsMilestoneKind,
@@ -334,7 +485,7 @@ export function registerLineLaunched(save: GameSave, stationCount: number, lineN
   if (!statistics) return
   statistics.linesLaunched += 1
   statistics.stationsBuilt += Math.max(0, Math.floor(stationCount))
-  addStatisticsMilestone(statistics, 'LINE_LAUNCHED', save.data.simulationDay, `Ligne ${lineName} lancée`, `${Math.max(0, Math.floor(stationCount))} arrêt(s) · travaux lancés`, cost)
+  addStatisticsMilestone(statistics, 'LINE_LAUNCHED', save.data.simulationDay, `Ligne ${lineName} mise en service`, `${Math.max(0, Math.floor(stationCount))} arrêt(s) · ouverture immédiate`, cost)
 }
 
 export function registerLineModification(save: GameSave, addedStations: number, removedStations: number) {
@@ -368,6 +519,9 @@ export function registerObjectiveMilestone(save: GameSave, title: string, reward
 export function captureStatisticsForDay(save: GameSave, report: GameSimulationDayReport) {
   const statistics = save.data.statistics
   if (!statistics) return
+  // Phase 24 : l'onglet Histoire agrège désormais les grands faits déjà
+  // persistés par les moteurs, sans ajouter une seconde base de données.
+  syncWorldHistoryMilestones(save)
   const day = Math.max(1, Math.floor(report.day))
   const previousPassengerRecord = statistics.records.dailyPassengers.value
   if (report.passengers > previousPassengerRecord) {

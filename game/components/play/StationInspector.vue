@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { currentGameLocaleTag } from '../../config/i18n'
+import { formatGameInteger } from '../../config/i18n'
 import { computed, ref, watch } from 'vue'
 import { GAME_FINE_AMOUNT } from '../../config/inspection'
 import { useGameSelection } from '../../composables/useGameSelection'
@@ -8,8 +8,10 @@ import { useGameSimulation } from '../../composables/useGameSimulation'
 import { useGameStations } from '../../composables/useGameStations'
 import { useGameTransitRuntime } from '../../composables/useGameTransitRuntime'
 import { useGameRollingStock } from '../../composables/useGameRollingStock'
+import { useGameOperations } from '../../composables/useGameOperations'
 import { focusGameMapPoint } from '../../utils/mapBridge'
 import { getLineTerminusStations } from '../../engine/network/geometry'
+import { gameTimeLabel } from '../../engine/timetable'
 
 const selection = useGameSelection()
 const network = useGameNetwork()
@@ -17,6 +19,7 @@ const simulation = useGameSimulation()
 const stations = useGameStations()
 const transitRuntime = useGameTransitRuntime()
 const rollingStock = useGameRollingStock()
+const operations = useGameOperations()
 const name = ref('')
 
 watch(
@@ -43,6 +46,27 @@ const passages = computed(() => {
   const line = selection.selectedLine.value
   const station = selection.selectedStation.value
   return line && station ? transitRuntime.stationPassages(line.id, station.id, 3) : []
+})
+
+const activeStationWork = computed(() => {
+  const line = selection.selectedLine.value
+  const station = selection.selectedStation.value
+  return line && station ? stations.activeWork(line.id, station.id) : null
+})
+const stationRoleLabel = computed(() => {
+  const role = report.value?.networkRole ?? 'LOCAL'
+  if (role === 'SATURATED') return 'Station saturée'
+  if (role === 'HUB') return 'Hub émergent'
+  if (role === 'INTERCHANGE') return 'Pôle de correspondance'
+  return 'Station locale'
+})
+
+const usesManualTimetable = computed(() => selection.selectedLine.value?.schedule?.mode === 'TIMETABLE')
+
+const activeLineDisruptions = computed(() => {
+  const line = selection.selectedLine.value
+  if (!line) return []
+  return operations.activeDisruptions.value.filter(item => item.lineId === line.id)
 })
 
 const interchangeLines = computed(() => {
@@ -80,7 +104,7 @@ const platformStatus = computed(() => {
   return { label: 'Fluide', tone: 'good' }
 })
 
-function integer(value: number) { return new Intl.NumberFormat(currentGameLocaleTag(), { maximumFractionDigits: 0 }).format(value) }
+function integer(value: number) { return formatGameInteger(value) }
 function eta(value: number) {
   if (value < .6) return '< 1 min'
   return `${Math.max(1, Math.round(value))} min`
@@ -98,6 +122,13 @@ function locateStation() {
   const station = selection.selectedStation.value
   if (station) focusGameMapPoint(station.longitude, station.latitude, 14)
 }
+
+function routeFromHere(kind: 'ORIGIN' | 'DESTINATION') {
+  const line = selection.selectedLine.value
+  const station = selection.selectedStation.value
+  if (!line || !station) return
+  window.dispatchEvent(new CustomEvent('clu-route-station', { detail: { kind, lineId: line.id, stationId: station.id } }))
+}
 </script>
 
 <template>
@@ -112,6 +143,15 @@ function locateStation() {
       <span class="section-label">Identité</span>
       <div class="rename"><input v-model="name" maxlength="60" aria-label="Nom de la station" @keyup.enter="rename"><button type="button" @click="rename">Renommer</button></div>
       <div class="directions"><span>Directions</span><strong>{{ directions.join(' ↔ ') || '—' }}</strong></div>
+      <div class="route-shortcuts"><button type="button" @click="routeFromHere('ORIGIN')">⇢ Partir d’ici</button><button type="button" @click="routeFromHere('DESTINATION')">⇠ Aller ici</button></div>
+    </section>
+
+    <section v-if="activeLineDisruptions.length" class="traffic-info-section">
+      <span class="section-label">Informations trafic</span>
+      <article v-for="item in activeLineDisruptions" :key="item.id" class="traffic-alert" :class="`severity-${item.severity.toLowerCase()}`">
+        <div><strong>{{ item.title }}</strong><span>{{ item.suspended ? 'Interruption totale' : `+${Math.round(item.delayMinutes)} min · ${Math.round(item.cancellationRate * 100)} % supprimées` }}</span></div>
+        <p v-if="item.passengerMessage" data-i18n-skip>{{ item.passengerMessage }}</p>
+      </article>
     </section>
 
     <section class="service-section">
@@ -119,7 +159,7 @@ function locateStation() {
       <div v-if="passages.length" class="passages">
         <article v-for="passage in passages" :key="`${passage.vehicleId}-${passage.direction}`">
           <i :style="{ background: passage.color }" />
-          <span><strong>{{ passage.shortCode }} · direction {{ passage.directionName }}</strong><small>{{ passage.lineName }}</small></span>
+          <span><strong>{{ passage.shortCode }}<template v-if="passage.missionCode"> · {{ passage.missionCode }}</template> · direction {{ passage.directionName }}</strong><small><span data-i18n-skip>{{ passage.missionName || passage.lineName }}</span><template v-if="passage.scheduledMinute !== undefined"> · prévu {{ gameTimeLabel(passage.scheduledMinute) }}</template><template v-if="passage.delayMinutes"> · retard +{{ Math.round(passage.delayMinutes) }} min</template><template v-if="passage.isExtraService"> · renfort PCC</template></small></span>
           <b>{{ eta(passage.etaMinutes) }}</b>
         </article>
       </div>
@@ -143,12 +183,22 @@ function locateStation() {
     <div class="facility">
       <div class="facility-head"><strong>{{ stations.facilityDefinition(selection.selectedStation.value).label }}</strong><span class="platform-state" :class="`state-${platformStatus.tone}`">{{ platformStatus.label }}</span></div>
       <p>{{ stations.facilityDefinition(selection.selectedStation.value).description }}</p>
-      <button v-if="stations.nextLevel(selection.selectedStation.value)" type="button" @click="stations.upgradeStation(selection.selectedLine.value.id, selection.selectedStation.value.id)">Améliorer la station</button>
+      <div v-if="activeStationWork" class="station-work">
+        <strong>🚧 Agrandissement en cours</strong>
+        <span>Nouvelle capacité dans {{ stations.workDaysRemaining(selection.selectedLine.value.id, selection.selectedStation.value.id) }} jour(s) · fin Jour {{ activeStationWork.endDay }}</span>
+      </div>
+      <button v-else-if="stations.nextLevel(selection.selectedStation.value)" type="button" :disabled="stations.isUpgradePending(selection.selectedLine.value.id, selection.selectedStation.value.id)" @click="stations.upgradeStation(selection.selectedLine.value.id, selection.selectedStation.value.id)">{{ stations.isUpgradePending(selection.selectedLine.value.id, selection.selectedStation.value.id) ? 'Lancement…' : `Agrandir · ${integer(stations.upgradeCost(selection.selectedLine.value, selection.selectedStation.value))} €` }}</button>
     </div>
 
     <span class="section-label metrics-label">Flux & exploitation</span>
     <div class="grid">
+      <div><span>Rôle réseau</span><strong>{{ stationRoleLabel }}</strong></div>
+      <div><span>Score de hub</span><strong>{{ Math.round(report?.hubScore ?? 0) }}/100</strong></div>
       <div><span>Fréquentation/j</span><strong>{{ integer(report?.estimatedDailyFootfall ?? 0) }}</strong></div>
+      <div><span>Montées</span><strong>{{ integer(report?.boardings ?? 0) }}</strong></div>
+      <div><span>Descentes</span><strong>{{ integer(report?.alightings ?? 0) }}</strong></div>
+      <div><span>Correspondances</span><strong>{{ integer(report?.transferBoardings ?? 0) }}</strong></div>
+      <div><span>Laissés à quai</span><strong>{{ integer(report?.leftBehindPassengers ?? 0) }}</strong></div>
       <div><span>Sur le quai maintenant</span><strong>{{ integer(report?.estimatedPlatformPassengers ?? 0) }}</strong></div>
       <div><span>Pointe estimée sur quai</span><strong>{{ integer(report?.estimatedPeakPlatformPassengers ?? report?.estimatedPlatformPassengers ?? 0) }}</strong></div>
       <div><span>Capacité station</span><strong>{{ integer(report?.stationCapacity ?? stations.dailyCapacity(selection.selectedLine.value, selection.selectedStation.value)) }}</strong></div>
@@ -163,10 +213,13 @@ function locateStation() {
       <div><span>Qualité station</span><strong>{{ Math.round(report?.qualityScore ?? 82) }}/100</strong></div>
     </div>
 
-    <p class="hint">Les passages utilisent désormais la même circulation visuelle que les véhicules affichés sur la carte. Ils restent une simulation optimisée, pas un horaire ferroviaire réel à la seconde.</p>
+    <p v-if="usesManualTimetable" class="hint">Les prochains passages viennent de la grille horaire et intègrent maintenant les décisions du PCC : retards, suppressions, renforts, terminus temporaires et perturbations.</p>
+    <p v-else class="hint">Les passages utilisent la circulation simulée des véhicules. Activez « Horaires personnalisés » dans Réseau pour créer une vraie grille de départs.</p>
   </aside>
 </template>
 
 <style scoped>
-.station-inspector{position:absolute;right:18px;bottom:18px;z-index:18;width:min(390px,calc(100vw - 36px));max-height:calc(100vh - 112px);overflow:auto;scrollbar-width:thin;padding:16px;border-radius:18px;border:1px solid rgba(255,255,255,.14);background:rgba(9,15,20,.92);backdrop-filter:blur(18px);box-shadow:0 18px 50px rgba(0,0,0,.35);color:#eef7f8}.close{position:absolute;right:10px;top:8px;border:0;background:transparent;color:inherit;font-size:calc(24px * var(--clu-text-scale,1));cursor:pointer}.inspector-head{display:flex;align-items:end;justify-content:space-between;gap:10px;padding-right:24px}.eyebrow,.section-label{font-size:calc(9px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.14em;opacity:.5}.line-chip{margin-top:6px;font-size:calc(12px * var(--clu-text-scale,1))}.line-chip i{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}.map-link{border:1px solid rgba(91,214,223,.25);background:rgba(75,194,204,.09);color:inherit;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:calc(10px * var(--clu-text-scale,1))}.identity-section,.service-section,.connection-section{display:grid;gap:8px;margin-top:14px}.rename{display:flex;gap:7px}.rename input{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:inherit;border-radius:8px;padding:8px}.rename button,.facility button{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:inherit;border-radius:8px;padding:7px 9px}.directions{display:grid;padding:9px;border-radius:9px;background:rgba(255,255,255,.035)}.directions span{font-size:calc(9px * var(--clu-text-scale,1));opacity:.5}.directions strong{font-size:calc(12px * var(--clu-text-scale,1));margin-top:2px}.passages{display:grid;gap:6px}.passages article{display:grid;grid-template-columns:9px 1fr auto;align-items:center;gap:8px;padding:9px;border-radius:9px;background:rgba(255,255,255,.04)}.passages i{width:8px;height:8px;border-radius:50%}.passages span{display:grid}.passages strong{font-size:calc(11px * var(--clu-text-scale,1))}.passages small{font-size:calc(9px * var(--clu-text-scale,1));opacity:.45;margin-top:2px}.passages b{font-size:calc(11px * var(--clu-text-scale,1))}.no-passage,.empty-connection{font-size:calc(11px * var(--clu-text-scale,1));opacity:.55}.service-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.service-actions button{border:1px solid rgba(91,214,223,.22);background:rgba(75,194,204,.09);color:inherit;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:calc(10px * var(--clu-text-scale,1))}.service-actions button:disabled{opacity:.35;cursor:not-allowed}.service-actions small{font-size:calc(9px * var(--clu-text-scale,1));opacity:.48}.line-badges{display:flex;flex-wrap:wrap;gap:6px}.line-badges button{display:flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);color:inherit;border-radius:9px;padding:5px 8px 5px 5px;cursor:pointer}.line-badges img,.line-badges b{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;object-fit:contain;color:#081014;font-size:calc(9px * var(--clu-text-scale,1))}.line-badges span{font-size:calc(10px * var(--clu-text-scale,1))}.facility{margin-top:14px;padding:11px;border-radius:10px;background:rgba(255,255,255,.04)}.facility-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.platform-state{font-size:calc(9px * var(--clu-text-scale,1));padding:4px 7px;border-radius:999px;background:rgba(255,255,255,.06)}.state-good{color:#91e2ae;background:rgba(58,166,99,.12)}.state-medium{color:#e4d47b;background:rgba(174,147,54,.12)}.state-warning{color:#efb66c;background:rgba(180,107,45,.14)}.state-critical{color:#ff8f8f;background:rgba(181,58,58,.14)}.facility p,.hint{font-size:calc(11px * var(--clu-text-scale,1));opacity:.6}.metrics-label{display:block;margin-top:15px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.grid>div{display:grid;padding:8px;border-radius:8px;background:rgba(255,255,255,.035)}.grid span{font-size:calc(9px * var(--clu-text-scale,1));opacity:.5}.grid strong{font-size:calc(13px * var(--clu-text-scale,1));margin-top:2px}.hint{margin:10px 0 0;line-height:1.5}@media(max-height:700px){.station-inspector{top:92px;bottom:12px;max-height:none}}@media(max-width:650px){.station-inspector{left:78px;right:10px;width:auto;bottom:10px}.grid{grid-template-columns:1fr 1fr}}
+.station-inspector{position:absolute;right:18px;bottom:18px;z-index:18;width:min(390px,calc(100vw - 36px));max-height:calc(100vh - 112px);overflow:auto;scrollbar-width:thin;padding:16px;border-radius:18px;border:1px solid rgba(255,255,255,.14);background:rgba(9,15,20,.92);backdrop-filter:blur(18px);box-shadow:0 18px 50px rgba(0,0,0,.35);color:#eef7f8}.close{position:absolute;right:10px;top:8px;border:0;background:transparent;color:inherit;font-size:calc(24px * var(--clu-text-scale,1));cursor:pointer}.inspector-head{display:flex;align-items:end;justify-content:space-between;gap:10px;padding-right:24px}.eyebrow,.section-label{font-size:calc(9px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.14em;opacity:.5}.line-chip{margin-top:6px;font-size:calc(12px * var(--clu-text-scale,1))}.line-chip i{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}.map-link{border:1px solid rgba(91,214,223,.25);background:rgba(75,194,204,.09);color:inherit;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:calc(10px * var(--clu-text-scale,1))}.identity-section,.service-section,.connection-section,.traffic-info-section{display:grid;gap:8px;margin-top:14px}.traffic-alert{display:grid;gap:5px;padding:9px 10px;border:1px solid rgba(239,183,95,.18);border-left:3px solid #efb75f;border-radius:9px;background:rgba(239,183,95,.07)}.traffic-alert.severity-major,.traffic-alert.severity-critical{border-left-color:#ef7373;background:rgba(239,115,115,.07)}.traffic-alert.severity-minor{border-left-color:#72d5a0;background:rgba(114,213,160,.06)}.traffic-alert>div{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.traffic-alert strong{font-size:calc(10px * var(--clu-text-scale,1))}.traffic-alert span{font-size:calc(8px * var(--clu-text-scale,1));opacity:.58;text-align:right;white-space:nowrap}.traffic-alert p{margin:0;font-size:calc(9px * var(--clu-text-scale,1));line-height:1.45;opacity:.7}.rename{display:flex;gap:7px}.rename input{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:inherit;border-radius:8px;padding:8px}.rename button,.facility button{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:inherit;border-radius:8px;padding:7px 9px}.directions{display:grid;padding:9px;border-radius:9px;background:rgba(255,255,255,.035)}.directions span{font-size:calc(9px * var(--clu-text-scale,1));opacity:.5}.directions strong{font-size:calc(12px * var(--clu-text-scale,1));margin-top:2px}.passages{display:grid;gap:6px}.passages article{display:grid;grid-template-columns:9px 1fr auto;align-items:center;gap:8px;padding:9px;border-radius:9px;background:rgba(255,255,255,.04)}.passages i{width:8px;height:8px;border-radius:50%}.passages span{display:grid}.passages strong{font-size:calc(11px * var(--clu-text-scale,1))}.passages small{font-size:calc(9px * var(--clu-text-scale,1));opacity:.45;margin-top:2px}.passages b{font-size:calc(11px * var(--clu-text-scale,1))}.no-passage,.empty-connection{font-size:calc(11px * var(--clu-text-scale,1));opacity:.55}.service-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.service-actions button{border:1px solid rgba(91,214,223,.22);background:rgba(75,194,204,.09);color:inherit;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:calc(10px * var(--clu-text-scale,1))}.service-actions button:disabled{opacity:.35;cursor:not-allowed}.service-actions small{font-size:calc(9px * var(--clu-text-scale,1));opacity:.48}.line-badges{display:flex;flex-wrap:wrap;gap:6px}.line-badges button{display:flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);color:inherit;border-radius:9px;padding:5px 8px 5px 5px;cursor:pointer}.line-badges img,.line-badges b{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;object-fit:contain;color:#081014;font-size:calc(9px * var(--clu-text-scale,1))}.line-badges span{font-size:calc(10px * var(--clu-text-scale,1))}.facility{margin-top:14px;padding:11px;border-radius:10px;background:rgba(255,255,255,.04)}.facility-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.platform-state{font-size:calc(9px * var(--clu-text-scale,1));padding:4px 7px;border-radius:999px;background:rgba(255,255,255,.06)}.state-good{color:#91e2ae;background:rgba(58,166,99,.12)}.state-medium{color:#e4d47b;background:rgba(174,147,54,.12)}.state-warning{color:#efb66c;background:rgba(180,107,45,.14)}.state-critical{color:#ff8f8f;background:rgba(181,58,58,.14)}.station-work{display:grid;gap:3px;margin-top:8px;padding:8px;border-radius:8px;background:rgba(239,183,95,.09);border:1px solid rgba(239,183,95,.18)}.station-work strong{font-size:10px}.station-work span{font-size:9px;opacity:.62}.facility p,.hint{font-size:calc(11px * var(--clu-text-scale,1));opacity:.6}.metrics-label{display:block;margin-top:15px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}.grid>div{display:grid;padding:8px;border-radius:8px;background:rgba(255,255,255,.035)}.grid span{font-size:calc(9px * var(--clu-text-scale,1));opacity:.5}.grid strong{font-size:calc(13px * var(--clu-text-scale,1));margin-top:2px}.hint{margin:10px 0 0;line-height:1.5}@media(max-height:700px){.station-inspector{top:92px;bottom:12px;max-height:none}}@media(max-width:650px){.station-inspector{left:78px;right:10px;width:auto;bottom:10px}.grid{grid-template-columns:1fr 1fr}}
+
+.route-shortcuts{display:grid;grid-template-columns:1fr 1fr;gap:6px}.route-shortcuts button{border:1px solid rgba(91,214,223,.18);background:rgba(75,194,204,.07);color:inherit;border-radius:8px;padding:7px 8px;cursor:pointer;font-size:calc(9px * var(--clu-text-scale,1));font-weight:700}.route-shortcuts button:hover{background:rgba(75,194,204,.12)}
 </style>

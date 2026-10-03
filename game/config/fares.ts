@@ -57,6 +57,8 @@ export const GAME_REFERENCE_TICKET_PRICE: Record<GameTransportMode, number> = {
   TRAIN: 4,
   BUS: 2,
   BRT: 2.2,
+  CABLE: 2.5,
+  FERRY: 3,
 }
 
 export const GAME_DEFAULT_CUSTOM_FARE_POLICY: GameCustomFarePolicy = {
@@ -68,6 +70,8 @@ export const GAME_DEFAULT_CUSTOM_FARE_POLICY: GameCustomFarePolicy = {
     TRAIN: 4,
     BUS: 2,
     BRT: 2.2,
+    CABLE: 2.5,
+    FERRY: 3,
   },
   lineTicketPrices: {},
   subscriptions: {
@@ -402,6 +406,8 @@ export function normalizeCustomFarePolicy(
       TRAIN: clampFareAmount(Number(ticketPrices?.TRAIN ?? fallback.ticketPrices.TRAIN), 0, GAME_MAX_TICKET_PRICE),
       BUS: clampFareAmount(Number(ticketPrices?.BUS ?? fallback.ticketPrices.BUS), 0, GAME_MAX_TICKET_PRICE),
       BRT: clampFareAmount(Number(ticketPrices?.BRT ?? fallback.ticketPrices.BRT), 0, GAME_MAX_TICKET_PRICE),
+      CABLE: clampFareAmount(Number(ticketPrices?.CABLE ?? fallback.ticketPrices.CABLE), 0, GAME_MAX_TICKET_PRICE),
+      FERRY: clampFareAmount(Number(ticketPrices?.FERRY ?? fallback.ticketPrices.FERRY), 0, GAME_MAX_TICKET_PRICE),
     },
     lineTicketPrices: Object.fromEntries(
       Object.entries(policy?.lineTicketPrices ?? {})

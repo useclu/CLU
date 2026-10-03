@@ -4,13 +4,16 @@ import { useGameDialog } from '../../composables/useGameDialog'
 
 const dialogs = useGameDialog()
 const primaryButton = ref<HTMLButtonElement | null>(null)
+const cancelButton = ref<HTMLButtonElement | null>(null)
 
 watch(
   () => dialogs.dialog.value?.id,
   async id => {
     if (!id) return
     await nextTick()
-    primaryButton.value?.focus()
+    const dialog = dialogs.dialog.value
+    if (dialog?.kind === 'CONFIRM' && dialog.tone === 'DANGER') cancelButton.value?.focus()
+    else primaryButton.value?.focus()
   },
 )
 
@@ -44,6 +47,7 @@ onBeforeUnmount(() => {
         <div class="clu-dialog-actions">
           <button
             v-if="dialogs.dialog.value.kind === 'CONFIRM'"
+            ref="cancelButton"
             type="button"
             class="clu-dialog-secondary"
             data-i18n-skip

@@ -2,9 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { useGameCookieConsent } from '../../composables/useGameCookieConsent'
 import { useGameLegal } from '../../composables/useGameLegal'
+import { useGameI18n } from '../../composables/useGameI18n'
 
 const cookies = useGameCookieConsent()
 const legal = useGameLegal()
+const i18n = useGameI18n()
 const customAnalytics = ref(false)
 
 const bannerVisible = computed(() =>
@@ -30,18 +32,18 @@ function openCustom() {
       v-if="bannerVisible"
       class="cookie-banner"
       role="dialog"
-      aria-label="Choix des cookies"
+      :aria-label="i18n.t('Choix des cookies')"
       aria-live="polite"
     >
       <div class="cookie-copy">
-        <strong>Votre choix de confidentialité</strong>
-        <p>CLU utilise des stockages locaux nécessaires au jeu. Google Analytics n’est chargé que si vous l’acceptez.</p>
+        <strong>{{ i18n.t('Votre choix de confidentialité') }}</strong>
+        <p>{{ i18n.t('CLU utilise des stockages locaux nécessaires au jeu. Google Analytics n’est chargé que si vous l’acceptez.') }}</p>
         <button
           type="button"
           class="cookie-link"
           @click="legal.show('COOKIES')"
         >
-          Lire la politique Cookies
+          {{ i18n.t('Lire la politique Cookies') }}
         </button>
       </div>
 
@@ -51,7 +53,7 @@ function openCustom() {
           class="consent-equal"
           @click="cookies.rejectAll"
         >
-          Tout refuser
+          {{ i18n.t('Tout refuser') }}
         </button>
 
         <button
@@ -59,7 +61,7 @@ function openCustom() {
           class="secondary"
           @click="openCustom"
         >
-          Personnaliser
+          {{ i18n.t('Personnaliser') }}
         </button>
 
         <button
@@ -67,7 +69,7 @@ function openCustom() {
           class="consent-equal"
           @click="cookies.acceptAll"
         >
-          Tout accepter
+          {{ i18n.t('Tout accepter') }}
         </button>
       </div>
     </section>
@@ -85,13 +87,13 @@ function openCustom() {
       >
         <header>
           <div>
-            <span>Confidentialité</span>
-            <h2 id="cookie-panel-title">Gérer mes cookies</h2>
+            <span>{{ i18n.t('Confidentialité') }}</span>
+            <h2 id="cookie-panel-title">{{ i18n.t('Gérer mes cookies') }}</h2>
           </div>
 
           <button
             type="button"
-            aria-label="Fermer"
+            :aria-label="i18n.t('Fermer')"
             @click="cookies.closePanel"
           >
             ×
@@ -100,26 +102,26 @@ function openCustom() {
 
         <div class="cookie-choice required">
           <div>
-            <strong>Nécessaires</strong>
-            <p>Préférences, tutoriel, choix de confidentialité et sauvegardes locales du jeu.</p>
+            <strong>{{ i18n.t('Nécessaires') }}</strong>
+            <p>{{ i18n.t('Préférences, tutoriel, choix de confidentialité, sauvegardes locales et session de compte si vous êtes connecté.') }}</p>
           </div>
-          <b>Toujours actifs</b>
+          <b>{{ i18n.t('Toujours actifs') }}</b>
         </div>
 
         <label class="cookie-choice">
           <div>
-            <strong>Mesure d’audience</strong>
-            <p>Autorise Google Analytics afin de comprendre l’utilisation générale du site.</p>
+            <strong>{{ i18n.t('Mesure d’audience') }}</strong>
+            <p>{{ i18n.t('Autorise Google Analytics afin de comprendre l’utilisation générale du site.') }}</p>
           </div>
           <input v-model="customAnalytics" type="checkbox">
         </label>
 
         <div class="cookie-choice disabled">
           <div>
-            <strong>Publicité</strong>
-            <p>CLU Métropole n’utilise pas de traceur publicitaire dans le jeu.</p>
+            <strong>{{ i18n.t('Publicité') }}</strong>
+            <p>{{ i18n.t('Google AdSense n’est pas actif dans la version de lancement de CLU.') }}</p>
           </div>
-          <b>Inactif</b>
+          <b>{{ i18n.t('Inactif') }}</b>
         </div>
 
         <div class="cookie-panel-actions">
@@ -128,7 +130,7 @@ function openCustom() {
             class="secondary"
             @click="cookies.rejectAll"
           >
-            Tout refuser
+            {{ i18n.t('Tout refuser') }}
           </button>
 
           <button
@@ -136,7 +138,7 @@ function openCustom() {
             class="primary"
             @click="cookies.save(customAnalytics)"
           >
-            Enregistrer mes choix
+            {{ i18n.t('Enregistrer mes choix') }}
           </button>
         </div>
 
@@ -145,7 +147,7 @@ function openCustom() {
           class="cookie-policy"
           @click="legal.show('COOKIES')"
         >
-          Politique Cookies complète
+          {{ i18n.t('Politique Cookies complète') }}
         </button>
       </section>
     </div>
@@ -156,7 +158,7 @@ function openCustom() {
       class="cookie-manage"
       @click="openCustom"
     >
-      Cookies
+      {{ i18n.t('Cookies') }}
     </button>
   </Teleport>
 </template>

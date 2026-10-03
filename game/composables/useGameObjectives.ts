@@ -8,9 +8,11 @@ import {
 } from '../engine/objectives'
 import { useGameTerritory } from './useGameTerritory'
 import { useMetropoleGame } from './useMetropoleGame'
+import { useCluOnline } from './useCluOnline'
 
 export function useGameObjectives() {
   const game = useMetropoleGame()
+  const online = useCluOnline()
 
   function assertWritable() {
     if (game.isReadOnly.value) throw new Error('Ce défi est terminé : la partie est en lecture seule.')
@@ -55,6 +57,9 @@ export function useGameObjectives() {
   }
 
   async function sync() {
+    // Les objectifs dynamiques font partie de l'état autoritaire. Un participant
+    // Online les lit depuis le snapshot et ne doit jamais les régénérer localement.
+    if (online.sessionActive.value && online.moi.value?.statut === 'accepte' && !online.estAdmin.value) return false
     assertWritable()
     const save = game.state.value.save
     const objectivesState = ensureState()

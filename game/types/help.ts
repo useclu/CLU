@@ -16,6 +16,9 @@ export interface GameWikiArticle {
   keywords: string[]
   paragraphs: string[]
   bullets?: string[]
+  steps?: string[]
+  tips?: string[]
+  warning?: string
   related?: string[]
 }
 

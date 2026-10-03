@@ -27,9 +27,18 @@ import {
   calculateServiceQuality,
 } from '../serviceQuality'
 
+import { calculateTimetableStats } from '../timetable'
+import { calculateOperationsDayImpact } from '../operations'
+
 import {
+  buildStationInterchangeIndex,
   calculateLineStationExperience,
+  type GameStationInterchangeIndex,
 } from '../stations'
+
+import {
+  calculateInfrastructureLineProfile,
+} from '../infrastructure'
 
 import {
   isOperationalLine,
@@ -41,6 +50,7 @@ import {
 
 import {
   getRollingStockDefinition,
+  getRollingStockModel,
 } from '../../config/rollingStock'
 
 import {
@@ -60,6 +70,7 @@ import {
 
 import {
   calculateActiveBoostVehicles,
+  calculateDepotAccessMetrics,
   calculateFleetSupportedDeparturesPerHour,
   calculateRegularityScore,
   calculateRequiredVehiclesForService,
@@ -95,6 +106,8 @@ import type {
   GameLine,
   GameNetworkState,
 } from '../../types/network'
+
+import type { GameOperationsState } from '../../types/operations'
 
 import type {
   GameDemandModel,
@@ -204,6 +217,7 @@ function calculateTerritorialDemand(
   line: GameLine,
   coverage: GameLineMunicipalityCoverage,
   networkTerritory: GameNetworkTerritorySummary,
+  municipalityByCode?: Map<string, GameNetworkTerritorySummary['municipalities'][number]>,
 ) {
   const definition = getModeDemandDefinition(
     line.mode,
@@ -212,8 +226,8 @@ function calculateTerritorialDemand(
   let passengers = 0
 
   for (const municipality of coverage.municipalities) {
-    const networkMunicipality =
-      networkTerritory.municipalities.find(
+    const networkMunicipality = municipalityByCode?.get(municipality.code)
+      ?? networkTerritory.municipalities.find(
         item => item.code === municipality.code,
       )
 
@@ -239,6 +253,7 @@ function calculateTerritorialDemand(
       * definition.dailyPopulationCaptureRate
       * stationCoverage
       * competitionFactor
+      * Math.max(0.5, Math.min(2.5, municipality.mobilityDemandMultiplier ?? 1))
   }
 
   const municipalityBonus = 1 + Math.min(
@@ -249,7 +264,24 @@ function calculateTerritorialDemand(
     ) * GAME_DEMAND_MULTI_MUNICIPALITY_BONUS,
   )
 
+  // V50 : relier plusieurs bassins crée des déplacements que l'ancien modèle
+  // purement local ne voyait pas. Le bonus reste volontairement borné : une
+  // ligne longue devient structurante sans produire une croissance exponentielle.
+  const networkReachMultiplier = 1 + Math.min(
+    definition.maxNetworkReachBonus,
+    Math.max(0, coverage.municipalities.length - 1)
+      * definition.networkReachBonusPerMunicipality,
+  )
+
+  const networkStationMultiplier = 1 + Math.min(
+    definition.maxNetworkStationBonus,
+    Math.max(0, coverage.stationCount - 2)
+      * definition.networkStationBonus,
+  )
+
   passengers *= municipalityBonus
+    * networkReachMultiplier
+    * networkStationMultiplier
 
   passengers +=
     coverage.uncoveredStationCount
@@ -265,6 +297,9 @@ interface SimulateLineOptions {
   network?: GameNetworkState
   territorialDataAvailable: boolean
   territorySummary: GameNetworkTerritorySummary | null
+  lineCoverage?: GameLineMunicipalityCoverage | null
+  networkMunicipalityByCode?: Map<string, GameNetworkTerritorySummary['municipalities'][number]>
+  stationInterchangeIndex?: GameStationInterchangeIndex
   modifiers: GameSimulationModifiers
   fareLevel: GameFareLevel
   fareManagementMode: GameFareManagementMode
@@ -272,6 +307,7 @@ interface SimulateLineOptions {
   previousState?: GameLineOperationalState | null
   day: number
   calendarStartDate: string
+  operations?: GameOperationsState | null
 }
 
 const DEFAULT_SIMULATION_MODIFIERS: GameSimulationModifiers = {
@@ -337,9 +373,9 @@ export function simulateLineDay(
   )
 
   /**
-   * Le mode avancé reste volontairement simple : on simule une journée
-   * pondérée (6 h creuses, 8 h normales, 4 h de pointe) au lieu de créer
-   * un horaire rame par rame.
+   * Le mode historique continue d'utiliser les profils Creuse / Normale / Pointe.
+   * En V46, une grille TIMETABLE remplace réellement cette fréquence théorique :
+   * chaque course saisie par le joueur compte dans la capacité et dans le parc requis.
    */
   const profileDeparturesMultiplier = line.serviceProfileMode === 'ADVANCED'
     ? (profileOffPeak.departuresMultiplier * 6
@@ -347,39 +383,77 @@ export function simulateLineDay(
       + profilePeak.departuresMultiplier * 4) / 18
     : service.departuresMultiplier
 
-  const profileDemandMultiplier = line.serviceProfileMode === 'ADVANCED'
-    ? (profileOffPeak.demandMultiplier * 6
-      + profileNormal.demandMultiplier * 8
-      + profilePeak.demandMultiplier * 4) / 18
-    : service.demandMultiplier
+  const timetableStats = calculateTimetableStats(
+    line,
+    options?.day ?? 1,
+    options?.calendarStartDate ?? '2026-01-05',
+  )
+  const usesTimetable = line.schedule?.mode === 'TIMETABLE' && timetableStats !== null
+  const operationsImpact = calculateOperationsDayImpact(
+    line,
+    options?.day ?? 1,
+    options?.calendarStartDate ?? '2026-01-05',
+    options?.operations,
+  )
+  const timetableIntensity = usesTimetable
+    ? timetableStats.equivalentDeparturesPerHour / Math.max(0.1, definition.departuresPerHour)
+    : profileDeparturesMultiplier
 
-  const profileOperatingMultiplier = line.serviceProfileMode === 'ADVANCED'
-    ? (profileOffPeak.operatingCostMultiplier * 6
-      + profileNormal.operatingCostMultiplier * 8
-      + profilePeak.operatingCostMultiplier * 4) / 18
-    : service.operatingCostMultiplier
+  const profileDemandMultiplier = usesTimetable
+    ? Math.min(1.18, Math.max(0.78, 0.84 + Math.sqrt(Math.max(0, timetableIntensity)) * 0.16))
+    : line.serviceProfileMode === 'ADVANCED'
+      ? (profileOffPeak.demandMultiplier * 6
+        + profileNormal.demandMultiplier * 8
+        + profilePeak.demandMultiplier * 4) / 18
+      : service.demandMultiplier
+
+  const profileOperatingMultiplier = usesTimetable
+    ? Math.min(3, Math.max(0.25, timetableIntensity))
+    : line.serviceProfileMode === 'ADVANCED'
+      ? (profileOffPeak.operatingCostMultiplier * 6
+        + profileNormal.operatingCostMultiplier * 8
+        + profilePeak.operatingCostMultiplier * 4) / 18
+      : service.operatingCostMultiplier
 
   const lengthKm = calculateLineLengthKm(line)
   const longestServiceRoute = calculateLongestServiceRoute(line)
+  const infrastructureProfile = calculateInfrastructureLineProfile(line)
+  const depotAccess = calculateDepotAccessMetrics(line, options?.network)
 
-  const targetDeparturesPerHour = Math.max(
-    0,
-    definition.departuresPerHour
-    * profileDeparturesMultiplier,
-  )
+  const lineCoverage = options?.lineCoverage !== undefined
+    ? options.lineCoverage
+    : options?.territorySummary?.lines.find(
+        coverage => coverage.lineId === line.id,
+      ) ?? null
+  const localEventServiceMultiplier = lineCoverage?.municipalities.reduce(
+    (maximum, municipality) => Math.max(maximum, municipality.lineServiceMultipliers?.[line.id] ?? 1),
+    1,
+  ) ?? 1
+  // Les horaires personnalisés sont renforcés par de vraies courses supplémentaires
+  // créées lors de la préparation de l'événement. En fréquence, on peut augmenter
+  // directement l'offre pendant les jours concernés.
+  const frequencyEventServiceMultiplier = usesTimetable ? 1 : Math.max(1, Math.min(1.6, localEventServiceMultiplier))
+  const temporaryOperatingMultiplier = usesTimetable
+    ? Math.max(1, operationsImpact.serviceMultiplier)
+    : frequencyEventServiceMultiplier
+
+  const targetDeparturesPerHour = usesTimetable
+    ? Math.max(0, timetableStats.equivalentDeparturesPerHour)
+    : Math.max(0, definition.departuresPerHour * profileDeparturesMultiplier * frequencyEventServiceMultiplier)
 
   const vehicleCount = Math.max(
     0,
     Math.floor(line.vehicleCount ?? 0),
   )
 
-  const requiredVehicleCount =
-    calculateRequiredVehiclesForService(
-      line,
-      line.serviceProfileMode === 'ADVANCED'
-        ? line.serviceProfile.peak
-        : line.serviceLevel,
-    )
+  const requiredVehicleCount = usesTimetable
+    ? Math.max(0, Math.ceil(timetableStats.requiredVehicleCount * Math.max(1, operationsImpact.serviceMultiplier)))
+    : calculateRequiredVehiclesForService(
+        line,
+        line.serviceProfileMode === 'ADVANCED'
+          ? line.serviceProfile.peak
+          : line.serviceLevel,
+      )
 
   const unavailableVehicleCount =
     calculateUnavailableVehicles(line)
@@ -397,47 +471,59 @@ export function simulateLineDay(
     0,
     Math.round(options?.previousState?.waitingPassengers ?? 0),
   )
-  const activeBoostVehicleCount = calculateActiveBoostVehicles(
-    line,
-    availableVehicleCount,
-    previousWaitingForRegulation,
-  )
+  // Une grille manuelle est contractuelle : la régulation ne crée pas de départs
+  // absents de l'horaire. Les véhicules disponibles servent d'abord à couvrir la grille.
+  const activeBoostVehicleCount = usesTimetable
+    ? 0
+    : calculateActiveBoostVehicles(
+        line,
+        availableVehicleCount,
+        previousWaitingForRegulation,
+      )
   const boostedVehicleTarget = Math.min(
     availableVehicleCount,
     requiredVehicleCount + activeBoostVehicleCount,
   )
-  const regulationTargetDepartures = activeBoostVehicleCount > 0
+  const regulationTargetDepartures = !usesTimetable && activeBoostVehicleCount > 0
     ? Math.max(
         targetDeparturesPerHour,
         calculateFleetSupportedDeparturesPerHour(line, boostedVehicleTarget),
       )
     : targetDeparturesPerHour
 
-  const departuresPerHour = Math.min(
-    regulationTargetDepartures,
-    fleetSupportedDeparturesPerHour,
-  )
-
-  const serviceFulfillmentRate =
-    targetDeparturesPerHour > 0
-      ? Math.min(
-          1,
-          departuresPerHour / targetDeparturesPerHour,
-        )
+  const fleetFulfillmentRate = usesTimetable
+    ? requiredVehicleCount > 0
+      ? Math.min(1, availableVehicleCount / requiredVehicleCount)
       : 0
+    : targetDeparturesPerHour > 0
+      ? Math.min(1, Math.min(regulationTargetDepartures, fleetSupportedDeparturesPerHour) / targetDeparturesPerHour)
+      : 0
+
+  const serviceFulfillmentRate = Math.max(0, Math.min(1,
+    fleetFulfillmentRate * (usesTimetable ? Math.min(1, operationsImpact.serviceMultiplier) : operationsImpact.serviceMultiplier),
+  ))
+
+  const departuresPerHour = usesTimetable
+    ? targetDeparturesPerHour * operationsImpact.serviceMultiplier * fleetFulfillmentRate
+    : Math.min(regulationTargetDepartures, fleetSupportedDeparturesPerHour) * operationsImpact.serviceMultiplier
 
   const reserveVehicleCount = Math.max(
     0,
     availableVehicleCount - Math.min(requiredVehicleCount, availableVehicleCount),
   )
-  const regularityScore = calculateRegularityScore({
-    line,
-    requiredVehicles: requiredVehicleCount,
-    availableVehicles: availableVehicleCount,
-    unavailableVehicles: unavailableVehicleCount,
-    serviceFulfillmentRate,
-    activeBoostVehicles: activeBoostVehicleCount,
-  })
+  const regularityScore = Math.max(0, Math.min(100,
+    calculateRegularityScore({
+      line,
+      requiredVehicles: requiredVehicleCount,
+      availableVehicles: availableVehicleCount,
+      unavailableVehicles: unavailableVehicleCount,
+      serviceFulfillmentRate,
+      activeBoostVehicles: activeBoostVehicleCount,
+    })
+    - operationsImpact.regularityPenalty
+    + Math.max(0, infrastructureProfile.reliabilityScore - 76) * 0.22
+    - depotAccess.regularityPenalty,
+  ))
   const rollingPerformance = rollingStockPerformance(line)
   const effectiveCapacityPerVehicle = effectiveVehicleCapacity(line)
   const effectiveSpeedKmH = effectiveAverageSpeedKmH(line)
@@ -449,17 +535,12 @@ export function simulateLineDay(
   const dailyCapacity = Math.max(
     0,
     Math.round(
-      effectiveCapacityPerVehicle
-      * departuresPerHour
-      * definition.serviceHoursPerDay
-      * 2,
+      (usesTimetable
+        ? effectiveCapacityPerVehicle * operationsImpact.effectiveTrips * fleetFulfillmentRate * operationsImpact.capacityMultiplier
+        : effectiveCapacityPerVehicle * departuresPerHour * definition.serviceHoursPerDay * 2 * operationsImpact.capacityMultiplier)
+      * infrastructureProfile.capacityMultiplier,
     ),
   )
-
-  const lineCoverage =
-    options?.territorySummary?.lines.find(
-      coverage => coverage.lineId === line.id,
-    ) ?? null
 
   const canUseTerritorialDemand = Boolean(
     options?.territorialDataAvailable
@@ -480,6 +561,7 @@ export function simulateLineDay(
           line,
           lineCoverage,
           options.territorySummary,
+          options.networkMunicipalityByCode,
         )
       : calculateFallbackDemand(
           line,
@@ -572,6 +654,7 @@ export function simulateLineDay(
     line,
     options?.network ?? { lines: [line] },
     demandBeforeStationExperience,
+    options?.stationInterchangeIndex,
   )
 
   const demandBeforeQuality = Math.max(
@@ -667,18 +750,26 @@ export function simulateLineDay(
     + lengthKm
     * definition.operatingCostPerKmPerDay
     * infrastructure.operatingCostMultiplier
+    * infrastructureProfile.operatingCostMultiplier
     + stationExperience.operatingCost
   )
 
+  // Phase 18 : un renfort de réserve en fréquence augmente réellement les coûts.
+  // Les horaires supplémentaires sont déjà pris en compte par operationsImpact.
+  const regulationOperatingMultiplier = usesTimetable
+    ? 1
+    : 1 + Math.min(0.8, activeBoostVehicleCount / Math.max(1, requiredVehicleCount) * 0.7)
   const achievedServiceCostMultiplier =
     0.35
     + Math.max(
       0,
-      profileOperatingMultiplier - 0.35,
+      profileOperatingMultiplier * temporaryOperatingMultiplier * regulationOperatingMultiplier - 0.35,
     ) * serviceFulfillmentRate
 
   const rollingStockDefinition =
     getRollingStockDefinition(line.mode)
+  const rollingStockModel =
+    getRollingStockModel(line.rollingStockModelId, line.mode)
 
   const maintenanceDefinition =
     getMaintenanceLevelDefinition(
@@ -689,9 +780,10 @@ export function simulateLineDay(
     0,
     Math.round(
       vehicleCount
-      * rollingStockDefinition.maintenanceCostPerVehiclePerDay
+      * rollingStockModel.maintenanceCostPerVehiclePerDay
       * maintenanceDefinition.costMultiplier
-      * rollingPerformance.maintenanceCostMultiplier,
+      * rollingPerformance.maintenanceCostMultiplier
+      * (line.depotId ? 0.94 : 1),
     ),
   )
 
@@ -705,13 +797,14 @@ export function simulateLineDay(
         + vehicleMaintenanceCost
         + inspection.controlCost
       )
-      * activeModifiers.operatingCostMultiplier,
+      * activeModifiers.operatingCostMultiplier
+      * depotAccess.operatingCostMultiplier,
     ),
   )
 
   const estimatedTravelTimeMinutes = longestServiceRoute.lengthKm > 0
     ? (
-        longestServiceRoute.lengthKm / (effectiveSpeedKmH * infrastructure.speedMultiplier) * 60
+        longestServiceRoute.lengthKm / (effectiveSpeedKmH * infrastructure.speedMultiplier * infrastructureProfile.speedMultiplier) * 60
         + Math.max(0, longestServiceRoute.stationCount - 2) * 0.45 * rollingPerformance.dwellTimeMultiplier
       )
     : 0
@@ -846,7 +939,7 @@ export function simulateLineDay(
   const stationDelay = Math.min(10, (stationExperience.congestedStationCount ?? 0) * 0.65)
   // Moral très faible : davantage de friction en station, jamais une panne mécanique magique.
   const passengerFrictionDelay = Math.max(0, 55 - moraleScoreBefore) / 55 * Math.min(6, Math.max(2, headwayMinutes * 0.4))
-  const estimatedDelayMinutes = Math.min(45, reliabilityDelay + regularityDelay + crowdingDelay + stationDelay + passengerFrictionDelay)
+  const estimatedDelayMinutes = Math.min(120, reliabilityDelay + regularityDelay + crowdingDelay + stationDelay + passengerFrictionDelay + operationsImpact.extraDelayMinutes)
   const effectiveTravelTimeMinutes = baseTravelTimeMinutes + estimatedDelayMinutes
 
   const targetMorale = Math.min(
@@ -974,6 +1067,37 @@ export function simulateLineDay(
       severity: moraleScoreAfter < 35 ? 'CRITICAL' : 'WARNING',
     })
   }
+  if (operationsImpact.disruptionCount > 0 || operationsImpact.cancelledTrips > 0) {
+    pushDiagnostic({
+      code: 'OPERATIONS',
+      label: 'Exploitation perturbée',
+      description: usesTimetable
+        ? `${operationsImpact.disruptionCount} perturbation(s), ${operationsImpact.cancelledTrips} course(s) supprimée(s) et ${operationsImpact.extraTrips} renfort(s) sur la journée.`
+        : `${operationsImpact.disruptionCount} perturbation(s) réduisent le service prévu aujourd’hui.`,
+      recommendation: 'Ouvrez le PCC pour adapter les missions, injecter un renfort ou terminer une perturbation.',
+      severity: operationsImpact.serviceMultiplier < 0.65 ? 'CRITICAL' : 'WARNING',
+    })
+  }
+
+  if (depotAccess.distanceKm !== null && depotAccess.distanceKm > 15) {
+    pushDiagnostic({
+      code: 'DEPOT_DISTANCE',
+      label: 'Dépôt trop éloigné',
+      description: `Le dépôt principal est à environ ${depotAccess.distanceKm.toFixed(1)} km de la ligne : les mouvements à vide pèsent sur l'exploitation.`,
+      recommendation: 'Affectez la ligne à un dépôt compatible plus proche ou construisez un nouveau site près du réseau.',
+      severity: depotAccess.distanceKm > 30 ? 'WARNING' : 'INFO',
+    })
+  }
+  if (infrastructureProfile.segmentCount > 0 && infrastructureProfile.capacityMultiplier < 1.08 && queuePressureRate >= 0.9) {
+    pushDiagnostic({
+      code: 'INFRASTRUCTURE_CAPACITY',
+      label: 'Infrastructure à renforcer',
+      description: 'La ligne est sous pression alors que son infrastructure reste proche du niveau de référence sur la majorité des tronçons.',
+      recommendation: 'Modernisez en priorité le tronçon réellement chargé avant d’ajouter de la capacité partout.',
+      severity: queuePressureRate >= 1.15 ? 'WARNING' : 'INFO',
+    })
+  }
+
   if (diagnostics.length === 0) {
     pushDiagnostic({
       code: 'HEALTHY',
@@ -1031,17 +1155,27 @@ export function simulateLineDay(
     mode: line.mode,
     stationCount: allStationCount,
     lengthKm,
-    averageSpeedKmH: effectiveSpeedKmH * infrastructure.speedMultiplier,
+    averageSpeedKmH: effectiveSpeedKmH * infrastructure.speedMultiplier * infrastructureProfile.speedMultiplier,
     estimatedTravelTimeMinutes,
     estimatedDelayMinutes,
     effectiveTravelTimeMinutes,
     serviceLevel: service.value,
+    scheduleMode: usesTimetable ? 'TIMETABLE' : 'FREQUENCY',
+    scheduledTrips: usesTimetable ? timetableStats.totalDepartures : undefined,
+    activeMissionCount: usesTimetable ? timetableStats.activeMissionCount : undefined,
+    peakScheduledTripsPerHour: usesTimetable ? timetableStats.peakTripsPerHour : undefined,
+    operationalDisruptionCount: operationsImpact.disruptionCount,
+    operationalTrips: usesTimetable ? operationsImpact.effectiveTrips : undefined,
+    cancelledTrips: usesTimetable ? operationsImpact.cancelledTrips : undefined,
+    extraTrips: usesTimetable ? operationsImpact.extraTrips : undefined,
+    operationsDelayMinutes: operationsImpact.extraDelayMinutes,
+    operationsCapacityMultiplier: operationsImpact.capacityMultiplier,
     departuresPerHour,
     headwayMinutes,
     serviceDemandMultiplier:
       profileDemandMultiplier,
     serviceOperatingCostMultiplier:
-      profileOperatingMultiplier,
+      profileOperatingMultiplier * temporaryOperatingMultiplier,
     vehicleCount,
     requiredVehicleCount,
     targetDeparturesPerHour,
@@ -1123,6 +1257,12 @@ export function simulateLineDay(
     busiestStationUtilization: stationExperience.busiestStationUtilization,
     busiestStationName: stationExperience.busiestStationName,
     stations: stationRuntime,
+    infrastructureCapacityMultiplier: infrastructureProfile.capacityMultiplier,
+    infrastructureSpeedMultiplier: infrastructureProfile.speedMultiplier,
+    infrastructureReliabilityScore: infrastructureProfile.reliabilityScore,
+    infrastructureModernizedSegmentCount: infrastructureProfile.modernizedSegmentCount,
+    depotDistanceKm: depotAccess.distanceKm,
+    depotOperatingOverhead: depotAccess.operatingCostMultiplier - 1,
     serviceQualityScore: serviceQuality.score,
     serviceQualityDemandMultiplier:
       serviceQuality.demandMultiplier,
@@ -1176,6 +1316,7 @@ export function simulateNetworkDay(
   customFarePolicy: GameCustomFarePolicy = GAME_DEFAULT_CUSTOM_FARE_POLICY,
   simulationState?: GameSimulationState | null,
   calendarStartDate = '2026-01-05',
+  operations?: GameOperationsState | null,
 ): GameSimulationDayReport {
   const normalizedModifiers = normalizeSimulationModifiers(
     modifiers,
@@ -1192,7 +1333,22 @@ export function simulateNetworkDay(
     lines: network.lines.filter(
       line => line.id !== excludedLineId && isOperationalLine(line),
     ),
+    walkingTransfers: network.walkingTransfers ?? [],
+    depots: network.depots ?? [],
   }
+
+  // Indexer une fois les structures consultées pour chaque ligne évite des
+  // recherches O(n) répétées dans lineStates et dans le résumé territorial.
+  const previousStateByLineId = new Map(
+    (simulationState?.lineStates ?? []).map(state => [state.lineId, state] as const),
+  )
+  const lineCoverageByLineId = new Map(
+    (territorySummary?.lines ?? []).map(coverage => [coverage.lineId, coverage] as const),
+  )
+  const networkMunicipalityByCode = new Map(
+    (territorySummary?.municipalities ?? []).map(municipality => [municipality.code, municipality] as const),
+  )
+  const stationInterchangeIndex = buildStationInterchangeIndex(operationalNetwork)
 
   const lines = operationalNetwork.lines
     .map(
@@ -1202,15 +1358,17 @@ export function simulateNetworkDay(
           network: operationalNetwork,
           territorialDataAvailable,
           territorySummary,
+          lineCoverage: lineCoverageByLineId.get(line.id) ?? null,
+          networkMunicipalityByCode,
+          stationInterchangeIndex,
           modifiers: normalizedModifiers,
           fareLevel,
           fareManagementMode,
           customFarePolicy,
-          previousState: simulationState?.lineStates.find(
-            state => state.lineId === line.id,
-          ) ?? null,
+          previousState: previousStateByLineId.get(line.id) ?? null,
           day,
           calendarStartDate,
+          operations,
         },
       ),
     )
@@ -1220,98 +1378,96 @@ export function simulateNetworkDay(
       ): report is GameLineDailySimulation => report !== null,
     )
 
-  const passengers = lines.reduce(
-    (total, line) => total + line.passengers,
-    0,
-  )
+  // Tous les indicateurs réseau proviennent de la même liste de rapports.
+  // Les agréger en un passage évite une vingtaine de parcours complets du
+  // tableau lorsque le réseau contient beaucoup de lignes.
+  let passengers = 0
+  let waitingPassengers = 0
+  let lostPassengers = 0
+  let revenue = 0
+  let operatingCost = 0
+  let qualityWeight = 0
+  let weightedServiceQuality = 0
+  let weightedServiceQualityDemandMultiplier = 0
+  let weightedStationQuality = 0
+  let congestedStationCount = 0
+  let interchangeStationCount = 0
+  let weightedMorale = 0
+  let totalBoardingDemand = 0
+  let weightedWaitMinutes = 0
+  let criticalLineCount = 0
+  let totalCapacity = 0
+  let networkPressureTotal = 0
+  let weightedRevenuePerPassenger = 0
+  let weightedFareDemandMultiplier = 0
+  let fareRevenueBeforeFraud = 0
+  let passengerRevenueAfterFraud = 0
+  let fraudRevenueLoss = 0
+  let fineRevenue = 0
+  let passengerCompensation = 0
+  let controlCost = 0
+  let fraudPassengers = 0
+  let detectedFraudPassengers = 0
+  let finePayingPassengers = 0
 
-  const waitingPassengers = lines.reduce(
-    (total, line) => total + line.waitingPassengersAfter,
-    0,
-  )
-
-  const lostPassengers = lines.reduce(
-    (total, line) => total + line.lostPassengers,
-    0,
-  )
-
-  const revenue = lines.reduce(
-    (total, line) => total + line.revenue,
-    0,
-  )
-
-  const operatingCost = lines.reduce(
-    (total, line) => total + line.operatingCost,
-    0,
-  )
-
-  const qualityWeight = lines.reduce(
-    (total, line) => total + Math.max(1, line.passengers),
-    0,
-  )
+  for (const line of lines) {
+    const passengerWeight = Math.max(1, line.passengers)
+    passengers += line.passengers
+    waitingPassengers += line.waitingPassengersAfter
+    lostPassengers += line.lostPassengers
+    revenue += line.revenue
+    operatingCost += line.operatingCost
+    qualityWeight += passengerWeight
+    weightedServiceQuality += (line.serviceQualityScore ?? 0) * passengerWeight
+    weightedServiceQualityDemandMultiplier += (line.serviceQualityDemandMultiplier ?? 1) * passengerWeight
+    weightedStationQuality += (line.stationQualityScore ?? 82) * passengerWeight
+    congestedStationCount += line.congestedStationCount ?? 0
+    interchangeStationCount += line.interchangeStationCount ?? 0
+    weightedMorale += line.moraleScoreAfter * passengerWeight
+    totalBoardingDemand += line.boardingDemandPassengers
+    weightedWaitMinutes += line.averageWaitMinutes * Math.max(1, line.boardingDemandPassengers)
+    if (
+      line.demandSatisfactionRate < 0.8
+      || line.moraleScoreAfter < 45
+      || (line.serviceFulfillmentRate ?? 1) < 0.7
+      || line.averageWaitMinutes >= 18
+    ) criticalLineCount += 1
+    totalCapacity += line.dailyCapacity
+    networkPressureTotal += line.passengerPressureScore ?? 0
+    weightedRevenuePerPassenger += line.passengers * (line.averageRevenuePerPassenger ?? 0)
+    weightedFareDemandMultiplier += line.passengers * (line.fareDemandMultiplier ?? 1)
+    fareRevenueBeforeFraud += line.fareRevenueBeforeFraud ?? 0
+    passengerRevenueAfterFraud += line.passengerRevenueAfterFraud ?? 0
+    fraudRevenueLoss += line.fraudRevenueLoss ?? 0
+    fineRevenue += line.fineRevenue ?? 0
+    passengerCompensation += line.passengerCompensation ?? 0
+    controlCost += line.controlCost ?? 0
+    fraudPassengers += line.fraudPassengers ?? 0
+    detectedFraudPassengers += line.detectedFraudPassengers ?? 0
+    finePayingPassengers += line.finePayingPassengers ?? 0
+  }
 
   const serviceQualityScore = qualityWeight > 0
-    ? lines.reduce(
-        (total, line) => total
-          + (line.serviceQualityScore ?? 0)
-          * Math.max(1, line.passengers),
-        0,
-      ) / qualityWeight
+    ? weightedServiceQuality / qualityWeight
     : 0
-
   const serviceQualityDemandMultiplier = qualityWeight > 0
-    ? lines.reduce(
-        (total, line) => total
-          + (line.serviceQualityDemandMultiplier ?? 1)
-          * Math.max(1, line.passengers),
-        0,
-      ) / qualityWeight
+    ? weightedServiceQualityDemandMultiplier / qualityWeight
     : 1
-
-
   const stationQualityScore = qualityWeight > 0
-    ? lines.reduce(
-        (total, line) => total
-          + (line.stationQualityScore ?? 82)
-          * Math.max(1, line.passengers),
-        0,
-      ) / qualityWeight
+    ? weightedStationQuality / qualityWeight
     : 0
-
-  const congestedStationCount = lines.reduce(
-    (total, line) => total + (line.congestedStationCount ?? 0),
-    0,
-  )
-
-  const interchangeStationCount = lines.reduce(
-    (total, line) => total + (line.interchangeStationCount ?? 0),
-    0,
-  )
-
   const networkMoraleScore = qualityWeight > 0
-    ? lines.reduce(
-        (total, line) => total + line.moraleScoreAfter * Math.max(1, line.passengers),
-        0,
-      ) / qualityWeight
+    ? weightedMorale / qualityWeight
     : 76
-
-  const totalBoardingDemand = lines.reduce((total, line) => total + line.boardingDemandPassengers, 0)
   const demandSatisfactionRate = totalBoardingDemand > 0
     ? Math.min(1, passengers / totalBoardingDemand)
     : 1
   const averageWaitMinutes = totalBoardingDemand > 0
-    ? lines.reduce((total, line) => total + line.averageWaitMinutes * Math.max(1, line.boardingDemandPassengers), 0) / Math.max(1, totalBoardingDemand)
+    ? weightedWaitMinutes / Math.max(1, totalBoardingDemand)
     : 0
-  const criticalLineCount = lines.filter(line =>
-    line.demandSatisfactionRate < 0.8
-    || line.moraleScoreAfter < 45
-    || (line.serviceFulfillmentRate ?? 1) < 0.7
-    || line.averageWaitMinutes >= 18
-  ).length
-  const totalCapacity = lines.reduce((total, line) => total + line.dailyCapacity, 0)
   const averageOccupancyRate = totalCapacity > 0 ? passengers / totalCapacity : 0
   const networkPressureScore = lines.length > 0
-    ? lines.reduce((total, line) => total + (line.passengerPressureScore ?? 0), 0) / lines.length
+    ? networkPressureTotal / lines.length
     : 0
 
   return {
@@ -1345,58 +1501,21 @@ export function simulateNetworkDay(
     fareManagementMode,
     averageRevenuePerPassenger:
       passengers > 0
-        ? lines.reduce(
-            (total, line) => total
-              + line.passengers
-              * (line.averageRevenuePerPassenger ?? 0),
-            0,
-          ) / passengers
+        ? weightedRevenuePerPassenger / passengers
         : getFareLevelDefinition(fareLevel).averageRevenuePerPassenger,
     fareDemandMultiplier:
       passengers > 0
-        ? lines.reduce(
-            (total, line) => total
-              + line.passengers
-              * (line.fareDemandMultiplier ?? 1),
-            0,
-          ) / passengers
+        ? weightedFareDemandMultiplier / passengers
         : getFareLevelDefinition(fareLevel).demandMultiplier,
-    fareRevenueBeforeFraud: lines.reduce(
-      (total, line) => total + (line.fareRevenueBeforeFraud ?? 0),
-      0,
-    ),
-    passengerRevenueAfterFraud: lines.reduce(
-      (total, line) => total + (line.passengerRevenueAfterFraud ?? 0),
-      0,
-    ),
-    fraudRevenueLoss: lines.reduce(
-      (total, line) => total + (line.fraudRevenueLoss ?? 0),
-      0,
-    ),
-    fineRevenue: lines.reduce(
-      (total, line) => total + (line.fineRevenue ?? 0),
-      0,
-    ),
-    passengerCompensation: lines.reduce(
-      (total, line) => total + (line.passengerCompensation ?? 0),
-      0,
-    ),
-    controlCost: lines.reduce(
-      (total, line) => total + (line.controlCost ?? 0),
-      0,
-    ),
-    fraudPassengers: lines.reduce(
-      (total, line) => total + (line.fraudPassengers ?? 0),
-      0,
-    ),
-    detectedFraudPassengers: lines.reduce(
-      (total, line) => total + (line.detectedFraudPassengers ?? 0),
-      0,
-    ),
-    finePayingPassengers: lines.reduce(
-      (total, line) => total + (line.finePayingPassengers ?? 0),
-      0,
-    ),
+    fareRevenueBeforeFraud,
+    passengerRevenueAfterFraud,
+    fraudRevenueLoss,
+    fineRevenue,
+    passengerCompensation,
+    controlCost,
+    fraudPassengers,
+    detectedFraudPassengers,
+    finePayingPassengers,
     serviceQualityScore,
     serviceQualityDemandMultiplier,
     networkMoraleScore,
@@ -1420,10 +1539,12 @@ export function applySimulationDay(
   simulation.totalFineRevenue += report.fineRevenue ?? 0
   simulation.totalControlCost += report.controlCost ?? 0
 
+  const lineStateById = new Map(
+    simulation.lineStates.map(state => [state.lineId, state] as const),
+  )
+
   for (const line of report.lines) {
-    const current = simulation.lineStates.find(
-      state => state.lineId === line.lineId,
-    )
+    const current = lineStateById.get(line.lineId)
     const goodDay = line.moraleScoreAfter >= 72 && line.lostPassengers <= Math.max(10, line.newDemandPassengers * 0.02)
     if (current) {
       current.waitingPassengers = line.waitingPassengersAfter
@@ -1432,13 +1553,15 @@ export function applySimulationDay(
       current.consecutiveBadDays = goodDay ? 0 : current.consecutiveBadDays + 1
     }
     else {
-      simulation.lineStates.push({
+      const createdState: GameLineOperationalState = {
         lineId: line.lineId,
         waitingPassengers: line.waitingPassengersAfter,
         moraleScore: line.moraleScoreAfter,
         consecutiveGoodDays: goodDay ? 1 : 0,
         consecutiveBadDays: goodDay ? 0 : 1,
-      })
+      }
+      simulation.lineStates.push(createdState)
+      lineStateById.set(line.lineId, createdState)
     }
   }
 

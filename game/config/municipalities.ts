@@ -13,6 +13,10 @@ export const GAME_MUNICIPALITY_RELATION_EXPIRED_DELTA = -1
 export const GAME_MUNICIPALITY_DECISION_DAYS = 5
 export const GAME_MUNICIPALITY_COMPLETION_DAYS = 14
 export const GAME_MUNICIPALITY_REQUEST_COOLDOWN_DAYS = 12
+/** V50 : un refus explicite doit avoir une vraie mémoire, pas revenir presque immédiatement. */
+export const GAME_MUNICIPALITY_REFUSAL_COOLDOWN_DAYS = 45
+/** Pendant cette fenêtre, on évite de reproposer exactement le même type de demande refusée. */
+export const GAME_MUNICIPALITY_REPEAT_REFUSAL_KIND_DAYS = 90
 export const GAME_MUNICIPALITY_MAX_OPEN_REQUESTS = 4
 /** V41 : conserve toutes les demandes ouvertes + les 240 dernières demandes résolues. */
 export const GAME_MUNICIPALITY_REQUEST_HISTORY_LIMIT = 240
@@ -43,4 +47,6 @@ export const GAME_MUNICIPALITY_MODE_SUBSIDY_LIMITS: Record<GameTransportMode, {
   TRAIN: { stationMin: 45_000_000, stationMax: 300_000_000, lineMin: 180_000_000, lineMax: 850_000_000, serviceMin: 8_000_000, serviceMax: 100_000_000 },
   RER: { stationMin: 60_000_000, stationMax: 380_000_000, lineMin: 250_000_000, lineMax: 1_050_000_000, serviceMin: 10_000_000, serviceMax: 140_000_000 },
   METRO: { stationMin: 80_000_000, stationMax: 480_000_000, lineMin: 320_000_000, lineMax: 1_450_000_000, serviceMin: 8_000_000, serviceMax: 120_000_000 },
+  CABLE: { stationMin: 18_000_000, stationMax: 120_000_000, lineMin: 80_000_000, lineMax: 420_000_000, serviceMin: 2_000_000, serviceMax: 32_000_000 },
+  FERRY: { stationMin: 4_000_000, stationMax: 35_000_000, lineMin: 18_000_000, lineMax: 150_000_000, serviceMin: 700_000, serviceMax: 12_000_000 },
 }

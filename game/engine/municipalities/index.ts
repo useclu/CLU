@@ -13,19 +13,28 @@ import {
   GAME_MUNICIPALITY_RELATION_MIN,
   GAME_MUNICIPALITY_RELATION_REFUSED_DELTA,
   GAME_MUNICIPALITY_REQUEST_COOLDOWN_DAYS,
+  GAME_MUNICIPALITY_REFUSAL_COOLDOWN_DAYS,
+  GAME_MUNICIPALITY_REPEAT_REFUSAL_KIND_DAYS,
   GAME_MUNICIPALITY_REQUEST_FUNDING_SHARE,
 } from '../../config/municipalities'
 import { getModeEconomyDefinition } from '../../config/economy'
 import { getInfrastructureDefinition } from '../../config/projects'
 import { getRollingStockDefinition } from '../../config/rollingStock'
-import { applyMunicipalitySubsidy } from '../economy'
+import { applyMunicipalitySubsidy, applyTemporaryServiceCost } from '../economy'
+import { departuresForMission, scheduleDayType } from '../timetable'
 
 import type { GameEconomyState } from '../../types/economy'
+import type { GameOperationsState } from '../../types/operations'
+import type { GameSimulationDayReport } from '../../types/simulation'
 import type {
+  GameLocalEvent,
+  GameLocalEventServiceKind,
   GameMunicipalitiesState,
   GameMunicipalityRelation,
   GameMunicipalityRequest,
   GameMunicipalityRequestKind,
+  GameUrbanProject,
+  GameUrbanProjectKind,
 } from '../../types/municipalities'
 import type {
   GameLine,
@@ -34,6 +43,7 @@ import type {
   GameTransportMode,
 } from '../../types/network'
 import type {
+  GameMunicipality,
   GameMunicipalityCoverage,
   GameNetworkTerritorySummary,
 } from '../../types/territory'
@@ -70,7 +80,7 @@ function nextServiceLevel(level: GameServiceLevel | undefined): GameServiceLevel
 }
 
 export function createEmptyMunicipalitiesState(): GameMunicipalitiesState {
-  return { relations: [], requests: [], totalSubsidiesReceived: 0 }
+  return { relations: [], requests: [], totalSubsidiesReceived: 0, development: [], urbanProjects: [], localEvents: [], nextUrbanProjectDay: 9, nextLocalEventDay: 14 }
 }
 
 function ensureRelation(
@@ -175,14 +185,28 @@ function chooseRequestKind(
   territory: GameNetworkTerritorySummary,
   network: GameNetworkState,
   day: number,
-): GameMunicipalityRequestKind {
-  if (municipality.stationCount <= 1) return 'ADD_STATION'
-  if (municipality.lineCount <= 1) return 'ADD_LINE'
+  avoidedKinds = new Set<GameMunicipalityRequestKind>(),
+): GameMunicipalityRequestKind | null {
+  // V50 : une demande « mettre une gare » n'a de sens que si la commune
+  // n'est pas encore desservie. Une commune possédant déjà une station
+  // demande ensuite une nouvelle desserte/ligne ou davantage de service.
+  if (municipality.stationCount <= 0) {
+    return avoidedKinds.has('ADD_STATION') ? null : 'ADD_STATION'
+  }
+
   const lines = candidateLinesForMunicipality(municipality.code, territory, network)
-  const hasUpgradeableService = lines.some(line => serviceLevelRank(line.serviceLevel) < serviceLevelRank('INTENSIVE'))
-  const selector = hashString(`${municipality.code}:${day}:${municipality.stationCount}:${municipality.lineCount}`) % 3
-  if (hasUpgradeableService && selector === 0) return 'BOOST_SERVICE'
-  return selector === 1 ? 'ADD_LINE' : 'ADD_STATION'
+  const hasUpgradeableService = lines.some(
+    line => serviceLevelRank(line.serviceLevel) < serviceLevelRank('INTENSIVE'),
+  )
+  const candidates: GameMunicipalityRequestKind[] = []
+  if (hasUpgradeableService && !avoidedKinds.has('BOOST_SERVICE')) candidates.push('BOOST_SERVICE')
+  if (!avoidedKinds.has('ADD_LINE')) candidates.push('ADD_LINE')
+  if (candidates.length === 0) return null
+
+  const selector = hashString(
+    `${municipality.code}:${day}:${municipality.stationCount}:${municipality.lineCount}`,
+  ) % candidates.length
+  return candidates[selector] ?? candidates[0] ?? null
 }
 
 function chooseTargetLine(
@@ -212,10 +236,16 @@ function createRequest(
   territory: GameNetworkTerritorySummary,
   network: GameNetworkState,
   day: number,
-): GameMunicipalityRequest {
-  const kind = chooseRequestKind(municipality, territory, network, day)
+  avoidedKinds = new Set<GameMunicipalityRequestKind>(),
+): GameMunicipalityRequest | null {
+  const kind = chooseRequestKind(municipality, territory, network, day, avoidedKinds)
+  if (!kind) return null
   const targetLine = kind === 'BOOST_SERVICE' ? chooseTargetLine(municipality.code, territory, network) : undefined
-  const safeKind: GameMunicipalityRequestKind = kind === 'BOOST_SERVICE' && !targetLine ? 'ADD_STATION' : kind
+  // Si aucun service existant n'est renforçable, on demande une nouvelle ligne,
+  // jamais une « nouvelle gare » dans une commune déjà desservie.
+  const safeKind: GameMunicipalityRequestKind = kind === 'BOOST_SERVICE' && !targetLine
+    ? (municipality.stationCount > 0 ? 'ADD_LINE' : 'ADD_STATION')
+    : kind
   const referenceMode = chooseReferenceMode(safeKind, municipality, territory, network)
   const initialCoverages = lineCoveragesForMunicipality(territory, municipality.code)
   const initialLineIds = initialCoverages.map(line => line.lineId)
@@ -271,6 +301,63 @@ export function trimMunicipalityRequestHistory(state: GameMunicipalitiesState) {
   return state.requests.length !== before
 }
 
+function latestResolvedRequestForMunicipality(
+  state: GameMunicipalitiesState,
+  municipalityCode: string,
+) {
+  return state.requests
+    .filter(request => request.municipalityCode === municipalityCode && !isOpenRequest(request))
+    .slice()
+    .sort((a, b) => (b.resolvedDay ?? b.createdDay) - (a.resolvedDay ?? a.createdDay))[0] ?? null
+}
+
+function recentlyRefusedKinds(
+  state: GameMunicipalitiesState,
+  municipalityCode: string,
+  day: number,
+) {
+  return new Set<GameMunicipalityRequestKind>(
+    state.requests
+      .filter(request => request.municipalityCode === municipalityCode)
+      .filter(request => request.status === 'REFUSED')
+      .filter(request => request.resolvedDay !== null && day - request.resolvedDay < GAME_MUNICIPALITY_REPEAT_REFUSAL_KIND_DAYS)
+      .map(request => request.kind),
+  )
+}
+
+function repairIncoherentPendingRequests(
+  state: GameMunicipalitiesState,
+  territory: GameNetworkTerritorySummary,
+  network: GameNetworkState,
+  day: number,
+) {
+  let changed = false
+  for (let index = 0; index < state.requests.length; index += 1) {
+    const request = state.requests[index]!
+    if (request.status !== 'PENDING' || request.kind !== 'ADD_STATION') continue
+    const municipality = territory.municipalities.find(item => item.code === request.municipalityCode)
+    if (!municipality || municipality.stationCount <= 0) continue
+
+    const relation = ensureRelation(state, municipality)
+    const replacement = createRequest(
+      municipality,
+      relation,
+      territory,
+      network,
+      day,
+      new Set<GameMunicipalityRequestKind>(['ADD_STATION']),
+    )
+    if (replacement) state.requests[index] = replacement
+    else {
+      // Fermeture neutre : le joueur n'a rien raté, c'était la demande qui était incohérente.
+      request.status = 'EXPIRED'
+      request.resolvedDay = day
+    }
+    changed = true
+  }
+  return changed
+}
+
 export function syncMunicipalityRequests(
   state: GameMunicipalitiesState,
   territory: GameNetworkTerritorySummary,
@@ -279,6 +366,8 @@ export function syncMunicipalityRequests(
 ) {
   let changed = false
   for (const municipality of territory.municipalities) ensureRelation(state, municipality)
+
+  if (repairIncoherentPendingRequests(state, territory, network, day)) changed = true
 
   for (const request of state.requests) {
     if (request.status !== 'PENDING' || day <= request.decisionDeadlineDay) continue
@@ -304,12 +393,600 @@ export function syncMunicipalityRequests(
     if (openCount >= GAME_MUNICIPALITY_MAX_OPEN_REQUESTS) break
     const relation = ensureRelation(state, municipality)
     if (state.requests.some(request => request.municipalityCode === municipality.code && isOpenRequest(request))) continue
-    if (relation.lastResolvedDay !== null && day - relation.lastResolvedDay < GAME_MUNICIPALITY_REQUEST_COOLDOWN_DAYS) continue
-    state.requests.push(createRequest(municipality, relation, territory, network, day))
+
+    const latestResolved = latestResolvedRequestForMunicipality(state, municipality.code)
+    const latestResolvedDay = latestResolved?.resolvedDay ?? relation.lastResolvedDay
+    const cooldownDays = latestResolved?.status === 'REFUSED'
+      ? GAME_MUNICIPALITY_REFUSAL_COOLDOWN_DAYS
+      : GAME_MUNICIPALITY_REQUEST_COOLDOWN_DAYS
+    if (latestResolvedDay !== null && latestResolvedDay !== undefined && day - latestResolvedDay < cooldownDays) continue
+
+    const request = createRequest(
+      municipality,
+      relation,
+      territory,
+      network,
+      day,
+      recentlyRefusedKinds(state, municipality.code, day),
+    )
+    if (!request) continue
+    state.requests.push(request)
     openCount += 1
     changed = true
   }
   return changed
+}
+
+
+function developmentEntry(
+  state: GameMunicipalitiesState,
+  municipality: GameMunicipality,
+  day: number,
+) {
+  state.development ??= []
+  let entry = state.development.find(item => item.code === municipality.code)
+  if (!entry) {
+    const population = Math.max(0, Math.round(municipality.population))
+    entry = {
+      code: municipality.code,
+      basePopulation: population,
+      population,
+      accessibility: 0,
+      lastPopulationDelta: 0,
+      lastMilestoneDay: null,
+      milestoneLevel: 0,
+      lastUpdatedDay: Math.max(1, day - 1),
+    }
+    state.development.push(entry)
+  }
+  return entry
+}
+
+function municipalityAccessibility(
+  municipalityCode: string,
+  territory: GameNetworkTerritorySummary,
+  network: GameNetworkState,
+) {
+  const coverage = territory.municipalities.find(item => item.code === municipalityCode)
+  if (!coverage) return 8
+
+  const lineIds = territory.lines
+    .filter(line => line.municipalities.some(item => item.code === municipalityCode))
+    .map(line => line.lineId)
+  const lines = lineIds
+    .map(id => network.lines.find(line => line.id === id))
+    .filter((line): line is GameLine => Boolean(line))
+
+  const heavyModes = new Set<GameTransportMode>(['RER', 'TRAIN', 'METRO'])
+  const heavyCount = lines.filter(line => heavyModes.has(line.mode)).length
+  const frequentCount = lines.filter(line => serviceLevelRank(line.serviceLevel) >= serviceLevelRank('FREQUENT')).length
+
+  return clamp(
+    18
+      + Math.min(34, coverage.stationCount * 8)
+      + Math.min(28, coverage.lineCount * 10)
+      + Math.min(12, heavyCount * 6)
+      + Math.min(8, frequentCount * 4),
+    0,
+    100,
+  )
+}
+
+/**
+ * Métropole 2.0 : première couche de monde évolutif.
+ * La population évolue lentement selon l'accessibilité réellement produite par
+ * le réseau. Le but est de faire réagir le territoire sans transformer une
+ * commune en mégapole en quelques semaines de jeu.
+ */
+export function advanceMunicipalityDevelopment(
+  state: GameMunicipalitiesState,
+  municipalities: GameMunicipality[],
+  territory: GameNetworkTerritorySummary,
+  network: GameNetworkState,
+  day: number,
+) {
+  state.development ??= []
+  const validCodes = new Set(municipalities.map(item => item.code))
+  state.development = state.development.filter(item => validCodes.has(item.code))
+
+  let changed = false
+  let totalPopulationDelta = 0
+  const milestones: Array<{ municipalityCode: string; population: number; deltaSinceBase: number }> = []
+
+  for (const municipality of municipalities) {
+    const entry = developmentEntry(state, municipality, day)
+    if (entry.lastUpdatedDay >= day) continue
+
+    const accessibility = municipalityAccessibility(municipality.code, territory, network)
+    const served = territory.municipalities.some(item => item.code === municipality.code)
+    const sizeDamping = entry.population >= 500_000 ? 0.72 : entry.population >= 200_000 ? 0.82 : entry.population >= 80_000 ? 0.92 : 1
+    const baseAnnualRate = served ? 0.006 : 0.0035
+    const accessAnnualBonus = served ? Math.max(0, accessibility - 28) / 72 * 0.034 * sizeDamping : 0
+    const annualRate = clamp(baseAnnualRate + accessAnnualBonus, 0.002, 0.045)
+    const daysElapsed = Math.max(1, day - Math.max(0, entry.lastUpdatedDay))
+    const exactDelta = entry.population * (Math.pow(1 + annualRate, daysElapsed / 365) - 1)
+    const delta = Math.max(0, Math.round(exactDelta))
+
+    entry.accessibility = Math.round(accessibility)
+    entry.lastPopulationDelta = delta
+    entry.lastUpdatedDay = day
+    if (delta > 0) {
+      entry.population += delta
+      totalPopulationDelta += delta
+      changed = true
+    }
+
+    const growthRatio = entry.basePopulation > 0
+      ? Math.max(0, entry.population / entry.basePopulation - 1)
+      : 0
+    const reachedLevel = Math.floor(growthRatio / 0.02)
+    if (reachedLevel > entry.milestoneLevel) {
+      entry.milestoneLevel = reachedLevel
+      entry.lastMilestoneDay = day
+      milestones.push({
+        municipalityCode: municipality.code,
+        population: entry.population,
+        deltaSinceBase: Math.max(0, entry.population - entry.basePopulation),
+      })
+      changed = true
+    }
+  }
+
+  return { changed, totalPopulationDelta, milestones }
+}
+
+
+const URBAN_PROJECT_KINDS: GameUrbanProjectKind[] = ['RESIDENTIAL_DISTRICT', 'BUSINESS_DISTRICT', 'CAMPUS', 'LEISURE_HUB']
+
+function deterministicUnit(seed: string) {
+  return hashString(seed) / 0xFFFFFFFF
+}
+
+function deterministicRange(seed: string, min: number, max: number) {
+  if (max <= min) return min
+  return min + Math.floor(deterministicUnit(seed) * (max - min + 1))
+}
+
+function urbanProjectTitle(kind: GameUrbanProjectKind, municipalityName: string) {
+  if (kind === 'RESIDENTIAL_DISTRICT') return `Nouveau quartier à ${municipalityName}`
+  if (kind === 'BUSINESS_DISTRICT') return `Nouveau pôle d’emplois à ${municipalityName}`
+  if (kind === 'CAMPUS') return `Nouveau campus à ${municipalityName}`
+  return `Nouveau pôle de loisirs à ${municipalityName}`
+}
+
+function localEventTitle(kind: GameLocalEvent['kind'], municipalityName: string) {
+  if (kind === 'CONCERT') return `Grand concert à ${municipalityName}`
+  if (kind === 'FOOTBALL') return `Match à forte affluence à ${municipalityName}`
+  if (kind === 'FESTIVAL') return `Festival à ${municipalityName}`
+  return `Salon majeur à ${municipalityName}`
+}
+
+function localEventServiceLabel(kind: GameLocalEventServiceKind) {
+  if (kind === 'EVENT_SHUTTLE') return 'Navette événementielle'
+  if (kind === 'LATE_SERVICE') return 'Service tardif'
+  return 'Renfort de ligne'
+}
+
+function roundEventServiceCost(value: number) {
+  return Math.max(20_000, Math.round(value / 10_000) * 10_000)
+}
+
+export function estimateLocalEventServiceCost(
+  event: Pick<GameLocalEvent, 'expectedVisitors'>,
+  line: Pick<GameLine, 'mode'>,
+  serviceKind: GameLocalEventServiceKind,
+  level: 'LIGHT' | 'STRONG',
+) {
+  const intensity = level === 'STRONG' ? 1.65 : 1
+  // Les services temporaires sont exclusivement routiers (BUS). Le paramètre
+  // line reste utilisé pour garder une API cohérente avec les appels existants.
+  const modeFactor = line.mode === 'BUS' ? 0.88 : 1
+  const base = serviceKind === 'EVENT_SHUTTLE'
+    ? 55_000
+    : serviceKind === 'LATE_SERVICE'
+      ? 35_000
+      : 25_000
+  const perVisitor = serviceKind === 'EVENT_SHUTTLE' ? 0.9 : serviceKind === 'LATE_SERVICE' ? 0.55 : 0.45
+  return roundEventServiceCost((base + Math.max(0, event.expectedVisitors) * perVisitor) * intensity * modeFactor)
+}
+
+function localEventTripPlan(
+  event: GameLocalEvent,
+  serviceKind: GameLocalEventServiceKind,
+  level: 'LIGHT' | 'STRONG',
+) {
+  if (serviceKind === 'EVENT_SHUTTLE') {
+    return {
+      targetCount: level === 'STRONG' ? 9 : 5,
+      centerMinute: event.kind === 'FOOTBALL' || event.kind === 'CONCERT' ? 17 * 60 + 30 : 13 * 60 + 30,
+      spacing: level === 'STRONG' ? 14 : 22,
+    }
+  }
+  if (serviceKind === 'LATE_SERVICE') {
+    return {
+      targetCount: level === 'STRONG' ? 5 : 3,
+      centerMinute: 22 * 60 + 30,
+      spacing: level === 'STRONG' ? 18 : 28,
+    }
+  }
+  return {
+    targetCount: level === 'STRONG' ? 6 : 3,
+    centerMinute: event.kind === 'FOOTBALL' || event.kind === 'CONCERT' ? 18 * 60 : 14 * 60,
+    spacing: level === 'STRONG' ? 20 : 35,
+  }
+}
+
+function ensureWorldLifeState(state: GameMunicipalitiesState) {
+  state.urbanProjects ??= []
+  state.localEvents ??= []
+  state.nextUrbanProjectDay = Number.isFinite(state.nextUrbanProjectDay) ? Math.max(1, Math.floor(Number(state.nextUrbanProjectDay))) : 9
+  state.nextLocalEventDay = Number.isFinite(state.nextLocalEventDay) ? Math.max(1, Math.floor(Number(state.nextLocalEventDay))) : 14
+}
+
+function chooseUrbanProjectMunicipality(
+  state: GameMunicipalitiesState,
+  municipalities: GameMunicipality[],
+  day: number,
+) {
+  const development = new Map((state.development ?? []).map(item => [item.code, item] as const))
+  const plannedCodes = new Set((state.urbanProjects ?? []).filter(item => item.status === 'PLANNED').map(item => item.municipalityCode))
+  const candidates = municipalities
+    .filter(item => item.population >= 5_000 && !plannedCodes.has(item.code))
+    .map(item => {
+      const entry = development.get(item.code)
+      const accessibility = entry?.accessibility ?? 0
+      // Un bon réseau attire des projets, mais les petites communes gardent une chance.
+      const base = Math.log10(Math.max(10, item.population)) * 28 + accessibility * 0.58
+      const variety = deterministicUnit(`urban-project-score:${day}:${item.code}`) * 26
+      return { municipality: item, score: base + variety }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 14)
+  if (!candidates.length) return null
+  return candidates[deterministicRange(`urban-project-pick:${day}`, 0, candidates.length - 1)]?.municipality ?? null
+}
+
+function createUrbanProject(state: GameMunicipalitiesState, municipalities: GameMunicipality[], day: number) {
+  const municipality = chooseUrbanProjectMunicipality(state, municipalities, day)
+  if (!municipality) return null
+  const kind = URBAN_PROJECT_KINDS[deterministicRange(`urban-project-kind:${day}:${municipality.code}`, 0, URBAN_PROJECT_KINDS.length - 1)] ?? 'RESIDENTIAL_DISTRICT'
+  const basePopulation = Math.max(1, municipality.population)
+  const ratio = 0.012 + deterministicUnit(`urban-project-ratio:${day}:${municipality.code}`) * 0.035
+  let populationGain = 0
+  let mobilityDemandBonus = 0.04
+  if (kind === 'RESIDENTIAL_DISTRICT') {
+    populationGain = clamp(Math.round(basePopulation * ratio), 900, 18_000)
+    mobilityDemandBonus = 0.05
+  }
+  else if (kind === 'BUSINESS_DISTRICT') {
+    populationGain = clamp(Math.round(basePopulation * ratio * 0.12), 0, 2_000)
+    mobilityDemandBonus = 0.13
+  }
+  else if (kind === 'CAMPUS') {
+    populationGain = clamp(Math.round(basePopulation * ratio * 0.18), 0, 3_000)
+    mobilityDemandBonus = 0.10
+  }
+  else {
+    populationGain = 0
+    mobilityDemandBonus = 0.08
+  }
+  const openingDay = day + deterministicRange(`urban-project-lead:${day}:${municipality.code}`, 24, 70)
+  const leadDays = Math.max(1, openingDay - day)
+  const constructionStartDay = day + Math.max(5, Math.round(leadDays * 0.42))
+  const maturityDay = openingDay + deterministicRange(`urban-project-maturity:${day}:${municipality.code}`, 18, 42)
+  const project: GameUrbanProject = {
+    id: `urban-${day}-${municipality.code}-${hashString(`${kind}:${openingDay}`).toString(36)}`,
+    municipalityCode: municipality.code,
+    municipalityName: municipality.name,
+    kind,
+    title: urbanProjectTitle(kind, municipality.name),
+    createdDay: day,
+    openingDay,
+    constructionStartDay,
+    maturityDay,
+    status: 'PLANNED',
+    populationGain,
+    mobilityDemandBonus,
+    openedDay: null,
+    maturedDay: null,
+  }
+  state.urbanProjects!.push(project)
+  state.nextUrbanProjectDay = day + deterministicRange(`urban-project-next:${day}`, 16, 30)
+  return project
+}
+
+function chooseLocalEventMunicipality(
+  state: GameMunicipalitiesState,
+  municipalities: GameMunicipality[],
+  territory: GameNetworkTerritorySummary,
+  day: number,
+) {
+  const served = new Map(territory.municipalities.map(item => [item.code, item] as const))
+  const candidates = municipalities
+    .filter(item => served.has(item.code) && item.population >= 12_000)
+    .map(item => {
+      const coverage = served.get(item.code)!
+      return {
+        municipality: item,
+        score: Math.log10(Math.max(10, item.population)) * 24 + coverage.lineCount * 9 + coverage.stationCount * 4 + deterministicUnit(`local-event-score:${day}:${item.code}`) * 24,
+      }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12)
+  if (!candidates.length) return null
+  return candidates[deterministicRange(`local-event-pick:${day}`, 0, candidates.length - 1)]?.municipality ?? null
+}
+
+function createLocalEvent(
+  state: GameMunicipalitiesState,
+  municipalities: GameMunicipality[],
+  territory: GameNetworkTerritorySummary,
+  day: number,
+) {
+  const municipality = chooseLocalEventMunicipality(state, municipalities, territory, day)
+  if (!municipality) return null
+  const kinds: GameLocalEvent['kind'][] = ['CONCERT', 'FOOTBALL', 'FESTIVAL', 'EXHIBITION']
+  const kind = kinds[deterministicRange(`local-event-kind:${day}:${municipality.code}`, 0, kinds.length - 1)] ?? 'CONCERT'
+  const startsDay = day + deterministicRange(`local-event-start:${day}:${municipality.code}`, 3, 7)
+  const duration = kind === 'FESTIVAL' || kind === 'EXHIBITION' ? 2 : 1
+  const population = Math.max(1, municipality.population)
+  const eventRoll = deterministicUnit(`local-event-scale:${day}:${municipality.code}`)
+  const scale = eventRoll > 0.90 && population >= 80_000 ? 'MEGA' : eventRoll > 0.52 ? 'MAJOR' : 'LOCAL'
+  const scaleFactor = scale === 'MEGA' ? 1.65 : scale === 'MAJOR' ? 1.15 : 0.72
+  const expectedVisitors = clamp(
+    Math.round(population * (0.035 + deterministicUnit(`local-event-visitors:${day}:${municipality.code}`) * 0.12) * scaleFactor),
+    scale === 'MEGA' ? 28_000 : scale === 'MAJOR' ? 10_000 : 3_000,
+    scale === 'MEGA' ? 140_000 : scale === 'MAJOR' ? 90_000 : 38_000,
+  )
+  const demandMultiplier = 1 + Math.min(scale === 'MEGA' ? 0.58 : 0.42, Math.max(0.07, expectedVisitors / Math.max(20_000, population) * 0.55))
+  const event: GameLocalEvent = {
+    id: `local-event-${day}-${municipality.code}-${hashString(`${kind}:${startsDay}`).toString(36)}`,
+    municipalityCode: municipality.code,
+    municipalityName: municipality.name,
+    kind,
+    title: localEventTitle(kind, municipality.name),
+    createdDay: day,
+    startsDay,
+    endsDay: startsDay + duration - 1,
+    expectedVisitors,
+    scale,
+    demandMultiplier,
+    status: 'ANNOUNCED',
+  }
+  state.localEvents!.push(event)
+  state.nextLocalEventDay = day + deterministicRange(`local-event-next:${day}`, 12, 22)
+  return event
+}
+
+function resolveLocalEventOutcome(
+  event: GameLocalEvent,
+  territory: GameNetworkTerritorySummary,
+  previousReport: GameSimulationDayReport | undefined,
+  resolvedDay: number,
+) {
+  if (event.outcome) return event.outcome
+  const coverage = territory.municipalities.find(item => item.code === event.municipalityCode)
+  const impactedLineIds = new Set(
+    territory.lines
+      .filter(line => line.municipalities.some(municipality => municipality.code === event.municipalityCode))
+      .map(line => line.lineId),
+  )
+  const lineReports = (previousReport?.lines ?? []).filter(line => impactedLineIds.has(line.lineId))
+  const weightOf = (line: GameSimulationDayReport['lines'][number]) => Math.max(1, line.boardingDemandPassengers || line.passengers || 1)
+  const weightTotal = lineReports.reduce((sum, line) => sum + weightOf(line), 0)
+  const satisfaction = weightTotal > 0
+    ? lineReports.reduce((sum, line) => sum + Math.max(0, Math.min(1, line.demandSatisfactionRate ?? 0)) * weightOf(line), 0) / weightTotal
+    : 0.62
+  const quality = weightTotal > 0
+    ? lineReports.reduce((sum, line) => sum + Math.max(0, Math.min(100, line.serviceQualityScore ?? 70)) * weightOf(line), 0) / weightTotal / 100
+    : 0.68
+  const networkBase = clamp(
+    0.38 + Math.min(0.20, (coverage?.lineCount ?? 0) * 0.055) + Math.min(0.14, (coverage?.stationCount ?? 0) * 0.025),
+    0.38,
+    0.72,
+  )
+  const preparedReport = event.preparedLineId
+    ? lineReports.find(line => line.lineId === event.preparedLineId)
+    : undefined
+  const basePreparationBonus = event.preparationLevel === 'STRONG' ? 0.16 : event.preparationLevel === 'LIGHT' ? 0.09 : 0
+  const serviceKindBonus = event.serviceKind === 'EVENT_SHUTTLE'
+    ? (event.preparationLevel === 'STRONG' ? 0.07 : 0.04)
+    : event.serviceKind === 'LATE_SERVICE'
+      ? (event.preparationLevel === 'STRONG' ? 0.025 : 0.015)
+      : 0
+  const preparationBonus = basePreparationBonus + serviceKindBonus
+  const realizedBoost = preparedReport
+    ? Math.min(0.06, Math.max(0, (preparedReport.extraTrips ?? 0) / 12) * 0.06 + Math.max(0, (preparedReport.serviceFulfillmentRate ?? 1) - 0.9) * 0.06)
+    : 0
+  const servedShare = clamp(networkBase * 0.26 + satisfaction * 0.46 + quality * 0.28 + preparationBonus + realizedBoost, 0.30, 0.98)
+  const transportedVisitors = Math.min(event.expectedVisitors, Math.round(event.expectedVisitors * servedShare))
+  const leftBehindVisitors = Math.max(0, event.expectedVisitors - transportedVisitors)
+  const revenuePerPassenger = weightTotal > 0
+    ? lineReports.reduce((sum, line) => {
+      const fallback = line.passengers > 0 ? line.revenue / Math.max(1, line.passengers) : 2.2
+      return sum + Math.max(0.5, line.averageRevenuePerPassenger ?? fallback) * weightOf(line)
+    }, 0) / weightTotal
+    : 2.2
+  const extraRevenue = Math.max(0, Math.round((transportedVisitors * revenuePerPassenger) / 1_000) * 1_000)
+  const serviceScore = Math.round(servedShare * 100)
+  const tone = serviceScore >= 86 ? 'SUCCESS' : serviceScore >= 66 ? 'BALANCED' : 'OVERLOADED'
+  const serviceCost = Math.max(0, Math.round(event.serviceCost ?? 0))
+  const netImpact = extraRevenue - serviceCost
+  event.outcome = { resolvedDay, transportedVisitors, leftBehindVisitors, serviceScore, extraRevenue, serviceCost, netImpact, tone }
+  return event.outcome
+}
+
+/**
+ * Métropole 2.0 — monde vivant 2.0.
+ * Les projets urbains apparaissent, ouvrent réellement et changent la population.
+ * Les événements localisés génèrent un pic de demande uniquement autour de la commune concernée.
+ */
+export function advanceMunicipalityWorldLife(
+  state: GameMunicipalitiesState,
+  municipalities: GameMunicipality[],
+  territory: GameNetworkTerritorySummary,
+  network: GameNetworkState,
+  day: number,
+  previousReport?: GameSimulationDayReport,
+) {
+  ensureWorldLifeState(state)
+  let changed = false
+  const constructionProjects: GameUrbanProject[] = []
+  const openedProjects: GameUrbanProject[] = []
+  const maturedProjects: GameUrbanProject[] = []
+  const createdProjects: GameUrbanProject[] = []
+  const announcedEvents: GameLocalEvent[] = []
+  const startedEvents: GameLocalEvent[] = []
+  const finishedEvents: GameLocalEvent[] = []
+
+  for (const project of state.urbanProjects!) {
+    if (project.status === 'PLANNED' && day >= project.constructionStartDay) {
+      project.status = 'CONSTRUCTION'
+      constructionProjects.push(project)
+      changed = true
+    }
+    if ((project.status === 'PLANNED' || project.status === 'CONSTRUCTION') && day >= project.openingDay) {
+      project.status = 'OPENED'
+      project.openedDay ??= day
+      const municipality = municipalities.find(item => item.code === project.municipalityCode)
+      if (municipality) {
+        const entry = developmentEntry(state, municipality, day)
+        if (project.populationGain > 0) {
+          entry.population += project.populationGain
+          entry.lastPopulationDelta += project.populationGain
+        }
+        entry.lastMilestoneDay = day
+      }
+      openedProjects.push(project)
+      changed = true
+    }
+    if (project.status === 'OPENED' && day >= project.maturityDay) {
+      project.status = 'MATURE'
+      project.maturedDay ??= day
+      maturedProjects.push(project)
+      changed = true
+    }
+  }
+
+  for (const event of state.localEvents!) {
+    const previous = event.status
+    event.status = day > event.endsDay ? 'FINISHED' : day >= event.startsDay ? 'ACTIVE' : 'ANNOUNCED'
+    if (event.status !== previous) {
+      if (event.status === 'ACTIVE') startedEvents.push(event)
+      if (event.status === 'FINISHED') {
+        resolveLocalEventOutcome(event, territory, previousReport, day)
+        finishedEvents.push(event)
+      }
+      changed = true
+    }
+  }
+
+  const operationalLines = network.lines.filter(line => line.status === 'OPERATIONAL').length
+  if (day >= Math.max(9, state.nextUrbanProjectDay ?? 9) && (state.urbanProjects?.filter(item => item.status === 'PLANNED' || item.status === 'CONSTRUCTION').length ?? 0) < 2) {
+    const created = createUrbanProject(state, municipalities, day)
+    if (created) { createdProjects.push(created); changed = true }
+  }
+  if (operationalLines > 0 && day >= Math.max(14, state.nextLocalEventDay ?? 14) && !(state.localEvents ?? []).some(item => item.status !== 'FINISHED')) {
+    const created = createLocalEvent(state, municipalities, territory, day)
+    if (created) { announcedEvents.push(created); changed = true }
+  }
+
+  state.urbanProjects = (state.urbanProjects ?? []).slice(-28)
+  state.localEvents = (state.localEvents ?? []).slice(-36)
+
+  return { changed, createdProjects, constructionProjects, openedProjects, maturedProjects, announcedEvents, startedEvents, finishedEvents }
+}
+
+export function prepareLocalEventService(
+  state: GameMunicipalitiesState,
+  network: GameNetworkState,
+  operations: GameOperationsState,
+  economy: GameEconomyState,
+  territory: GameNetworkTerritorySummary,
+  calendarStartDate: string,
+  currentDay: number,
+  eventId: string,
+  lineId: string,
+  serviceKind: GameLocalEventServiceKind,
+  level: 'LIGHT' | 'STRONG',
+) {
+  ensureWorldLifeState(state)
+  const event = (state.localEvents ?? []).find(item => item.id === eventId)
+  if (!event || event.status === 'FINISHED') return { ok: false as const, reason: 'EVENT_UNAVAILABLE' as const, extraTrips: 0 }
+  const line = network.lines.find(item => item.id === lineId && item.status === 'OPERATIONAL')
+  if (!line) return { ok: false as const, reason: 'LINE_UNAVAILABLE' as const, extraTrips: 0 }
+  // Phase 15.1 : un service temporaire est un service BUS uniquement.
+  // Métro / RER / Train / Tramway pourront recevoir des renforts d'exploitation
+  // sur infrastructure existante, mais via une mécanique distincte.
+  if (line.mode !== 'BUS') return { ok: false as const, reason: 'BUS_ONLY' as const, extraTrips: 0 }
+  const lineCoverage = territory.lines.find(item => item.lineId === lineId)
+  if (!lineCoverage?.municipalities.some(item => item.code === event.municipalityCode)) {
+    return { ok: false as const, reason: 'LINE_NOT_SERVING_EVENT' as const, extraTrips: 0 }
+  }
+
+  const targetCost = estimateLocalEventServiceCost(event, line, serviceKind, level)
+  const alreadyCommitted = Math.max(0, Math.round(event.serviceCost ?? 0))
+  const additionalCost = Math.max(0, targetCost - alreadyCommitted)
+  if (additionalCost > 0) {
+    const transaction = applyTemporaryServiceCost(
+      economy,
+      line,
+      additionalCost,
+      `${localEventServiceLabel(serviceKind)} · ${event.title}`,
+    )
+    if (!transaction) {
+      return { ok: false as const, reason: 'INSUFFICIENT_FUNDS' as const, extraTrips: 0, serviceCost: targetCost, chargedCost: 0 }
+    }
+  }
+
+  const eventPrefix = `event:${event.id}:`
+  operations.extraTrips = operations.extraTrips.filter(item => !item.id.startsWith(eventPrefix))
+  let extraTrips = 0
+  if (line.schedule?.mode === 'TIMETABLE') {
+    const enabledMissions = line.schedule.missions.filter(mission => mission.enabled && mission.routeStationIds.length >= 2)
+    if (enabledMissions.length) {
+      const { targetCount, centerMinute, spacing } = localEventTripPlan(event, serviceKind, level)
+      for (let eventDay = Math.max(currentDay, event.startsDay); eventDay <= event.endsDay; eventDay += 1) {
+        const dayType = scheduleDayType(eventDay, calendarStartDate)
+        const missionPool = enabledMissions.filter(mission => departuresForMission(mission, dayType).length > 0)
+        const missions = missionPool.length ? missionPool : enabledMissions
+        for (let index = 0; index < targetCount; index += 1) {
+          const mission = missions[index % missions.length]!
+          const offset = (index - (targetCount - 1) / 2) * spacing
+          const departureMinute = Math.max(0, Math.min(1439, Math.round(centerMinute + offset)))
+          operations.extraTrips.push({
+            id: `${eventPrefix}${eventDay}:${mission.id}:${departureMinute}:${index}`,
+            lineId: line.id,
+            day: eventDay,
+            missionId: mission.id,
+            departureMinute,
+            createdAt: new Date().toISOString(),
+          })
+          extraTrips += 1
+        }
+      }
+    }
+  }
+
+  event.preparedLineId = line.id
+  event.preparationLevel = level
+  event.serviceKind = serviceKind
+  event.serviceCost = alreadyCommitted + additionalCost
+  event.preparedAtDay = currentDay
+  operations.history.push({
+    id: `event-prep-${event.id}-${Date.now()}`,
+    kind: 'REGULATION_CHANGED',
+    day: currentDay,
+    minute: 0,
+    lineId: line.id,
+    title: `${localEventServiceLabel(serviceKind)} · ${event.title}`,
+    detail: line.schedule?.mode === 'TIMETABLE'
+      ? `${line.name} · ${extraTrips} circulation${extraTrips > 1 ? 's' : ''} temporaire${extraTrips > 1 ? 's' : ''} · ${targetCost.toLocaleString(currentGameLocaleTag())} €`
+      : `${line.name} · ${localEventServiceLabel(serviceKind)} · ${targetCost.toLocaleString(currentGameLocaleTag())} €`,
+    createdAt: new Date().toISOString(),
+  })
+  if (operations.history.length > 240) operations.history.splice(0, operations.history.length - 240)
+  return { ok: true as const, extraTrips, serviceCost: targetCost, chargedCost: additionalCost }
 }
 
 export function acceptMunicipalityRequest(state: GameMunicipalitiesState, requestId: string, day: number) {

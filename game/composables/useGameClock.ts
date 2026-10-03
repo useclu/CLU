@@ -1,7 +1,8 @@
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useState } from '#app'
 import { useGameSimulation } from './useGameSimulation'
 import { useMetropoleGame } from './useMetropoleGame'
+import { useCluOnline } from './useCluOnline'
 
 export type GameClockSpeed = 0.5 | 1 | 2
 
@@ -11,9 +12,10 @@ const DAY_DURATION_MS: Record<GameClockSpeed, number> = {
   2: 60_000,
 }
 
-export function useGameClock() {
+function createGameClock() {
   const game = useMetropoleGame()
   const simulation = useGameSimulation()
+  const online = useCluOnline()
   const playing = useState<boolean>('clu-metropole-clock-playing', () => false)
   const speed = useState<GameClockSpeed>('clu-metropole-clock-speed', () => 1)
   const elapsedMs = useState<number>('clu-metropole-clock-elapsed', () => 0)
@@ -39,18 +41,64 @@ export function useGameClock() {
     return `${minutes}:${String(rest).padStart(2, '0')}`
   })
 
+  function onlineAccepted() {
+    const currentSaveId = game.state.value.save?.id
+    return Boolean(
+      online.sessionActive.value
+      && online.moi.value?.statut === 'accepte'
+      && currentSaveId
+      && online.sauvegardeLocaleId.value === currentSaveId,
+    )
+  }
+
+  function onlineReplica() {
+    return onlineAccepted() && !online.estAdmin.value
+  }
+
+  function onlineClockReadOnly() {
+    return onlineAccepted() && !online.peut('gerer_temps_simulation')
+  }
+
+  function envoyerHorlogeOnline() {
+    if (!onlineAccepted() || !online.peut('gerer_temps_simulation')) return
+    online.envoyerHorloge({ playing: playing.value, speed: speed.value, elapsedMs: elapsedMs.value })
+  }
+
+  function appliquerHorlogeOnline() {
+    const remote = online.horloge.value
+    if (!onlineAccepted() || !remote) return false
+    const remoteSpeed = [0.5, 1, 2].includes(remote.speed) ? remote.speed : 1
+    speed.value = remoteSpeed as GameClockSpeed
+    const duration = DAY_DURATION_MS[speed.value]
+    const elapsedSinceUpdate = remote.playing ? Math.max(0, Date.now() - Number(remote.updatedAt || Date.now())) : 0
+    elapsedMs.value = Math.min(duration, Math.max(0, Number(remote.elapsedMs) || 0) + elapsedSinceUpdate)
+    playing.value = remote.playing === true
+    blockedMessage.value = null
+    lastTick = Date.now()
+    return true
+  }
+
+  watch(
+    () => online.horloge.value,
+    () => { appliquerHorlogeOnline() },
+    { immediate: true },
+  )
+
   function pause(message: string | null = null) {
+    if (onlineClockReadOnly()) return
     playing.value = false
     blockedMessage.value = message
     lastTick = Date.now()
+    envoyerHorlogeOnline()
   }
 
   function play() {
-    if (game.isReadOnly.value) return false
+    if (game.isReadOnly.value || onlineClockReadOnly()) return false
     blockedMessage.value = null
     entryNotice.value = false
     playing.value = true
     lastTick = Date.now()
+    envoyerHorlogeOnline()
     return true
   }
 
@@ -59,19 +107,22 @@ export function useGameClock() {
   }
 
   function setSpeed(value: GameClockSpeed) {
-    if (![0.5, 1, 2].includes(value)) return
+    if (onlineClockReadOnly() || ![0.5, 1, 2].includes(value)) return
     // Conserve le pourcentage de journée déjà écoulé lorsque la vitesse change.
     const ratio = progress.value
     speed.value = value
     elapsedMs.value = Math.round(DAY_DURATION_MS[value] * ratio)
+    envoyerHorlogeOnline()
   }
 
   function resetCycle() {
     elapsedMs.value = 0
     lastTick = Date.now()
+    envoyerHorlogeOnline()
   }
 
   function resetForEntry() {
+    if (appliquerHorlogeOnline()) return
     playing.value = false
     elapsedMs.value = 0
     blockedMessage.value = null
@@ -80,12 +131,12 @@ export function useGameClock() {
   }
 
   async function advanceFromClock() {
-    if (advancing || game.isReadOnly.value) return
+    if (advancing || simulation.isAdvancing.value || game.isReadOnly.value) return
     advancing = true
     try {
       const report = await simulation.advanceDay()
       if (report) resetCycle()
-      else pause('Le temps est en pause : une action en cours empêche de passer au jour suivant.')
+      else if (!simulation.isAdvancing.value) pause('Le temps est en pause : une action en cours empêche de passer au jour suivant.')
     }
     finally { advancing = false }
   }
@@ -95,15 +146,22 @@ export function useGameClock() {
     if (!lastTick) lastTick = now
     const delta = Math.min(1000, Math.max(0, now - lastTick))
     lastTick = now
-    if (!playing.value || advancing || game.isReadOnly.value) return
+    if (!playing.value || advancing || simulation.isAdvancing.value || game.isReadOnly.value) return
     elapsedMs.value += delta
+    if (onlineReplica()) {
+      elapsedMs.value = Math.min(durationMs.value, elapsedMs.value)
+      return
+    }
     if (elapsedMs.value >= durationMs.value) void advanceFromClock()
   }
 
   function start() {
     if (timer) return
     lastTick = Date.now()
-    timer = setInterval(tick, 200)
+    // Phase 21 : 2 mises à jour réactives/s suffisent pour l'horloge. L'ancien
+    // tick 200 ms invalidait une grande partie de l'UI cinq fois par seconde,
+    // même quand aucun calcul de gameplay n'en avait besoin.
+    timer = setInterval(tick, 500)
   }
 
   function stop() {
@@ -119,6 +177,7 @@ export function useGameClock() {
     durationMs,
     progress,
     remainingMs,
+    gameMinutes,
     timeLabel,
     remainingLabel,
     entryNotice,
@@ -132,4 +191,14 @@ export function useGameClock() {
     start,
     stop,
   }
+}
+
+type GameClockRuntime = ReturnType<typeof createGameClock>
+let sharedClockRuntime: GameClockRuntime | null = null
+
+export function useGameClock() {
+  // Horloge unique pour toute la SPA : évite de recréer les mêmes computed et
+  // le watcher Online dans chaque composant qui consulte simplement l'heure.
+  if (!sharedClockRuntime) sharedClockRuntime = createGameClock()
+  return sharedClockRuntime
 }

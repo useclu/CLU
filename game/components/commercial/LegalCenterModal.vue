@@ -10,7 +10,7 @@ const legal = useGameLegal()
 const preferences = useGameSettings()
 const t = (input: string) => translateGameText(input, preferences.settings.value.locale)
 
-const tabs: LegalDocumentId[] = ['LEGAL', 'PRIVACY', 'COOKIES', 'CREDITS']
+const tabs: LegalDocumentId[] = ['LEGAL', 'TERMS', 'PREMIUM', 'PRIVACY', 'COOKIES', 'CREDITS']
 const doc = computed(() => localizedLegalDocument(legal.currentId.value, preferences.settings.value.locale))
 const tabDocs = computed(() => tabs.map(id => localizedLegalDocument(id, preferences.settings.value.locale)))
 
@@ -61,7 +61,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
           </header>
 
           <article class="legal-content" tabindex="0">
-            <section v-for="section in doc.sections" :key="section.title">
+            <section v-for="section in doc.sections" :key="section.title" :class="{ 'legal-content__notice': section.notice }">
               <h3>{{ section.title }}</h3>
               <p v-for="paragraph in section.paragraphs" :key="paragraph">{{ paragraph }}</p>
               <ul v-if="section.bullets?.length">
@@ -253,6 +253,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   margin-top: 28px;
   padding-top: 24px;
   border-top: 1px solid rgba(255,255,255,.06);
+}
+
+.legal-content section.legal-content__notice {
+  padding: 18px;
+  border: 1px solid rgba(125,231,235,.28);
+  border-radius: 14px;
+  background: rgba(125,231,235,.055);
+}
+
+.legal-content section + section.legal-content__notice {
+  margin-top: 28px;
+}
+
+.legal-content__notice h3 {
+  color: #a9f9fb;
 }
 
 .legal-content h3 {

@@ -10,6 +10,9 @@ export const GAME_PUBLIC_DEVELOPMENT_PERIOD_DAYS = 7
 export const GAME_PUBLIC_DEVELOPMENT_MIN_GRANT = 120_000_000
 export const GAME_PUBLIC_DEVELOPMENT_MAX_GRANT = 650_000_000
 export const GAME_MAX_BORROWS_PER_DAY = 3
+/** Phase 18 : le financement directement lié à un projet ne doit pas forcer le joueur à attendre un nouveau jour. */
+export const GAME_PROJECT_CREDIT_MULTIPLIER = 2.5
+export const GAME_PROJECT_CREDIT_MAX = 20_000_000_000
 /** V41 : limite la taille des sauvegardes longue durée sans perdre les totaux cumulés. */
 export const GAME_ECONOMY_TRANSACTION_HISTORY_LIMIT = 1200
 
@@ -61,6 +64,22 @@ Record<GameTransportMode, GameModeEconomyDefinition> = {
     mode: 'BRT',
     infrastructurePerKm: 12_000_000,
     stationCost: 3_000_000,
+  },
+
+  // Phase 16 : calibré sur l'ordre de grandeur du Câble C1 francilien
+  // (138 M€ pour ~4,5 km et 5 stations, cabines incluses).
+  CABLE: {
+    mode: 'CABLE',
+    infrastructurePerKm: 20_000_000,
+    stationCost: 9_500_000,
+  },
+
+  // Phase 16 : la voie d'eau existe déjà ; le coût/km représente les
+  // équipements de navigation, énergie, signalisation et adaptation du parcours.
+  FERRY: {
+    mode: 'FERRY',
+    infrastructurePerKm: 650_000,
+    stationCost: 1_750_000,
   },
 }
 

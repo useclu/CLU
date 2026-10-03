@@ -5,7 +5,7 @@ import { useGameSettings } from './useGameSettings'
 type AudioScene = 'HOME' | 'GAME'
 type UiSound = 'CLICK' | 'CONFIRM' | 'CONSTRUCTION' | 'PURCHASE' | 'EVENT' | 'OBJECTIVE' | 'ERROR'
 
-const MENU_TRACK = new URL('../assets/audio/clu-metropole-menu.ogg', import.meta.url).href
+const HOME_TRACK = new URL('../assets/audio/clu-metropole-cityflow.ogg', import.meta.url).href
 const GAME_TRACKS = [
   new URL('../assets/audio/clu-metropole-cityflow.ogg', import.meta.url).href,
   new URL('../assets/audio/clu-metropole-nightlines.ogg', import.meta.url).href,
@@ -90,7 +90,7 @@ export function useGameAudio() {
     scene.value = nextScene
     const audio = ensureMusicAudio()
     if (!audio) return
-    const src = nextScene === 'HOME' ? MENU_TRACK : GAME_TRACKS[gameTrackIndex]!
+    const src = nextScene === 'HOME' ? HOME_TRACK : GAME_TRACKS[gameTrackIndex]!
     const absoluteCurrent = audio.src
     const wanted = new URL(src, window.location.href).href
     audio.loop = nextScene === 'HOME'
@@ -178,9 +178,13 @@ export function useGameAudio() {
     if (!settingsWatcherInstalled) {
       settingsWatcherInstalled = true
       watch(
-        () => preferences.settings.value,
+        () => [
+          preferences.settings.value.masterVolume,
+          preferences.settings.value.musicVolume,
+          preferences.settings.value.masterMuted,
+          preferences.settings.value.musicMuted,
+        ],
         () => refreshVolumes(),
-        { deep: true },
       )
     }
     initialized.value = true

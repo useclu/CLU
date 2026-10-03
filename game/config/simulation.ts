@@ -105,6 +105,32 @@ Record<GameTransportMode, GameModeSimulationDefinition> = {
     operatingCostPerKmPerDay: 1_200,
     operatingCostPerStationPerDay: 900,
   },
+
+  CABLE: {
+    mode: 'CABLE',
+    averageSpeedKmH: 17,
+    vehicleCapacity: 10,
+    departuresPerHour: 120,
+    serviceHoursPerDay: 18,
+    passengersPerStationPerDay: 3_600,
+    passengersPerKmPerDay: 1_050,
+    fixedOperatingCostPerDay: 18_000,
+    operatingCostPerKmPerDay: 1_900,
+    operatingCostPerStationPerDay: 1_500,
+  },
+
+  FERRY: {
+    mode: 'FERRY',
+    averageSpeedKmH: 16,
+    vehicleCapacity: 90,
+    departuresPerHour: 4,
+    serviceHoursPerDay: 16,
+    passengersPerStationPerDay: 1_800,
+    passengersPerKmPerDay: 420,
+    fixedOperatingCostPerDay: 11_500,
+    operatingCostPerKmPerDay: 1_050,
+    operatingCostPerStationPerDay: 800,
+  },
 }
 
 export function getModeSimulationDefinition(

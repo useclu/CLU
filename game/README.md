@@ -31,15 +31,16 @@ elle sert uniquement de porte d'entrée vers le dossier `game/`.
 
 ## Version gameplay actuelle
 
+- V47 / PCC & Perturbations 1.0 : centre de régulation en direct, décisions course par course, renforts, terminus temporaires, dessertes modifiées, perturbations manuelles et impacts réels sur passages, véhicules, capacité et simulation.
+- V46 / Horaires & Missions 2.0 : grille manuelle mission par mission, services directs/semi-directs, jours de service distincts, passages et véhicules synchronisés avec les horaires, simulation et parc requis calculés depuis les courses réellement planifiées.
 - V44 / Internationalisation & sauvegardes : 8 langues (FR/EN/DE/NL/ES/IT/PT/PL), formats locaux et choix persistant ; quotas séparés de 10 parties libres et 10 sauvegardes Défi, avec nettoyage automatique des Défis après 30 jours.
 - V43 / Audit final technique : cohérence complète avant i18n, suppression définitive du fallback PMTiles réseau et historique hebdomadaire borné/dédupliqué sur les parties très longues.
 - V42 / Accessibilité : navigation clavier et focus visibles, sémantique des dialogues/onglets, fermeture Échap, recherche de ville en combobox, contraste renforcé et respect automatique de `prefers-reduced-motion`.
 - V41 / Grand check-up : audit intégral, garde-fous longue durée, historiques bornés et nettoyage cohérent lors de la suppression de lignes.
 - V40 / Gros Lot 23 : Cartes réelles Open Data 1.0, bascule des territoires vers de vrais fonds OpenStreetMap/Protomaps locaux et pipeline reproductible.
 - V39 / Gros Lot 22 : Tutoriel & Wiki 1.0, coach interactif sur les vraies actions, progression locale persistante, Wiki recherchable et aide contextuelle depuis les modules de jeu.
-- V38 / Gros Lot 21 : Défis 1.0, Défi du jour déterministe sur carte réelle, timer réel jusqu’à 60 minutes, lecture seule forte, archives quotidiennes optionnelles expirant après 30 jours, Défi entre amis par code et résultats comparables.
+- V38 / Gros Lot 21 : Défis 1.0, Défi du jour déterministe sur carte réelle, timer réel jusqu’à 60 minutes, lecture seule forte et archives quotidiennes optionnelles expirant après 30 jours. L’ancien défi entre amis par code a ensuite été retiré au profit du vrai mode En ligne.
 - V37 / Gros Lot 20 : Expérience Premium, menu principal refondu, soundtrack hors ligne, mixeur audio, marqueurs de station DOM robustes et coût/longueur du prochain segment prévisualisés en temps réel.
-- V36 / Gros Lot 19 : CLU Roast 1.0, historique et popup contextuelle, correction robuste des marqueurs de station et dock de conception responsive.
 - V35 / Gros Lot 18 : Tracé intelligent & Cartographie 4.0, routage assisté par mode, points de passage libres, géométrie persistante des segments, corridors conseillés et correction définitive des marqueurs de station.
 - V34 / Correctif majeur : Carte fictive régionale 3.0, tissu urbain riche, infrastructures, arrêts à halo blanc et véhicules noirs réduits.
 - V33 / Correctif majeur : écran de chargement animé, chargement des cartes stabilisé et vrais drapeaux SVG.
@@ -48,7 +49,6 @@ elle sert uniquement de porte d'entrée vers le dossier `game/`.
 - V30 / Gros Lot 15 : correctif de visibilité des tracés V29, catalogue territorial universel, choix de carte visuel (Random / Carte fictive / territoires réels) et sauvegardes réellement multi-territoires.
 - V29 / Gros Lot 14 : Carte & Tracés 2.0, courbes locales bornées, bifurcations plus propres, sélection/focus premium, aperçu de construction, rendu gros réseaux optimisé et fondations multi-territoires.
 - V28 / Gros Lot 13 : Bilan permanent, snapshots hebdomadaires, records, histoire de partie et Annuler/Rétablir de tracé.
-- V27 / Gros Lot 12 : Événements & Communes 2.0, priorisation du centre d’attention et préparation du réglage CLU Roast.
 - V26 / Gros Lot 11 : Sauvegardes 2.0, export/import `.clumetro`, duplication, renommage, backups de migration, refus des saves futures et vocabulaire Conception/Construction/En service.
 - V25.1 : paramètres globaux sombres et confort joueur ; suppression du thème clair.
 - V24 / Gros Lot 9 : Économie 2.0, financement public, crédit clarifié et corrections de tracé/branches.
@@ -57,7 +57,6 @@ elle sert uniquement de porte d'entrée vers le dossier `game/`.
 
 ## Gros Lot 12 — Événements & Communes 2.0 (V27)
 
-V27 enrichit les propositions communales (dont le renforcement de service), les négociations et l’historique territorial. Les événements deviennent contextuels aux résultats réels du réseau, le centre Événements & Infos priorise les trois urgences principales, et le réglage CLU Roast est préparé dans les paramètres.
 
 
 ## Gros Lot 13 — Bilan & historique (V28)
@@ -127,15 +126,6 @@ L'entrée dans une partie passe maintenant par un véritable écran de chargemen
 Pour les territoires locaux et procéduraux, MapLibre démarre avec un style minimal puis charge le GeoJSON régional après l'initialisation du moteur. Cela évite que le chargement global attende le parsing de toute la région. Le fond procédural a aussi été allégé sur les détails invisibles à l'échelle régionale (notamment les milliers de petits bâtiments et labels secondaires), sans réduire le nombre de communes, départements ou pôles utilisés par la simulation.
 
 
-## Gros Lot 19 — CLU Roast & personnalité (V36)
-
-V36 active enfin CLU Roast. Le système est 100 % local : il analyse le rapport de simulation et la situation financière après une journée, sélectionne une situation réellement remarquable (saturation, déficit, dette, parc surdimensionné, qualité, attente, excellente performance, etc.) puis choisit une phrase dans une banque dédiée. Les messages n'ont aucun effet caché sur l'économie ou le moral. Un cooldown global, un cooldown par catégorie et une mémoire des dernières phrases limitent les répétitions.
-
-La banque française contient 55 variantes, avec 33 références football et 22 références culture générale. Elle est séparée du moteur afin que le futur chantier langues puisse fournir des banques propres à chaque locale plutôt que de traduire littéralement les blagues. Le joueur peut désactiver complètement CLU Roast ou choisir Rare / Standard / Fréquent dans les paramètres globaux. Les Roast récents sont conservés dans la sauvegarde et visibles dans Événements & Infos. La notification de jeu apparaît en bas à droite, juste à gauche des contrôles de zoom, sans interrompre les actions.
-
-V36 corrige aussi les deux régressions visuelles signalées en V35 : les stations utilisent maintenant deux couches MapLibre distinctes (halo blanc puis cœur couleur de ligne), remontées au-dessus du réseau à chaque rafraîchissement ; et le dock de conception est réparti sur plusieurs lignes adaptatives. Le bouton de point de passage est retiré de l'interface afin de garder Assisté / Libre simple et lisible.
-
-
 ## Gros Lot 20 — Expérience Premium (V37)
 
 V37 transforme l'accueil en véritable menu de jeu : dernière partie mise en avant, navigation Nouvelle partie / En ligne / Défi / Sauvegardes / Paramètres, version visible, fond réseau animé et transitions entre les grandes scènes. Les écrans En ligne et Défi restent honnêtement préparatoires : ils n'activent pas de faux service réseau.
@@ -151,7 +141,7 @@ V38 active le Défi du jour sans backend : une date UTC produit de façon déter
 
 Le joueur peut conserver un Défi terminé comme archive de consultation. Depuis V44, toutes les sauvegardes Défi sont regroupées séparément dans Sauvegardes, partagent un quota de 10 et expirent automatiquement après 30 jours ; les parties libres normales ne sont jamais concernées par cette expiration. Les Défis terminés ne sont pas proposés par le bouton Continuer mais restent accessibles depuis leur dossier Sauvegardes tant qu’ils n’ont pas expiré.
 
-Le menu En ligne ouvre désormais deux entrées distinctes : **Défier un ami**, disponible, et **Jouer ensemble sur la même partie**, clairement marqué pour plus tard. En entrant dans Défier un ami, le joueur retrouve Partie aléatoire, Partie personnalisée et l’import d’un code reçu. Une partie aléatoire ou personnalisée est encodée dans un code `CLU1` versionné et contrôlé par checksum ; aucune infrastructure serveur n’est requise. Les résultats utilisent un code `CLUR1` avec empreinte de la configuration afin de refuser une comparaison entre deux défis différents. Le coop live reste volontairement hors périmètre de V38.
+Le menu **En ligne** est désormais consacré au multijoueur collaboratif en bêta : création/hébergement Premium, rejoindre gratuitement par code ou via l’annuaire public, jusqu’à cinq joueurs dans la même métropole synchronisée, permissions administrateur, budgets global/divisé et chat éphémère. Le créateur entre immédiatement dans la métropole sans lobby bloquant ; lorsqu’il quitte, la session se termine et seuls ses propres fichiers de sauvegarde restent persistants. L’ancien système **Défi entre amis par code** (`CLU1` / `CLUR1`) a été retiré de l’interface et de la création de nouvelles parties ; seules les anciennes sauvegardes restent lisibles pour compatibilité.
 
 L’accueil V38 met en avant le Défi du jour en or et En ligne en rouge, avec un fond abstrait de réseau vivant qui n’est plus lié visuellement à l’Île-de-France. Le micro-polish V37 est également intégré : hiérarchie `Prix` / `Prix total` / `Manque…`, maintien des longueurs en temps réel et rendu du mot « Métropole » sans le contour typographique qui déformait les e/E.
 
@@ -160,7 +150,6 @@ L’accueil V38 met en avant le Défi du jour en or et En ligne en rouge, avec u
 
 V39 ajoute une couche d’aide sans créer un moteur parallèle. Le tutoriel fonctionne directement sur une vraie partie libre : il observe l’état réel du panneau actif, des lignes et stations sélectionnées, du Bilan et du calendrier. Une étape n’est validée que lorsque l’action demandée a réellement eu lieu. La progression est persistée localement, peut être mise en pause, ignorée ou recommencée, et le système reste volontairement absent des défis chronométrés pour ne pas parasiter leurs règles.
 
-Le Wiki est entièrement local et recherchable. Ses articles couvrent prise en main, construction et tracés, stations/correspondances, matériel roulant, capacité/saturation, réserve/régulation, maintenance, qualité, finances/crédit/tarification, communes, événements, objectifs, Bilan, Défis, sauvegardes et CLU Roast. Depuis un panneau de jeu, le bouton `?` ouvre directement l’article correspondant au contexte au lieu de renvoyer systématiquement vers l’accueil du Wiki.
 
 Tutoriel et Wiki disposent chacun d’un réglage global. La progression du tutoriel peut être réinitialisée depuis Paramètres. Les langues restent volontairement hors de V39 et constituent toujours un chantier ultérieur distinct.
 
@@ -202,3 +191,24 @@ Le Bilan hebdomadaire est maintenant borné à 1 040 snapshots (environ vingt an
 V44 active l’internationalisation complète de l’interface de CLU Métropole en huit langues : Français, English, Deutsch, Nederlands, Español, Italiano, Português et Polski. Le choix est une préférence globale locale, sans drapeau, peut être changé sans recharger la partie et pilote également les formats de nombres, montants, dates, libellés d’accessibilité, Tutoriel/Wiki et Défis. Les noms créés par le joueur (parties, lignes, stations) et les noms propres issus des données ne sont jamais modifiés par la traduction.
 
 La gestion des sauvegardes sépare maintenant **Parties** et **Défis** dans la fenêtre Sauvegardes. Les parties libres disposent de 10 emplacements maximum ; créer, importer ou dupliquer une onzième partie est refusé jusqu’à la suppression d’une sauvegarde. Les sauvegardes Défi disposent de leur propre quota indépendant de 10 et sont nettoyées automatiquement après 30 jours. Mettre à jour une sauvegarde existante ne consomme jamais un nouvel emplacement. Ces limites sont imposées dans la couche IndexedDB elle-même afin de ne pas pouvoir être contournées par une autre interface.
+
+## V46 — Horaires & Missions 2.0
+
+V46 ajoute un second mode d’exploitation par ligne sans supprimer le système historique. **Fréquence automatique** conserve le fonctionnement existant ; **Horaires personnalisés** permet de construire une vraie grille de circulation mission par mission.
+
+Une mission possède un code court, un nom, un parcours exact, sa desserte et un temps d’arrêt moyen. Les arrêts intermédiaires peuvent être décochés pour créer des services semi-directs ou directs. Les départs sont stockés séparément pour Lun–Ven, samedi et dimanche. L’éditeur accepte les heures une par une, la génération d’une plage à intervalle régulier, l’application de cette plage à toutes les missions actives et la copie d’un jour de service vers un autre.
+
+La grille n’est pas seulement décorative. Le moteur de simulation utilise le nombre réel de courses pour calculer la capacité quotidienne, l’intensité de service et le parc minimal estimé. Le parc recommandé suit donc la grille créée par le joueur. Les prochains passages d’une station proviennent des horaires de la mission et respectent les arrêts réellement desservis ; les missions directes ne produisent pas de faux passage commercial dans une station sautée.
+
+Les véhicules visibles des lignes en mode horaire sont également créés à partir des départs planifiés et se déplacent selon l’heure de jeu, le parcours réel de la mission et le retard estimé. La fiche véhicule affiche son code mission et son départ prévu. Les sauvegardes antérieures sont migrées en mode `FREQUENCY`, ce qui préserve leur comportement tant que le joueur ne choisit pas explicitement les horaires personnalisés.
+
+
+## V47 — PCC & Perturbations 1.0
+
+V47 connecte la grille V46 à un véritable centre de régulation. Le panneau **PCC** permet de superviser une ligne en exploitation et, pour les lignes en horaires personnalisés, d'agir directement sur les prochaines courses : ajout de retard, suppression/rétablissement, terminus temporaire, modification de la desserte d'une course et injection d'un train de renfort à une heure précise. Ces décisions sont persistées et apparaissent dans un journal PCC borné.
+
+Les perturbations sont désormais créées par le joueur. Une perturbation possède un type, une gravité, une période, une portée (ligne entière, stations ou segment), un retard ajouté, un taux de suppressions, une capacité restante, un message voyageurs et, si nécessaire, une interruption totale. Les suppressions automatiques sont déterministes afin qu'une même course ne change pas aléatoirement d'état à chaque rafraîchissement. Une interruption de stations saute les arrêts intermédiaires concernés mais supprime la course si son origine ou son terminus est touché ; une interruption de ligne ou de segment supprime les courses concernées.
+
+Le moteur opérationnel est partagé par la carte, les prochains passages et la simulation quotidienne. Une course supprimée disparaît des passages et de la circulation ; un retard décale son départ réel ; un terminus temporaire raccourcit physiquement son parcours ; un arrêt sauté n'est plus desservi mais reste traversé ; un renfort apparaît comme une circulation supplémentaire. Les perturbations réduisent également la capacité, le nombre de courses réellement produites et la régularité du bilan. Pour les lignes encore en fréquence automatique, l'impact est agrégé sans inventer de missions individuelles.
+
+La fiche station affiche les informations trafic actives de la ligne, et les fiches véhicule distinguent maintenant le départ prévu du départ réel PCC ainsi que les trains de renfort. Le format de sauvegarde passe en V47 ; les anciennes sauvegardes reçoivent automatiquement un état d'exploitation vide et conservent leur comportement antérieur.

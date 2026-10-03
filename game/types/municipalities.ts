@@ -64,8 +64,111 @@ export interface GameMunicipalityRequest {
   negotiationStatus: 'NONE' | 'ACCEPTED' | 'COUNTERED' | 'WITHDRAWN'
 }
 
+
+export interface GameMunicipalityDevelopment {
+  code: string
+  /** Population du territoire au premier chargement de la partie. */
+  basePopulation: number
+  /** Population dynamique utilisée par la simulation à partir de Métropole 2.0. */
+  population: number
+  /** Accessibilité TC synthétique, 0 à 100. Sert au développement, pas à l'affichage d'un score obligatoire. */
+  accessibility: number
+  /** Variation appliquée lors du dernier jour simulé. */
+  lastPopulationDelta: number
+  /** Dernier jour où la commune a franchi un palier de croissance visible. */
+  lastMilestoneDay: number | null
+  /** Palier de croissance de 2 % atteint depuis la population de référence. */
+  milestoneLevel: number
+  lastUpdatedDay: number
+}
+
+
+export type GameUrbanProjectKind =
+  | 'RESIDENTIAL_DISTRICT'
+  | 'BUSINESS_DISTRICT'
+  | 'CAMPUS'
+  | 'LEISURE_HUB'
+
+export type GameUrbanProjectStatus = 'PLANNED' | 'CONSTRUCTION' | 'OPENED' | 'MATURE'
+
+export interface GameUrbanProject {
+  id: string
+  municipalityCode: string
+  municipalityName: string
+  kind: GameUrbanProjectKind
+  title: string
+  createdDay: number
+  openingDay: number
+  /** Début de chantier : la demande commence à monter avant l'ouverture. */
+  constructionStartDay: number
+  /** Fin de montée en puissance après l'ouverture. */
+  maturityDay: number
+  status: GameUrbanProjectStatus
+  /** Habitants réellement ajoutés à l'ouverture du projet. */
+  populationGain: number
+  /** Surcroît de déplacements local généré une fois le projet ouvert. 0.10 = +10 %. */
+  mobilityDemandBonus: number
+  openedDay: number | null
+  maturedDay: number | null
+}
+
+export type GameLocalEventKind = 'CONCERT' | 'FOOTBALL' | 'FESTIVAL' | 'EXHIBITION'
+export type GameLocalEventScale = 'LOCAL' | 'MAJOR' | 'MEGA'
+export type GameLocalEventStatus = 'ANNOUNCED' | 'ACTIVE' | 'FINISHED'
+export type GameLocalEventServiceKind = 'REINFORCEMENT' | 'EVENT_SHUTTLE' | 'LATE_SERVICE'
+
+export type GameLocalEventOutcomeTone = 'SUCCESS' | 'BALANCED' | 'OVERLOADED'
+
+export interface GameLocalEventOutcome {
+  resolvedDay: number
+  transportedVisitors: number
+  leftBehindVisitors: number
+  serviceScore: number
+  extraRevenue: number
+  /** Coût réellement engagé par le joueur pour le service temporaire. */
+  serviceCost: number
+  /** Recettes événementielles estimées moins coût du service temporaire. */
+  netImpact: number
+  tone: GameLocalEventOutcomeTone
+}
+
+export interface GameLocalEvent {
+  id: string
+  municipalityCode: string
+  municipalityName: string
+  kind: GameLocalEventKind
+  title: string
+  createdDay: number
+  startsDay: number
+  endsDay: number
+  expectedVisitors: number
+  /** Envergure de l’événement, utilisée pour la pression voyageurs et le conseiller. */
+  scale: GameLocalEventScale
+  /** Multiplicateur de demande uniquement pour les lignes desservant cette commune. */
+  demandMultiplier: number
+  status: GameLocalEventStatus
+  /** Préparation choisie par le joueur depuis Actions. */
+  preparedLineId?: string
+  preparationLevel?: 'LIGHT' | 'STRONG'
+  /** Phase 15 : type de service temporaire préparé pour l'événement. */
+  serviceKind?: GameLocalEventServiceKind
+  /** Coût cumulé réellement engagé pour la préparation de cet événement. */
+  serviceCost?: number
+  preparedAtDay?: number
+  /** Bilan calculé à la fin de l'événement pour donner un retour de gameplay concret. */
+  outcome?: GameLocalEventOutcome
+}
+
 export interface GameMunicipalitiesState {
   relations: GameMunicipalityRelation[]
   requests: GameMunicipalityRequest[]
   totalSubsidiesReceived: number
+  /** Métropole 2.0 : évolution territoriale persistée, ajoutée sans rendre les anciennes sauvegardes incompatibles. */
+  development: GameMunicipalityDevelopment[]
+  /** Métropole 2.0 Phase 14 : projets urbains qui rendent le territoire réellement évolutif. */
+  urbanProjects?: GameUrbanProject[]
+  /** Événements localisés : concert, match, festival… Ils modifient la demande du secteur. */
+  localEvents?: GameLocalEvent[]
+  nextUrbanProjectDay?: number
+  nextLocalEventDay?: number
 }

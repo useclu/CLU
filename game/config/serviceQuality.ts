@@ -18,6 +18,8 @@ Record<GameTransportMode, number> = {
   TRAIN: 3.2,
   BUS: 0.3,
   BRT: 0.55,
+  CABLE: 0.9,
+  FERRY: 1.2,
 }
 
 export function clampServiceQualityScore(

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { currentGameLocaleTag } from '../../../config/i18n'
+import { formatGameInteger, formatGameCurrencyCompact, formatGamePercent } from '../../../config/i18n'
 import { computed, ref } from 'vue'
 import { getTransportModeDefinition } from '../../../config/transportModes'
 import { useGameInfoCenter } from '../../../composables/useGameInfoCenter'
@@ -8,7 +8,9 @@ import { useGameMunicipalities } from '../../../composables/useGameMunicipalitie
 import { useGameSelection } from '../../../composables/useGameSelection'
 import { useGameAnalytics } from '../../../composables/useGameAnalytics'
 import { useGameSettings } from '../../../composables/useGameSettings'
-import { useGameRoast } from '../../../composables/useGameRoast'
+import { useGameAssistant } from '../../../composables/useGameAssistant'
+import { useCluOnline } from '../../../composables/useCluOnline'
+import { currentGameLocale, translateGameText } from '../../../config/i18n'
 
 const info = useGameInfoCenter()
 const events = useGameEvents()
@@ -16,7 +18,13 @@ const municipalities = useGameMunicipalities()
 const selection = useGameSelection()
 const analytics = useGameAnalytics()
 const preferences = useGameSettings()
-const roast = useGameRoast()
+const assistant = useGameAssistant()
+const online = useCluOnline()
+const onlineAccepted = computed(() => online.sessionActive.value && online.moi.value?.statut === 'accepte')
+const canManageEvents = computed(() => !onlineAccepted.value || online.estAdmin.value || online.peut('gerer_evenements'))
+const canManageUrbanism = computed(() => !onlineAccepted.value || online.estAdmin.value || online.peut('gerer_urbanisme'))
+const eventPermissionHint = computed(() => canManageEvents.value ? '' : translateGameText('Permission requise : gérer les événements.', currentGameLocale()))
+const urbanismPermissionHint = computed(() => canManageUrbanism.value ? '' : translateGameText('Permission requise : gérer l’urbanisme.', currentGameLocale()))
 const contextualTipsEnabled = computed(() => preferences.settings.value.contextualTips !== false)
 const negotiationRequest = ref<any | null>(null)
 const negotiationAmountValue = ref(0)
@@ -29,6 +37,7 @@ const informationItems = computed(() => alerts.value.filter(item => item.severit
 const negotiationMax = computed(() => Math.max(1_000_000, Math.ceil(((negotiationRequest.value?.subsidyAmount ?? 0) * 1.65) / 1_000_000) * 1_000_000))
 
 function openNegotiation(request: any) {
+  if (!canManageUrbanism.value) return
   negotiationRequest.value = request
   negotiationAmountValue.value = Math.round((request.subsidyAmount ?? 0) / 100_000) * 100_000
   negotiationResponse.value = null
@@ -38,6 +47,7 @@ function closeNegotiation() {
   negotiationResponse.value = null
 }
 async function proposeNegotiation() {
+  if (!canManageUrbanism.value) return
   const request = negotiationRequest.value
   if (!request) return
   const result = await municipalities.negotiateRequest(request.id, negotiationAmountValue.value)
@@ -54,20 +64,37 @@ async function proposeNegotiation() {
   negotiationResponse.value = { status: result.status, message: 'Je refuse de payer cette somme, je me retire.' }
 }
 async function acceptCounterOffer() {
+  if (!canManageUrbanism.value) return
   const request = negotiationRequest.value
   if (!request) return
   await municipalities.acceptRequest(request.id)
   negotiationResponse.value = { status: 'ACCEPTED', message: `Accord conclu à ${money(request.subsidyAmount)}.` }
 }
 
+function choiceRequiresExpense(choice: any) {
+  return Array.isArray(choice?.effects) && choice.effects.some((effect: any) => effect?.kind === 'BALANCE' && Number(effect.amount) < 0)
+}
+function canChooseEventChoice(choice: any) {
+  if (!canManageEvents.value) return false
+  if (!onlineAccepted.value || online.estAdmin.value) return true
+  return !choiceRequiresExpense(choice) || online.peut('effectuer_depenses')
+}
+function eventChoiceHint(choice: any) {
+  if (!canManageEvents.value) return eventPermissionHint.value
+  if (choiceRequiresExpense(choice) && onlineAccepted.value && !online.estAdmin.value && !online.peut('effectuer_depenses')) {
+    return translateGameText('Permission requise : effectuer des dépenses.', currentGameLocale())
+  }
+  return ''
+}
+
 function money(value: number) {
-  return new Intl.NumberFormat(currentGameLocaleTag(), { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 }).format(value)
+  return formatGameCurrencyCompact(value)
 }
 function integer(value: number) {
-  return new Intl.NumberFormat(currentGameLocaleTag(), { maximumFractionDigits: 0 }).format(value)
+  return formatGameInteger(value)
 }
 function percent(value: number) {
-  return new Intl.NumberFormat(currentGameLocaleTag(), { style: 'percent', maximumFractionDigits: 0 }).format(value)
+  return formatGamePercent(value)
 }
 function focusInfo(item: any) {
   if (item.lineId && item.stationId) {
@@ -113,12 +140,12 @@ function categoryLabel(category: string) {
 <template>
   <section class="events-panel">
     <div class="section-head">
-      <div><span class="eyebrow">Centre de commandement</span><h2>Événements & Infos</h2></div>
+      <div><span class="eyebrow">À suivre</span><h2>Décisions & alertes</h2></div>
       <span class="counter" :class="{ danger: info.criticalCount.value > 0 }">{{ info.attentionCount.value }} à surveiller</span>
     </div>
 
     <div class="daily-pulse" :class="`tone-${analytics.networkHealth.value.tone}`">
-      <div class="pulse-head"><span>État du réseau</span><strong>{{ analytics.networkHealth.value.label }}</strong></div>
+      <div class="pulse-head"><span>Aujourd’hui</span><strong>{{ analytics.networkHealth.value.label }}</strong></div>
       <p>{{ analytics.networkHealth.value.summary }}</p>
       <div class="pulse-grid">
         <div><span>Demande transportée</span><strong>{{ percent(analytics.aggregate.value.demandSatisfactionRate) }}</strong></div>
@@ -134,8 +161,9 @@ function categoryLabel(category: string) {
         <section v-if="events.activeEvent.value" class="decision-block">
           <div class="sub-head"><strong>{{ events.activeEvent.value.title }}</strong><small>Une décision est attendue maintenant.</small></div>
           <p class="decision-description">{{ events.activeEvent.value.description }}</p>
+          <p v-if="!canManageEvents" class="permission-note">{{ eventPermissionHint }}</p>
           <div class="choice-list">
-            <button v-for="choice in events.activeEvent.value.choices" :key="choice.id" type="button" @click="events.choose(choice.id)"><strong>{{ choice.label }}</strong><small>{{ choice.description }}</small></button>
+            <button v-for="choice in events.activeEvent.value.choices" :key="choice.id" type="button" :disabled="!canChooseEventChoice(choice)" :title="eventChoiceHint(choice)" @click="events.choose(choice.id)"><strong>{{ choice.label }}</strong><small>{{ choice.description }}</small></button>
           </div>
         </section>
 
@@ -154,7 +182,8 @@ function categoryLabel(category: string) {
             <p>{{ requestDescription(request) }}</p>
             <small>Subvention estimée : {{ money(request.subsidyAmount) }} · référence {{ getTransportModeDefinition(request.referenceMode ?? 'TRAM').label }}</small>
             <small class="funding-note">Cofinancement proportionnel : le montant final dépend du projet réellement livré.</small>
-            <div class="decision-row"><button class="accept" type="button" @click="municipalities.acceptRequest(request.id)">Accepter</button><button class="negotiate" type="button" @click="openNegotiation(request)">Négocier</button><button class="refuse" type="button" @click="municipalities.refuseRequest(request.id)">Refuser</button></div>
+            <div class="decision-row"><button class="accept" type="button" :disabled="!canManageUrbanism" :title="urbanismPermissionHint" @click="municipalities.acceptRequest(request.id)">Accepter</button><button class="negotiate" type="button" :disabled="!canManageUrbanism" :title="urbanismPermissionHint" @click="openNegotiation(request)">Négocier</button><button class="refuse" type="button" :disabled="!canManageUrbanism" :title="urbanismPermissionHint" @click="municipalities.refuseRequest(request.id)">Refuser</button></div>
+            <small v-if="!canManageUrbanism" class="permission-note">{{ urbanismPermissionHint }}</small>
           </article>
         </div>
 
@@ -188,8 +217,8 @@ function categoryLabel(category: string) {
       <div class="group-content history">
         <div v-for="request in municipalities.recentResolvedRequests.value" :key="`municipality-${request.id}`"><strong>{{ request.municipalityName }} · {{ requestTitle(request.kind) }}</strong><small>Jour {{ request.resolvedDay ?? '—' }} · {{ requestStatusLabel(request.status) }}<template v-if="request.status === 'COMPLETED'"> · {{ money(request.subsidyAmount) }}</template></small></div>
         <div v-for="entry in events.recentHistory.value" :key="entry.id"><strong>{{ entry.eyebrow ? `${entry.eyebrow} · ` : '' }}{{ entry.title }}</strong><small>Jour {{ entry.resolvedDay }} · {{ entry.status === 'RESOLVED' ? entry.choiceLabel : 'Expiré sans décision' }}<template v-if="entry.balanceImpact"> · {{ entry.balanceImpact > 0 ? '+' : '' }}{{ money(entry.balanceImpact) }}</template></small></div>
-        <div v-for="entry in roast.recentHistory.value" :key="`roast-${entry.id}`"><strong>{{ entry.category === 'ASSISTANT' ? 'CLU Assistant' : 'CLU Roast' }} · {{ entry.title }}</strong><small>Jour {{ entry.day }} · {{ entry.message }}</small></div>
-        <div v-if="!municipalities.recentResolvedRequests.value.length && !events.recentHistory.value.length && !roast.recentHistory.value.length" class="quiet">Aucun historique pour le moment.</div>
+        <div v-for="entry in assistant.recentHistory.value" :key="`assistant-${entry.id}`"><strong>CLU Assistant · {{ entry.title }}</strong><small>Jour {{ entry.day }} · {{ entry.message }}</small></div>
+        <div v-if="!municipalities.recentResolvedRequests.value.length && !events.recentHistory.value.length && !assistant.recentHistory.value.length" class="quiet">Aucun historique pour le moment.</div>
       </div>
     </details>
 
@@ -197,11 +226,11 @@ function categoryLabel(category: string) {
       <section class="negotiation-dialog" role="dialog" aria-modal="true" aria-labelledby="negotiation-title" tabindex="-1" @keydown.esc.prevent="closeNegotiation">
         <div class="negotiation-dialog-head"><div><span class="eyebrow">Négociation</span><h3 id="negotiation-title">{{ negotiationRequest.municipalityName }}</h3></div><button type="button" aria-label="Fermer" @click="closeNegotiation">×</button></div>
         <p>Budget initial proposé par la ville : <strong>{{ money(negotiationRequest.subsidyAmount) }}</strong></p>
-        <label class="negotiation-slider">Votre proposition <strong>{{ money(negotiationAmountValue) }}</strong><input v-model.number="negotiationAmountValue" type="range" min="0" :max="negotiationMax" step="100000"></label>
+        <label class="negotiation-slider">Votre proposition <strong>{{ money(negotiationAmountValue) }}</strong><input v-model.number="negotiationAmountValue" type="range" min="0" :max="negotiationMax" step="100000" :disabled="!canManageUrbanism"></label>
         <div v-if="negotiationResponse" class="negotiation-response" :class="`status-${negotiationResponse.status.toLowerCase()}`">{{ negotiationResponse.message }}</div>
         <div class="dialog-actions">
-          <button v-if="negotiationResponse?.status === 'COUNTERED'" class="accept" type="button" @click="acceptCounterOffer">Accepter {{ money(negotiationRequest.subsidyAmount) }}</button>
-          <button v-if="!negotiationResponse || negotiationResponse.status === 'COUNTERED'" class="negotiate" type="button" @click="proposeNegotiation">{{ negotiationResponse?.status === 'COUNTERED' ? 'Dernière contre-proposition' : 'Proposer' }}</button>
+          <button v-if="negotiationResponse?.status === 'COUNTERED'" class="accept" type="button" :disabled="!canManageUrbanism" @click="acceptCounterOffer">Accepter {{ money(negotiationRequest.subsidyAmount) }}</button>
+          <button v-if="!negotiationResponse || negotiationResponse.status === 'COUNTERED'" class="negotiate" type="button" :disabled="!canManageUrbanism" @click="proposeNegotiation">{{ negotiationResponse?.status === 'COUNTERED' ? 'Dernière contre-proposition' : 'Proposer' }}</button>
           <button type="button" @click="closeNegotiation">{{ negotiationResponse ? 'Fermer' : 'Annuler' }}</button>
         </div>
       </section>
@@ -210,6 +239,10 @@ function categoryLabel(category: string) {
 </template>
 
 <style scoped>
-.events-panel{display:grid;gap:24px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.eyebrow{font-size:calc(11px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.12em;opacity:.55}.section-head h2{margin:3px 0 0;font-size:calc(24px * var(--clu-text-scale,1))}.counter{font-size:calc(11px * var(--clu-text-scale,1));padding:6px 9px;border-radius:999px;background:rgba(255,255,255,.07)}.counter.danger{background:rgba(205,73,73,.16);color:#ff9b9b}.daily-pulse{padding:15px;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.035);display:grid;gap:10px}.pulse-head{display:flex;justify-content:space-between;align-items:center}.pulse-head span{font-size:calc(10px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.1em;opacity:.5}.pulse-head strong{font-size:calc(13px * var(--clu-text-scale,1))}.daily-pulse p{margin:0;font-size:calc(12px * var(--clu-text-scale,1));line-height:1.5;opacity:.7}.pulse-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.pulse-grid>div{padding:9px;border-radius:9px;background:rgba(255,255,255,.035);display:grid;gap:2px}.pulse-grid span{font-size:calc(9px * var(--clu-text-scale,1));opacity:.5}.pulse-grid strong{font-size:calc(13px * var(--clu-text-scale,1))}.tone-critical{border-left:3px solid #e35f5f}.tone-warning{border-left:3px solid #e5aa55}.tone-good{border-left:3px solid #55ca87}.tone-info{border-left:3px solid #65c9dc}.command-section{display:grid;gap:10px}.sub-head{display:grid;gap:2px}.sub-head small,.decision-description{font-size:calc(11px * var(--clu-text-scale,1));opacity:.58}.quiet{font-size:calc(12px * var(--clu-text-scale,1));opacity:.7;padding:13px;border:1px solid rgba(255,255,255,.08);border-radius:11px}.info-list,.choice-list,.request-list,.history{display:grid;gap:9px}.info-card,.choice-list button{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:inherit;border-radius:12px;padding:12px;text-align:left;display:grid;gap:5px;cursor:pointer}.info-card:hover{background:rgba(255,255,255,.06)}.info-card p,.request-list p{margin:0;font-size:calc(12px * var(--clu-text-scale,1));line-height:1.45;opacity:.66}.info-meta{display:flex;justify-content:space-between;gap:8px;font-size:calc(9px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.1em;opacity:.52}.open-hint{font-size:calc(10px * var(--clu-text-scale,1));color:#87dfe6;margin-top:2px}.sev-critical{border-color:rgba(255,105,105,.43);background:rgba(174,54,54,.07)}.sev-warning{border-color:rgba(255,190,90,.3)}.sev-info{border-color:rgba(92,190,216,.2)}.compact-list{gap:6px}.choice-list small{opacity:.6;margin-top:3px}.request-list article{padding:13px;border-radius:12px;background:rgba(255,255,255,.035);display:grid;gap:6px}.request-city{font-size:calc(9px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.12em;opacity:.55}.request-list article>div{display:flex;gap:8px;margin-top:7px}.request-list button{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:inherit;border-radius:9px;padding:8px 11px;cursor:pointer}.decision-row .accept{background:rgba(48,170,102,.18);border-color:rgba(77,220,132,.4);color:#9aefb9}.decision-row .negotiate{background:rgba(218,164,57,.16);border-color:rgba(239,190,80,.4);color:#f1cf79}.decision-row .refuse{background:rgba(191,67,67,.14);border-color:rgba(238,96,96,.38);color:#ff9a9a}.negotiation-row label{width:100%;display:grid;gap:6px;font-size:calc(10px * var(--clu-text-scale,1));opacity:.72}.negotiation-row input{background:#121c23;color:#edf6f7;color-scheme:dark;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:9px}.negotiation-note{font-size:calc(10px * var(--clu-text-scale,1));color:#f0c36d}.negotiation-note.success{color:#8ee1ad}.history>div{display:grid;padding:9px;border-radius:8px;background:rgba(255,255,255,.03)}.roast-history>div{border-left:2px solid rgba(114,216,223,.55)}.history small{opacity:.5;margin-top:2px}details{border-top:1px solid rgba(255,255,255,.07);padding-top:14px}summary{cursor:pointer;font-weight:700;margin-bottom:12px}@media(max-width:520px){.pulse-grid{grid-template-columns:1fr}}
-.negotiation-backdrop{position:fixed;inset:0;z-index:1200;background:rgba(4,10,14,.72);display:grid;place-items:center;padding:20px}.negotiation-dialog{width:min(520px,100%);border:1px solid rgba(255,255,255,.14);border-radius:18px;background:#101920;padding:20px;display:grid;gap:16px;box-shadow:0 24px 80px rgba(0,0,0,.45)}.negotiation-dialog-head{display:flex;justify-content:space-between;align-items:flex-start}.negotiation-dialog-head h3{margin:3px 0 0}.negotiation-dialog-head button{border:0;background:transparent;color:inherit;font-size:calc(24px * var(--clu-text-scale,1));cursor:pointer}.negotiation-slider{display:grid;gap:10px;font-size:calc(12px * var(--clu-text-scale,1))}.negotiation-slider input{width:100%}.negotiation-response{padding:12px;border-radius:10px;background:rgba(255,255,255,.06);font-size:calc(12px * var(--clu-text-scale,1))}.status-accepted{border-left:3px solid #55ca87}.status-countered{border-left:3px solid #e5aa55}.status-withdrawn,.status-refused{border-left:3px solid #e35f5f}.dialog-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.dialog-actions button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:inherit;border-radius:9px;padding:9px 12px;cursor:pointer}.dialog-actions .accept{background:rgba(48,170,102,.18)}.dialog-actions .negotiate{background:rgba(218,164,57,.16)}.event-group{border-top:1px solid rgba(255,255,255,.07);padding-top:14px}.event-group--priority{border-color:rgba(229,170,85,.22)}.group-content{display:grid;gap:12px}.decision-block{display:grid;gap:9px;padding:12px;border-radius:12px;background:rgba(229,170,85,.06);border:1px solid rgba(229,170,85,.18)}.funding-note{display:block;margin-top:3px;font-size:calc(9px * var(--clu-text-scale,1));line-height:1.45;opacity:.5}
+.events-panel{display:grid;gap:24px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.eyebrow{font-size:calc(11px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.12em;opacity:.55}.section-head h2{margin:3px 0 0;font-size:calc(24px * var(--clu-text-scale,1))}.counter{font-size:calc(11px * var(--clu-text-scale,1));padding:6px 9px;border-radius:999px;background:rgba(255,255,255,.07)}.counter.danger{background:rgba(205,73,73,.16);color:#ff9b9b}.daily-pulse{padding:15px;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.035);display:grid;gap:10px}.pulse-head{display:flex;justify-content:space-between;align-items:center}.pulse-head span{font-size:calc(10px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.1em;opacity:.5}.pulse-head strong{font-size:calc(13px * var(--clu-text-scale,1))}.daily-pulse p{margin:0;font-size:calc(12px * var(--clu-text-scale,1));line-height:1.5;opacity:.7}.pulse-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.pulse-grid>div{padding:9px;border-radius:9px;background:rgba(255,255,255,.035);display:grid;gap:2px}.pulse-grid span{font-size:calc(9px * var(--clu-text-scale,1));opacity:.5}.pulse-grid strong{font-size:calc(13px * var(--clu-text-scale,1))}.tone-critical{border-left:3px solid #e35f5f}.tone-warning{border-left:3px solid #e5aa55}.tone-good{border-left:3px solid #55ca87}.tone-info{border-left:3px solid #65c9dc}.command-section{display:grid;gap:10px}.sub-head{display:grid;gap:2px}.sub-head small,.decision-description{font-size:calc(11px * var(--clu-text-scale,1));opacity:.58}.quiet{font-size:calc(12px * var(--clu-text-scale,1));opacity:.7;padding:13px;border:1px solid rgba(255,255,255,.08);border-radius:11px}.info-list,.choice-list,.request-list,.history{display:grid;gap:9px}.info-card,.choice-list button{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);color:inherit;border-radius:12px;padding:12px;text-align:left;display:grid;gap:5px;cursor:pointer}.info-card:hover{background:rgba(255,255,255,.06)}.info-card p,.request-list p{margin:0;font-size:calc(12px * var(--clu-text-scale,1));line-height:1.45;opacity:.66}.info-meta{display:flex;justify-content:space-between;gap:8px;font-size:calc(9px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.1em;opacity:.52}.open-hint{font-size:calc(10px * var(--clu-text-scale,1));color:#87dfe6;margin-top:2px}.sev-critical{border-color:rgba(255,105,105,.43);background:rgba(174,54,54,.07)}.sev-warning{border-color:rgba(255,190,90,.3)}.sev-info{border-color:rgba(92,190,216,.2)}.compact-list{gap:6px}.choice-list small{opacity:.6;margin-top:3px}.request-list article{padding:13px;border-radius:12px;background:rgba(255,255,255,.035);display:grid;gap:6px}.request-city{font-size:calc(9px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.12em;opacity:.55}.request-list article>div{display:flex;gap:8px;margin-top:7px}.request-list button{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:inherit;border-radius:9px;padding:8px 11px;cursor:pointer}.decision-row .accept{background:rgba(48,170,102,.18);border-color:rgba(77,220,132,.4);color:#9aefb9}.decision-row .negotiate{background:rgba(218,164,57,.16);border-color:rgba(239,190,80,.4);color:#f1cf79}.decision-row .refuse{background:rgba(191,67,67,.14);border-color:rgba(238,96,96,.38);color:#ff9a9a}.negotiation-row label{width:100%;display:grid;gap:6px;font-size:calc(10px * var(--clu-text-scale,1));opacity:.72}.negotiation-row input{background:#121c23;color:#edf6f7;color-scheme:dark;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:9px}.negotiation-note{font-size:calc(10px * var(--clu-text-scale,1));color:#f0c36d}.negotiation-note.success{color:#8ee1ad}.history>div{display:grid;padding:9px;border-radius:8px;background:rgba(255,255,255,.03)}.assistant-history>div{border-left:2px solid rgba(114,216,223,.55)}.history small{opacity:.5;margin-top:2px}details{border-top:1px solid rgba(255,255,255,.07);padding-top:14px}summary{cursor:pointer;font-weight:700;margin-bottom:12px}@media(max-width:520px){.pulse-grid{grid-template-columns:1fr}}
+.negotiation-backdrop{position:fixed;inset:0;z-index:1200;background:rgba(4,10,14,.72);display:grid;place-items:center;padding:20px}.negotiation-dialog{width:min(520px,100%);border:1px solid rgba(255,255,255,.14);border-radius:18px;background:#101920;padding:20px;display:grid;gap:16px;box-shadow:0 24px 80px rgba(0,0,0,.45)}.negotiation-dialog-head{display:flex;justify-content:space-between;align-items:flex-start}.negotiation-dialog-head h3{margin:3px 0 0}.negotiation-dialog-head button{border:0;background:transparent;color:inherit;font-size:calc(24px * var(--clu-text-scale,1));cursor:pointer}.negotiation-slider{display:grid;gap:10px;font-size:calc(12px * var(--clu-text-scale,1))}.negotiation-slider input{width:100%}.negotiation-response{padding:12px;border-radius:10px;background:rgba(255,255,255,.06);font-size:calc(12px * var(--clu-text-scale,1))}.status-accepted{border-left:3px solid #55ca87}.status-countered{border-left:3px solid #e5aa55}.status-withdrawn,.status-refused{border-left:3px solid #e35f5f}.dialog-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.dialog-actions button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:inherit;border-radius:9px;padding:9px 12px;cursor:pointer}.dialog-actions .accept{background:rgba(48,170,102,.18)}.dialog-actions .negotiate{background:rgba(218,164,57,.16)}.event-group{border-top:1px solid rgba(255,255,255,.07);padding-top:14px}.event-group--priority{border-color:rgba(229,170,85,.22)}.group-content{display:grid;gap:12px}.decision-block{display:grid;gap:9px;padding:12px;border-radius:12px;background:rgba(229,170,85,.06);border:1px solid rgba(229,170,85,.18)}.funding-note{display:block;margin-top:3px;font-size:calc(9px * var(--clu-text-scale,1));line-height:1.45;opacity:.5}.permission-note{margin:0;padding:7px 9px;border:1px dashed rgba(240,201,139,.28);border-radius:8px;background:rgba(240,201,139,.05);color:#f0c98b;font-size:calc(9px * var(--clu-text-scale,1));line-height:1.35}.choice-list button:disabled,.decision-row button:disabled,.dialog-actions button:disabled{opacity:.38;filter:saturate(.25);cursor:not-allowed}
+
+/* À suivre : moins de décor, priorité aux décisions. */
+.events-panel{gap:12px}.section-head h2{font-size:calc(18px * var(--clu-text-scale,1))}.events-panel .eyebrow{font-size:calc(8px * var(--clu-text-scale,1))}.daily-pulse{padding:9px;border-radius:9px;background:rgba(255,255,255,.02)}.daily-pulse p{font-size:calc(9px * var(--clu-text-scale,1));line-height:1.35}.pulse-grid{gap:5px}.pulse-grid>div{padding:7px}.command-section{gap:7px}.info-list,.choice-list,.request-list,.history{gap:5px}.info-card,.choice-list button,.request-list article{padding:8px;border-radius:9px;background:rgba(255,255,255,.02)}.info-card p,.request-list p{font-size:calc(9px * var(--clu-text-scale,1));line-height:1.35}.event-group{padding-top:9px}.group-content{gap:7px}.decision-block{padding:8px;border-radius:9px}
+
 </style>

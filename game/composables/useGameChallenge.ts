@@ -1,11 +1,6 @@
 import { computed, onUnmounted, ref } from 'vue'
 import { useMetropoleGame } from './useMetropoleGame'
-import {
-  decodeChallengeResult,
-  encodeChallengeResult,
-  evaluateChallengeObjectives,
-  getChallengeDefinitionFingerprint,
-} from '../engine/challenges'
+import { evaluateChallengeObjectives } from '../engine/challenges'
 
 export function useGameChallenge() {
   const game = useMetropoleGame()
@@ -32,11 +27,6 @@ export function useGameChallenge() {
   const objectiveProgress = computed(() => {
     const save = game.state.value.save
     return save?.data.challenge ? evaluateChallengeObjectives(save) : []
-  })
-  const resultCode = computed(() => {
-    const current = runtime.value
-    if (!current?.result) return ''
-    return encodeChallengeResult(current.definition, current.result)
   })
 
   function formatTime(seconds = remainingSeconds.value) {
@@ -77,19 +67,6 @@ export function useGameChallenge() {
     return game.finishCurrentChallenge('HARD_FAILURE')
   }
 
-  function compareResultCode(code: string) {
-    const current = runtime.value
-    if (!current?.result) throw new Error('Terminez d’abord votre défi pour comparer les résultats.')
-    const other = decodeChallengeResult(code)
-    const fingerprint = getChallengeDefinitionFingerprint(current.definition)
-    if (other.definitionFingerprint !== fingerprint) throw new Error('Ce résultat correspond à un autre défi ou à des règles différentes.')
-    return {
-      local: current.result,
-      other: other.result,
-      scoreDelta: current.result.score - other.result.score,
-    }
-  }
-
   onUnmounted(stopClock)
 
   return {
@@ -101,12 +78,10 @@ export function useGameChallenge() {
     remainingSeconds,
     elapsedSeconds,
     objectiveProgress,
-    resultCode,
     formatTime,
     startClock,
     stopClock,
     finishManually,
     failHard,
-    compareResultCode,
   }
 }

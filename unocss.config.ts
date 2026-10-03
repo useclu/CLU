@@ -14,7 +14,7 @@ export default defineConfig({
     presetAttributify(),
     presetIcons({
       scale: 1.5,
-      warn: true,
+      warn: false,
       extraProperties: {
         'background-color': 'currentColor',
         'color': 'inherit',

@@ -13,11 +13,9 @@ export function useGameSettings() {
   function applyToDocument() {
     if (typeof document === 'undefined') return
     const root = document.documentElement
-    // CLU Métropole reste volontairement sombre : le thème clair n'est pas adapté
-    // au langage visuel actuel du jeu et n'est plus exposé dans les paramètres.
     root.lang = settings.value.locale
     root.dataset.cluGameLocale = settings.value.locale
-    root.dataset.cluGameTheme = 'dark'
+    root.dataset.cluGameTheme = settings.value.theme === 'LIGHT' ? 'light' : 'dark'
     root.dataset.cluGameMotion = settings.value.reducedMotion ? 'reduced' : 'full'
     root.dataset.cluGameContrast = settings.value.highContrast ? 'high' : 'standard'
     root.dataset.cluGameTextSize = settings.value.textSize.toLowerCase()

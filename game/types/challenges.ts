@@ -3,6 +3,7 @@ import type { GameGeneratedTerritorySettings } from './generatedTerritory'
 import type { GameTransportMode } from './network'
 import type { GameTerritory } from './game'
 
+/** FRIEND_* est conservé uniquement pour charger d'anciennes sauvegardes. Aucune nouvelle partie ne peut être créée avec ces modes. */
 export type GameChallengeKind = 'DAILY' | 'FRIEND_RANDOM' | 'FRIEND_CUSTOM'
 export type GameChallengeDifficulty = 'STANDARD' | 'HARD' | 'EXTREME'
 export type GameChallengeStatus = 'ACTIVE' | 'SUCCESS' | 'FAILED'
@@ -83,11 +84,4 @@ export interface GameChallengeRuntime {
   /** Uniquement pour les archives du Défi du jour que le joueur a choisi de conserver. */
   archivedChallenge?: boolean
   expiresAt?: string | null
-}
-
-export interface GameChallengeResultEnvelope {
-  version: 1
-  definitionFingerprint: string
-  definitionId: string
-  result: GameChallengeResult
 }

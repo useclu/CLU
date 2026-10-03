@@ -12,14 +12,19 @@ import {
 import {
   useMetropoleGame,
 } from './useMetropoleGame'
+import { useCluOnline } from './useCluOnline'
 import { GAME_EVENT_FREQUENCY_INTERVAL_MULTIPLIERS } from '../config/freePlay'
 import type { GameSimulationDayReport } from '../types/simulation'
 
 export function useGameEvents() {
   const game = useMetropoleGame()
+  const online = useCluOnline()
 
   function assertWritable() {
     if (game.isReadOnly.value) throw new Error('Ce défi est terminé : la partie est en lecture seule.')
+    if (online.sessionActive.value && online.moi.value?.statut === 'accepte' && !online.estAdmin.value && !online.peut('gerer_evenements')) {
+      throw new Error('Vous n’avez pas la permission de gérer les événements.')
+    }
   }
 
   function ensureEventsState() {

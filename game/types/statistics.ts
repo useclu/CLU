@@ -4,6 +4,11 @@ export type GameStatisticsMilestoneKind =
   | 'OBJECTIVE_COMPLETED'
   | 'PASSENGER_RECORD'
   | 'OPERATING_RECORD'
+  | 'EVENT_RESOLVED'
+  | 'URBAN_PROJECT_OPENED'
+  | 'LOCAL_EVENT_FINISHED'
+  | 'STATION_WORK_COMPLETED'
+  | 'INCIDENT_RESOLVED'
 
 export interface GameStatisticsMilestone {
   id: string

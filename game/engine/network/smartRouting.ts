@@ -1,6 +1,7 @@
 import type { GameTransportMode } from '../../types/network'
 
 export type SmartRouteCoordinate = [number, number]
+export type SmartRoutingProfile = 'DEFAULT' | 'LIGHT' | 'RAIL'
 
 interface GeoJsonFeatureLike {
   properties?: Record<string, unknown> | null
@@ -21,6 +22,7 @@ interface Node {
 
 export interface SmartRoutingGraph {
   mode: GameTransportMode
+  profile: SmartRoutingProfile
   nodes: Node[]
   origin: SmartRouteCoordinate
   spatialCellMeters: number
@@ -33,7 +35,11 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
 
-function kindWeight(mode: GameTransportMode, kind: string) {
+function kindWeight(mode: GameTransportMode, kind: string, profile: SmartRoutingProfile) {
+  // Rail auto est un profil transversal : quel que soit le mode de transport,
+  // il suit exclusivement les voies ferrées déjà présentes sur la carte.
+  if (profile === 'RAIL') return kind === 'rail' ? .30 : null
+
   if (mode === 'BUS') {
     if (kind === 'street') return .72
     if (kind === 'minor_road') return .66
@@ -56,15 +62,33 @@ function kindWeight(mode: GameTransportMode, kind: string) {
     return null
   }
   if (mode === 'RER' || mode === 'TRAIN') {
-    if (kind === 'rail') return .34
-    if (kind === 'major_road') return 1.45
-    if (kind === 'highway') return 1.62
+    if (profile === 'LIGHT') {
+      // Assistance légère : la voie ferrée reste très fortement préférée,
+      // mais les grands corridors peuvent servir de guide si le joueur
+      // souhaite volontairement un tracé moins contraint.
+      if (kind === 'rail') return .34
+      if (kind === 'major_road') return 1.45
+      if (kind === 'highway') return 1.62
+      return null
+    }
+    // Voies ferrées auto : aucune attraction vers la voirie. Si aucune
+    // emprise ferroviaire n'est accessible, le moteur retombe sur le segment
+    // libre choisi par le joueur au lieu d'inventer un détour routier.
+    if (kind === 'rail') return .30
     return null
   }
   // Le métro reste volontairement moins prisonnier de la voirie de surface.
   if (mode === 'METRO') {
     if (kind === 'rail') return .82
     if (kind === 'major_road') return .94
+    return null
+  }
+  // Pour le téléphérique, l'aide légère reste seulement un guide visuel : elle
+  // peut épouser de grands corridors sans transformer la ligne en infrastructure
+  // routière. Le mode Libre reste disponible pour un tracé aérien direct.
+  if (mode === 'CABLE') {
+    if (kind === 'rail') return .82
+    if (kind === 'major_road') return .96
     return null
   }
   return null
@@ -126,13 +150,13 @@ function simplifyPath(points: SmartRouteCoordinate[]) {
   return result
 }
 
-export function buildSmartRoutingGraph(collection: GeoJsonCollectionLike | null | undefined, mode: GameTransportMode): SmartRoutingGraph | null {
+export function buildSmartRoutingGraph(collection: GeoJsonCollectionLike | null | undefined, mode: GameTransportMode, profile: SmartRoutingProfile = 'DEFAULT'): SmartRoutingGraph | null {
   if (!collection?.features?.length) return null
   const corridors: Array<{ line: SmartRouteCoordinate[]; weight: number }> = []
   for (const feature of collection.features) {
     if (String(feature.properties?.layer ?? '') !== 'road') continue
     const kind = String(feature.properties?.kind ?? '')
-    const weight = kindWeight(mode, kind)
+    const weight = kindWeight(mode, kind, profile)
     if (weight === null) continue
     for (const rawLine of flattenLines(feature)) {
       const line = rawLine.filter(point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
@@ -144,8 +168,9 @@ export function buildSmartRoutingGraph(collection: GeoJsonCollectionLike | null 
   const origin = projectionOrigin(corridors.map(item => item.line))
   const nodes: Node[] = []
   const bucket = new Map<string, number[]>()
-  const mergeMeters = mode === 'TRAIN' || mode === 'RER' ? 150 : mode === 'METRO' ? 135 : 118
-  const spacingMeters = mode === 'TRAIN' || mode === 'RER' ? 300 : mode === 'METRO' ? 250 : 180
+  const strictRail = profile === 'RAIL'
+  const mergeMeters = strictRail ? 150 : mode === 'TRAIN' || mode === 'RER' ? 150 : mode === 'METRO' ? 135 : 118
+  const spacingMeters = strictRail ? 300 : mode === 'TRAIN' || mode === 'RER' ? 300 : mode === 'METRO' ? 250 : 180
 
   function nodeFor(point: SmartRouteCoordinate) {
     const p = project(point, origin)
@@ -211,7 +236,7 @@ export function buildSmartRoutingGraph(collection: GeoJsonCollectionLike | null 
   // Index spatial réutilisé à chaque déplacement de souris. Sans lui, chercher
   // le nœud le plus proche dans une grande métropole procédurale imposerait un
   // tri de dizaines de milliers de nœuds à chaque frame de prévisualisation.
-  const spatialCellMeters = mode === 'TRAIN' || mode === 'RER' ? 900 : 650
+  const spatialCellMeters = profile === 'RAIL' || mode === 'TRAIN' || mode === 'RER' ? 900 : 650
   const spatialIndex = new Map<string, number[]>()
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index]!
@@ -221,7 +246,7 @@ export function buildSmartRoutingGraph(collection: GeoJsonCollectionLike | null 
     else spatialIndex.set(key, [index])
   }
 
-  return { mode, nodes, origin, spatialCellMeters, spatialIndex }
+  return { mode, profile, nodes, origin, spatialCellMeters, spatialIndex }
 }
 
 function nearestNodes(graph: SmartRoutingGraph, point: SmartRouteCoordinate, count = 8) {
@@ -253,6 +278,23 @@ function nearestNodes(graph: SmartRoutingGraph, point: SmartRouteCoordinate, cou
   return scored.slice(0, count)
 }
 
+
+function isStrictRailGraph(graph: SmartRoutingGraph | null | undefined) {
+  return Boolean(graph && graph.profile === 'RAIL')
+}
+
+export function snapPointToSmartGraph(
+  graph: SmartRoutingGraph | null,
+  point: SmartRouteCoordinate,
+  maxDistanceMeters = 850,
+): SmartRouteCoordinate | null {
+  if (!graph || graph.nodes.length < 1) return null
+  const nearest = nearestNodes(graph, point, 1)[0]
+  if (!nearest || nearest.distance > maxDistanceMeters) return null
+  const node = graph.nodes[nearest.index]!
+  return [node.longitude, node.latitude]
+}
+
 export function routeOnSmartGraph(
   graph: SmartRoutingGraph | null,
   start: SmartRouteCoordinate,
@@ -263,7 +305,13 @@ export function routeOnSmartGraph(
   const endCandidates = nearestNodes(graph, end)
   if (!startCandidates.length || !endCandidates.length) return null
   const direct = Math.max(1, distanceMeters(start, end))
-  const snapLimit = clamp(direct * .34, 650, graph.mode === 'TRAIN' || graph.mode === 'RER' ? 3500 : 2200)
+  const strictRail = isStrictRailGraph(graph)
+  // En Rail auto, le clic doit réellement rejoindre une voie ferrée proche.
+  // On garde une tolérance confortable pour la précision de la carte, mais on
+  // n'autorise jamais un raccordement libre de plusieurs kilomètres.
+  const snapLimit = strictRail
+    ? 850
+    : clamp(direct * .34, 650, graph.mode === 'TRAIN' || graph.mode === 'RER' ? 3500 : 2200)
   const starts = startCandidates.filter(item => item.distance <= snapLimit)
   const ends = endCandidates.filter(item => item.distance <= snapLimit)
   if (!starts.length || !ends.length) return null
@@ -311,9 +359,12 @@ export function routeOnSmartGraph(
 
   let target = -1
   let targetScore = Number.POSITIVE_INFINITY
-  let guard = 0
-  while (heap.length && guard < graph.nodes.length * 14) {
-    guard += 1
+  // Dijkstra travaille sur des poids strictement positifs et termine donc de
+  // lui-même quand le tas est vide. L'ancienne garde `nodes * 14` créait une
+  // limite artificielle : sur un très long itinéraire ferroviaire comportant
+  // beaucoup d'aiguillages, l'aperçu pouvait disparaître alors qu'un chemin
+  // ferré valide existait encore plus loin.
+  while (heap.length) {
     const current = popHeap()!
     const currentDistance = distances[current.index]!
     if (current.score > currentDistance + 1e-6) continue
@@ -340,18 +391,28 @@ export function routeOnSmartGraph(
     cursor = previous[cursor]!
   }
   indices.reverse()
-  const points: SmartRouteCoordinate[] = [start]
+  const points: SmartRouteCoordinate[] = []
+  if (!strictRail) points.push(start)
   for (const index of indices) {
     const node = graph.nodes[index]!
     points.push([node.longitude, node.latitude])
   }
-  points.push(end)
+  if (!strictRail) points.push(end)
   const simplified = simplifyPath(points)
   const length = simplified.slice(1).reduce((sum, point, index) => sum + distanceMeters(simplified[index]!, point), 0)
-  // V45 : l'assistance n'a le droit que de nettoyer/recaler légèrement le tracé.
-  // Un détour notable revient immédiatement au segment manuel choisi par le joueur.
-  const maxDetour = graph.mode === 'BUS' || graph.mode === 'BRT' ? 1.24 : graph.mode === 'TRAM' ? 1.2 : 1.16
-  if (length > direct * maxDetour + 260) return null
+  // L'assistance légère reste une aide : un énorme détour peut donc revenir au
+  // tracé manuel. Rail auto est volontairement différent : s'il existe un chemin
+  // ferré connecté, même très long, il doit le suivre et ne jamais "couper" hors rail.
+  if (!strictRail) {
+    const maxDetour = graph.mode === 'BUS' || graph.mode === 'BRT'
+      ? 1.24
+      : graph.mode === 'TRAM'
+        ? 1.2
+        : graph.mode === 'RER' || graph.mode === 'TRAIN'
+          ? 1.48
+          : 1.16
+    if (length > direct * maxDetour + 260) return null
+  }
   return simplified
 }
 
@@ -366,6 +427,10 @@ export function routeThroughWaypoints(
     const from = points[index - 1]!
     const to = points[index]!
     const leg = assisted ? routeOnSmartGraph(graph, from, to) : null
+    // Rail auto ne possède aucun fallback libre. Si les deux points ne peuvent
+    // pas être reliés par le graphe ferré chargé, le segment est invalide : le
+    // joueur doit choisir Aide légère ou Libre pour créer une nouvelle emprise.
+    if (!leg && assisted && isStrictRailGraph(graph)) return []
     const coordinates = leg ?? [from, to]
     for (const point of coordinates) {
       const previous = result[result.length - 1]

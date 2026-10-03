@@ -15,91 +15,264 @@ const emit = defineEmits<{
 }>()
 
 const normalizedProgress = computed(() => Math.max(0, Math.min(100, Math.round(props.progress))))
-const phaseLabel = computed(() => {
-  if (normalizedProgress.value < 25) return 'Territoire'
-  if (normalizedProgress.value < 55) return 'Cartographie'
-  if (normalizedProgress.value < 82) return 'Réseau'
-  return 'Simulation'
+const phases = ['Territoire', 'Carte', 'Réseau', 'Simulation'] as const
+const phaseIndex = computed(() => {
+  if (normalizedProgress.value < 25) return 0
+  if (normalizedProgress.value < 55) return 1
+  if (normalizedProgress.value < 82) return 2
+  return 3
 })
+const phaseLabel = computed(() => phases[phaseIndex.value])
+const phaseCounter = computed(() => `${phaseIndex.value + 1} / ${phases.length}`)
+const phaseHint = computed(() => {
+  switch (phaseIndex.value) {
+    case 0: return 'Préparation du territoire et des données locales.'
+    case 1: return 'Assemblage de la carte et des communes.'
+    case 2: return 'Initialisation des données du réseau.'
+    default: return 'Finalisation de la simulation avant ouverture.'
+  }
+})
+const ringStyle = computed(() => ({ '--loader-progress': `${normalizedProgress.value * 3.6}deg` }))
 </script>
 
 <template>
-  <section class="game-loader" :class="{ 'game-loader--error': Boolean(error), 'game-loader--reduced': reducedMotion }" role="status" aria-live="polite">
-    <div class="game-loader__aurora game-loader__aurora--a" />
-    <div class="game-loader__aurora game-loader__aurora--b" />
-    <div class="game-loader__grid" />
-
-    <div class="game-loader__route" aria-hidden="true">
-      <svg viewBox="0 0 880 280" preserveAspectRatio="none">
-        <path class="route route--ghost" d="M-50 205 C105 214 116 54 267 86 S439 246 565 163 S728 36 940 83" />
-        <path class="route route--main" d="M-50 205 C105 214 116 54 267 86 S439 246 565 163 S728 36 940 83" />
-        <path class="route route--secondary" d="M55 294 C177 201 207 207 316 154 S496 30 596 86 S738 226 904 174" />
-        <g class="route-stations">
-          <circle cx="105" cy="176" r="5"/><circle cx="267" cy="86" r="5"/><circle cx="434" cy="209" r="5"/><circle cx="565" cy="163" r="5"/><circle cx="722" cy="68" r="5"/>
-        </g>
-        <circle class="route-train" r="10" :cx="reducedMotion ? 565 : undefined" :cy="reducedMotion ? 163 : undefined">
-          <animateMotion v-if="!reducedMotion" dur="5.2s" repeatCount="indefinite" path="M-50 205 C105 214 116 54 267 86 S439 246 565 163 S728 36 940 83" />
-        </circle>
-      </svg>
+  <section
+    class="game-loader"
+    :class="{
+      'game-loader--error': Boolean(error),
+      'game-loader--reduced': reducedMotion,
+    }"
+    role="status"
+    aria-live="polite"
+  >
+    <div class="game-loader__art" aria-hidden="true">
+      <div class="game-loader__art-image" />
+      <div class="game-loader__art-shade" />
+      <div class="game-loader__art-grain" />
     </div>
 
-    <div class="game-loader__content">
+    <aside v-if="!error" class="game-loader__panel">
       <header class="game-loader__brand">
-        <div class="game-loader__logo">CLU</div>
-        <div>
-          <span>CLU Métropole</span>
-          <strong>{{ territoryName }}</strong>
-        </div>
+        <b>CLU</b>
+        <span>Métropole</span>
       </header>
 
-      <div v-if="!error" class="game-loader__main">
-        <div class="game-loader__pulse" aria-hidden="true">
-          <span /><span /><span />
-          <b>↗</b>
+      <div class="game-loader__content">
+        <div class="game-loader__heading">
+          <p class="game-loader__kicker">Préparation de la partie</p>
+          <span>{{ phaseCounter }}</span>
+        </div>
+        <h1>{{ territoryName }}</h1>
+
+        <div class="game-loader__status">
+          <span class="game-loader__status-dot" aria-hidden="true" />
+          <p>{{ message }}</p>
         </div>
 
-        <p class="game-loader__eyebrow">{{ phaseLabel }} · préparation en cours</p>
-        <h1>Votre réseau prend place.</h1>
-        <p class="game-loader__message">{{ message }}</p>
-
-        <div class="game-loader__progress-wrap">
-          <div class="game-loader__progress-head">
-            <span>{{ normalizedProgress }}%</span>
-            <small>La partie s’ouvre uniquement quand la carte est prête.</small>
+        <div class="game-loader__progress-block">
+          <div class="game-loader__ring" :style="ringStyle">
+            <div class="game-loader__ring-core">
+              <strong>{{ normalizedProgress }}</strong>
+              <span>%</span>
+            </div>
           </div>
-          <div class="game-loader__progress"><i :style="{ width: `${normalizedProgress}%` }" /></div>
+
+          <div class="game-loader__phase-copy">
+            <small>En cours</small>
+            <strong>{{ phaseLabel }}</strong>
+            <span>{{ phaseHint }}</span>
+          </div>
         </div>
 
-        <div class="game-loader__steps" aria-hidden="true">
-          <span :class="{ done: normalizedProgress >= 20 }">Territoire</span>
-          <span :class="{ done: normalizedProgress >= 48 }">Carte</span>
-          <span :class="{ done: normalizedProgress >= 76 }">Réseau</span>
-          <span :class="{ done: normalizedProgress >= 96 }">Simulation</span>
-        </div>
+        <ol class="game-loader__phases" aria-label="Progression du chargement">
+          <li
+            v-for="(phase, index) in phases"
+            :key="phase"
+            :class="{
+              done: index < phaseIndex,
+              active: index === phaseIndex,
+            }"
+          >
+            <span class="game-loader__phase-state" aria-hidden="true">
+              <b v-if="index < phaseIndex">✓</b>
+              <b v-else>{{ index + 1 }}</b>
+            </span>
+            <span class="game-loader__phase-name">{{ phase }}</span>
+            <small v-if="index < phaseIndex">Prêt</small>
+            <small v-else-if="index === phaseIndex">En cours</small>
+          </li>
+        </ol>
       </div>
 
-      <div v-else class="game-loader__error">
-        <span class="game-loader__error-icon">!</span>
-        <p class="game-loader__eyebrow">Chargement interrompu</p>
-        <h1>La carte n’a pas pu être préparée.</h1>
-        <p>{{ error }}</p>
-        <div class="game-loader__error-actions">
-          <button type="button" class="primary" @click="emit('retry')">↻ Réessayer</button>
-          <button type="button" @click="emit('back')">Retour au menu</button>
-        </div>
-      </div>
-    </div>
+      <footer class="game-loader__footer">
+        <span class="game-loader__activity"><i /> Chargement local</span>
+        <small>Aucune action nécessaire — la partie s’ouvre automatiquement.</small>
+      </footer>
+    </aside>
 
-    <footer v-if="!error" class="game-loader__footer">
-      <span class="game-loader__live"><i /> Chargement local</span>
-      <span>Territoire, données de simulation et rendu cartographique sont préparés avant l’ouverture.</span>
-    </footer>
+    <main v-else class="game-loader__error-panel">
+      <div class="game-loader__brand game-loader__brand--error">
+        <b>CLU</b>
+        <span>Métropole</span>
+      </div>
+      <span class="game-loader__error-icon">!</span>
+      <p class="game-loader__kicker">Chargement interrompu</p>
+      <h1>Impossible de préparer la carte.</h1>
+      <p class="game-loader__error-message">{{ error }}</p>
+      <div class="game-loader__error-actions">
+        <button type="button" class="primary" @click="emit('retry')">Réessayer</button>
+        <button type="button" @click="emit('back')">Retour au menu</button>
+      </div>
+    </main>
   </section>
 </template>
 
 <style scoped>
-.game-loader{position:absolute;inset:0;z-index:250;overflow:hidden;background:radial-gradient(circle at 50% 16%,#132830 0,#0a141b 38%,#060b10 78%);color:#eef8fa;display:grid;grid-template-rows:1fr auto;isolation:isolate;font-family:Inter,ui-sans-serif,system-ui,sans-serif}.game-loader__aurora{position:absolute;width:54vw;height:54vw;border-radius:999px;filter:blur(80px);opacity:.2;pointer-events:none}.game-loader__aurora--a{left:-18vw;top:-28vw;background:#3ce0e4;animation:aurora-a 8s ease-in-out infinite alternate}.game-loader__aurora--b{right:-22vw;bottom:-32vw;background:#725cf2;animation:aurora-b 10s ease-in-out infinite alternate}.game-loader__grid{position:absolute;inset:0;z-index:-1;background-image:linear-gradient(rgba(154,223,229,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(154,223,229,.045) 1px,transparent 1px);background-size:54px 54px;mask-image:linear-gradient(to bottom,rgba(0,0,0,.8),transparent 86%);transform:perspective(580px) rotateX(58deg) scale(1.5) translateY(18%);transform-origin:center bottom}.game-loader__route{position:absolute;left:0;right:0;top:8%;height:48%;opacity:.8;pointer-events:none}.game-loader__route svg{width:100%;height:100%;overflow:visible}.route{fill:none;stroke-linecap:round;stroke-linejoin:round}.route--ghost{stroke:#02070a;stroke-width:14;opacity:.7}.route--main{stroke:#5ce4ea;stroke-width:4;stroke-dasharray:13 12;animation:route-flow 2.6s linear infinite}.route--secondary{stroke:#8678fa;stroke-width:2.4;opacity:.28;stroke-dasharray:5 14;animation:route-flow 5s linear infinite reverse}.route-stations circle{fill:#132128;stroke:#eaffff;stroke-width:2.5}.route-train{fill:#05080b;stroke:#80f2f3;stroke-width:3;filter:drop-shadow(0 0 12px rgba(92,228,234,.85))}.game-loader__content{position:relative;z-index:3;width:min(760px,calc(100vw - 42px));margin:auto;padding:42px 0 76px}.game-loader__brand{display:flex;align-items:center;gap:13px;margin-bottom:72px}.game-loader__logo{display:grid;place-items:center;width:56px;height:56px;border-radius:17px;border:1px solid rgba(137,238,242,.35);background:rgba(9,22,28,.82);box-shadow:inset 0 0 24px rgba(85,219,226,.06),0 14px 40px rgba(0,0,0,.25);font-weight:950;letter-spacing:.07em}.game-loader__brand>div:last-child{display:grid;gap:2px}.game-loader__brand span{font-size:calc(10px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.17em;color:rgba(225,248,249,.5);font-weight:800}.game-loader__brand strong{font-size:calc(16px * var(--clu-text-scale,1))}.game-loader__main{max-width:610px}.game-loader__pulse{position:relative;width:58px;height:58px;margin-bottom:18px;display:grid;place-items:center}.game-loader__pulse span{position:absolute;inset:8px;border:1px solid rgba(95,229,234,.7);border-radius:999px;animation:pulse 2.1s ease-out infinite}.game-loader__pulse span:nth-child(2){animation-delay:.7s}.game-loader__pulse span:nth-child(3){animation-delay:1.4s}.game-loader__pulse b{display:grid;place-items:center;width:30px;height:30px;border-radius:999px;background:#6be5e9;color:#061216;font-size:calc(15px * var(--clu-text-scale,1));box-shadow:0 0 26px rgba(107,229,233,.35)}.game-loader__eyebrow{margin:0 0 7px;text-transform:uppercase;letter-spacing:.16em;font-size:calc(9px * var(--clu-text-scale,1));font-weight:900;color:#70dfe4}.game-loader h1{margin:0;font-size:clamp(28px,4vw,46px);letter-spacing:-.045em;line-height:1.02}.game-loader__message{margin:12px 0 27px;color:rgba(235,249,250,.63);font-size:calc(13px * var(--clu-text-scale,1));line-height:1.55}.game-loader__progress-wrap{padding:15px 17px;border:1px solid rgba(255,255,255,.09);border-radius:15px;background:rgba(8,18,24,.62);backdrop-filter:blur(15px);box-shadow:0 16px 50px rgba(0,0,0,.22)}.game-loader__progress-head{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:10px}.game-loader__progress-head span{font-size:calc(15px * var(--clu-text-scale,1));font-weight:900}.game-loader__progress-head small{font-size:calc(9px * var(--clu-text-scale,1));color:rgba(255,255,255,.4);text-align:right}.game-loader__progress{height:6px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}.game-loader__progress i{display:block;height:100%;min-width:2%;border-radius:inherit;background:linear-gradient(90deg,#4fd5dc,#93f1e8);box-shadow:0 0 18px rgba(92,228,234,.55);transition:width .32s cubic-bezier(.2,.8,.2,1);position:relative}.game-loader__progress i::after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.8) 50%,transparent 80%);transform:translateX(-100%);animation:shine 1.35s linear infinite}.game-loader__steps{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px}.game-loader__steps span{font-size:calc(8px * var(--clu-text-scale,1));text-align:center;padding:5px;border-radius:7px;color:rgba(255,255,255,.27);background:rgba(255,255,255,.02);transition:.25s ease}.game-loader__steps span.done{color:#a7f1eb;background:rgba(73,207,210,.08)}.game-loader__footer{position:relative;z-index:4;display:flex;justify-content:space-between;gap:20px;padding:18px 28px;border-top:1px solid rgba(255,255,255,.06);background:rgba(3,8,12,.48);font-size:calc(9px * var(--clu-text-scale,1));color:rgba(255,255,255,.36)}.game-loader__live{display:flex;align-items:center;gap:7px;color:rgba(191,241,238,.68)}.game-loader__live i{width:6px;height:6px;border-radius:50%;background:#66e4d8;box-shadow:0 0 12px rgba(102,228,216,.8);animation:blink 1.4s ease-in-out infinite}.game-loader__error{max-width:600px;padding:30px;border:1px solid rgba(255,136,136,.18);border-radius:22px;background:rgba(20,11,14,.8);box-shadow:0 30px 90px rgba(0,0,0,.38)}.game-loader__error-icon{display:grid;place-items:center;width:42px;height:42px;margin-bottom:17px;border-radius:12px;background:rgba(247,91,91,.14);border:1px solid rgba(247,91,91,.25);color:#ff9e9e;font-size:calc(20px * var(--clu-text-scale,1));font-weight:950}.game-loader__error p:not(.game-loader__eyebrow){font-size:calc(12px * var(--clu-text-scale,1));line-height:1.6;color:rgba(255,255,255,.62)}.game-loader__error-actions{display:flex;gap:8px;margin-top:20px}.game-loader__error-actions button{padding:10px 13px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.055);color:inherit;cursor:pointer}.game-loader__error-actions .primary{border-color:rgba(93,222,226,.35);background:rgba(93,222,226,.13)}
-@keyframes route-flow{to{stroke-dashoffset:-50}}@keyframes pulse{0%{transform:scale(.55);opacity:0}25%{opacity:.8}100%{transform:scale(1.65);opacity:0}}@keyframes shine{to{transform:translateX(100%)}}@keyframes blink{50%{opacity:.25}}@keyframes aurora-a{to{transform:translate(8vw,6vw) scale(1.12)}}@keyframes aurora-b{to{transform:translate(-7vw,-5vw) scale(.92)}}
-.game-loader--reduced *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}.game-loader--error .game-loader__route{opacity:.18}.game-loader--error .game-loader__aurora{opacity:.08}
-@media(max-width:720px){.game-loader__content{padding-bottom:35px}.game-loader__brand{margin-bottom:46px}.game-loader__footer{display:none}.game-loader__progress-head small{display:none}.game-loader__route{top:7%;height:40%}}
+.game-loader{
+  position:absolute;inset:0;z-index:250;overflow:hidden;background:#071018;color:#f3f8fb;
+  font-family:"Avenir Next",Montserrat,"Segoe UI",Inter,ui-sans-serif,system-ui,sans-serif;isolation:isolate;
+}
+
+.game-loader__art{position:absolute;inset:0;z-index:-2;overflow:hidden}
+.game-loader__art-image{
+  position:absolute;inset:-2%;background:url('../../arriereplan.png') 62% 50%/cover no-repeat;
+  filter:saturate(.92) brightness(.78) contrast(1.03);transform:scale(1.025);animation:art-breathe 18s ease-in-out infinite alternate;
+}
+.game-loader__art-shade{
+  position:absolute;inset:0;
+  background:linear-gradient(90deg,#071018 0%,rgba(7,16,24,.985) 27%,rgba(7,16,24,.86) 38%,rgba(7,16,24,.36) 58%,rgba(7,16,24,.08) 100%),
+             linear-gradient(180deg,rgba(5,10,15,.16),rgba(5,10,15,.04) 62%,rgba(5,10,15,.38));
+}
+.game-loader__art-grain{
+  position:absolute;inset:0;opacity:.1;background-image:radial-gradient(rgba(255,255,255,.13) .65px,transparent .75px);
+  background-size:6px 6px;mask-image:linear-gradient(90deg,#000,transparent 55%);
+}
+
+.game-loader__panel{
+  position:relative;width:min(535px,44vw);height:100%;min-height:0;box-sizing:border-box;
+  padding:clamp(24px,4.5vh,46px) clamp(34px,4vw,54px) clamp(22px,3.5vh,34px);
+  display:flex;flex-direction:column;
+}
+.game-loader__panel::after{
+  content:'';position:absolute;top:11%;bottom:11%;right:0;width:1px;
+  background:linear-gradient(180deg,transparent,rgba(142,220,226,.16) 34%,rgba(142,220,226,.06) 72%,transparent);
+}
+
+.game-loader__brand{display:flex;align-items:baseline;gap:9px;width:max-content}
+.game-loader__brand b{font-size:clamp(29px,3vw,42px);line-height:.86;letter-spacing:-.07em;font-weight:950}
+.game-loader__brand span{font-size:clamp(11px,.95vw,14px);font-weight:720;color:rgba(232,245,250,.58)}
+
+.game-loader__content{margin:auto 0;padding:20px 0 18px;max-width:430px}
+.game-loader__heading{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.game-loader__heading>span{color:rgba(221,240,246,.34);font-size:9px;font-weight:800;letter-spacing:.12em}
+.game-loader__kicker{margin:0;color:#72dfe5;font-size:9px;font-weight:900;letter-spacing:.15em;text-transform:uppercase}
+.game-loader h1{
+  margin:0;max-width:430px;font-size:clamp(30px,3vw,42px);line-height:1.02;letter-spacing:-.045em;font-weight:780;
+  text-wrap:balance;
+}
+.game-loader__status{display:flex;align-items:flex-start;gap:9px;margin-top:14px;min-height:22px}
+.game-loader__status-dot{flex:0 0 auto;width:6px;height:6px;margin-top:6px;border-radius:50%;background:#72dfe5;box-shadow:0 0 9px rgba(114,223,229,.42);animation:activity-pulse 1.35s ease-in-out infinite}
+.game-loader__status p{margin:0;color:rgba(235,247,251,.66);font-size:11px;line-height:1.55}
+
+.game-loader__progress-block{
+  display:grid;grid-template-columns:78px minmax(0,1fr);gap:16px;align-items:center;margin-top:24px;padding-bottom:20px;
+  border-bottom:1px solid rgba(255,255,255,.065);
+}
+.game-loader__ring{
+  --loader-progress:0deg;position:relative;width:72px;height:72px;border-radius:50%;display:grid;place-items:center;
+  background:conic-gradient(#68dfe5 var(--loader-progress),rgba(255,255,255,.08) 0);transition:background .3s ease;
+}
+.game-loader__ring::before{content:'';position:absolute;inset:6px;border-radius:50%;background:#0a151e;border:1px solid rgba(255,255,255,.055)}
+.game-loader__ring-core{position:relative;z-index:1;display:flex;align-items:baseline;gap:2px}
+.game-loader__ring-core strong{font-size:24px;line-height:1;letter-spacing:-.06em}
+.game-loader__ring-core span{font-size:9px;color:rgba(240,250,252,.5)}
+.game-loader__phase-copy{display:grid;gap:3px;min-width:0}
+.game-loader__phase-copy small{color:rgba(235,247,250,.38);font-size:8px;font-weight:850;letter-spacing:.11em;text-transform:uppercase}
+.game-loader__phase-copy strong{font-size:16px;letter-spacing:-.02em}
+.game-loader__phase-copy span{margin-top:1px;color:rgba(235,247,250,.46);font-size:9.5px;line-height:1.45}
+
+.game-loader__phases{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:0}
+.game-loader__phases li{
+  position:relative;min-height:34px;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;
+  color:rgba(235,247,250,.27);
+}
+.game-loader__phases li:not(:last-child)::after{
+  content:'';position:absolute;left:13px;top:25px;width:1px;height:18px;background:rgba(255,255,255,.07);
+}
+.game-loader__phases li.done{color:rgba(235,247,250,.58)}
+.game-loader__phases li.active{color:#f5fcff}
+.game-loader__phase-state{
+  display:grid;place-items:center;width:27px;height:27px;border-radius:50%;border:1px solid rgba(255,255,255,.08);
+  background:#0b1720;color:rgba(235,247,250,.35);box-sizing:border-box;
+}
+.game-loader__phase-state b{font-size:8px;letter-spacing:.02em}
+.game-loader__phases li.done .game-loader__phase-state{color:#77dce1;border-color:rgba(95,213,220,.24);background:rgba(74,197,205,.07)}
+.game-loader__phases li.active .game-loader__phase-state{color:#071018;border-color:#70dfe4;background:#70dfe4;box-shadow:0 0 0 4px rgba(112,223,228,.07)}
+.game-loader__phase-name{font-size:10.5px;font-weight:730}
+.game-loader__phases li>small{font-size:8px;color:rgba(235,247,250,.3)}
+.game-loader__phases li.done>small{color:rgba(117,221,226,.5)}
+.game-loader__phases li.active>small{color:#79dfe4}
+
+.game-loader__footer{display:grid;gap:7px;padding-top:15px;border-top:1px solid rgba(255,255,255,.06)}
+.game-loader__activity{display:flex;align-items:center;gap:7px;color:rgba(237,249,252,.62);font-size:8.5px;font-weight:820;letter-spacing:.08em;text-transform:uppercase}
+.game-loader__activity i{width:5px;height:5px;border-radius:50%;background:#71dfe4;animation:activity-pulse 1.35s ease-in-out infinite}
+.game-loader__footer small{max-width:350px;color:rgba(235,247,250,.31);font-size:8.5px;line-height:1.45}
+
+.game-loader__error-panel{
+  position:absolute;left:clamp(24px,5vw,70px);top:50%;width:min(420px,calc(100vw - 48px));transform:translateY(-50%);
+  padding:26px;border-radius:16px;background:rgba(8,17,25,.94);border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 55px rgba(0,0,0,.32);
+}
+.game-loader__brand--error{margin-bottom:30px}
+.game-loader__error-icon{display:grid;place-items:center;width:32px;height:32px;margin-bottom:14px;border-radius:9px;color:#ffb4b4;background:rgba(225,75,75,.11);border:1px solid rgba(225,75,75,.2);font-weight:900}
+.game-loader__error-panel h1{font-size:clamp(27px,3vw,38px)}
+.game-loader__error-message{margin:13px 0 0;color:rgba(238,248,251,.58);font-size:11px;line-height:1.55}
+.game-loader__error-actions{display:flex;gap:8px;margin-top:20px}
+.game-loader__error-actions button{min-height:38px;padding:0 12px;border-radius:9px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.045);color:inherit;font:inherit;font-size:10.5px;font-weight:750;cursor:pointer}
+.game-loader__error-actions .primary{color:#071018;border-color:#70dfe4;background:#70dfe4}
+
+@keyframes art-breathe{from{transform:scale(1.025) translate3d(0,0,0)}to{transform:scale(1.045) translate3d(-.3%,.15%,0)}}
+@keyframes activity-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
+.game-loader--reduced *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+.game-loader--error .game-loader__art-image{filter:saturate(.55) brightness(.42) contrast(1.08)}
+
+@media(max-height:650px) and (min-width:721px){
+  .game-loader__panel{width:min(520px,44vw);padding-top:22px;padding-bottom:18px}
+  .game-loader__content{padding:12px 0 10px}
+  .game-loader__brand b{font-size:36px}
+  .game-loader h1{font-size:clamp(28px,2.7vw,37px)}
+  .game-loader__status{margin-top:10px}
+  .game-loader__progress-block{margin-top:17px;padding-bottom:14px}
+  .game-loader__phases{margin-top:12px}
+  .game-loader__phases li{min-height:31px}
+  .game-loader__phases li:not(:last-child)::after{height:15px}
+  .game-loader__footer{padding-top:11px}
+}
+
+@media(max-width:820px){
+  .game-loader__art-image{background-position:67% 50%}
+  .game-loader__art-shade{background:linear-gradient(180deg,rgba(7,16,24,.28),rgba(7,16,24,.5) 44%,rgba(7,16,24,.94) 73%,#071018 100%)}
+  .game-loader__art-grain{mask-image:linear-gradient(180deg,transparent 24%,#000 100%)}
+  .game-loader__panel{width:100%;padding:22px 22px 18px;justify-content:flex-end}
+  .game-loader__panel::after{display:none}
+  .game-loader__brand{position:absolute;top:20px;left:22px}
+  .game-loader__content{width:min(540px,100%);max-width:none;margin:0;padding:0 0 14px}
+  .game-loader h1{max-width:none;font-size:clamp(28px,7.5vw,40px)}
+  .game-loader__phases{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+  .game-loader__phases li{min-height:56px;grid-template-columns:1fr;justify-items:start;align-content:center;gap:3px;padding:7px;border:1px solid rgba(255,255,255,.05);border-radius:9px;background:rgba(5,12,18,.18)}
+  .game-loader__phases li:not(:last-child)::after{display:none}
+  .game-loader__phases li>small{display:none}
+  .game-loader__phase-name{font-size:8.5px}
+  .game-loader__phase-state{width:23px;height:23px}
+  .game-loader__footer{padding-top:12px}
+}
+
+@media(max-width:480px){
+  .game-loader__panel{padding-left:16px;padding-right:16px}
+  .game-loader__brand{left:16px}
+  .game-loader__progress-block{grid-template-columns:68px minmax(0,1fr);gap:11px}
+  .game-loader__ring{width:64px;height:64px}
+  .game-loader__ring-core strong{font-size:21px}
+  .game-loader__phase-copy span{display:none}
+  .game-loader__footer small{display:none}
+}
 </style>

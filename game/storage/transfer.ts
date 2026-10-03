@@ -2,13 +2,27 @@ import type { GameSave } from '../types/game'
 import { isGameTerritory } from '../config/territories'
 
 export const GAME_SAVE_EXPORT_FORMAT = 'CLU_METROPOLE_SAVE'
-export const GAME_SAVE_EXPORT_FORMAT_VERSION = 1
+export const GAME_SAVE_EXPORT_FORMAT_VERSION = 2
+
+export interface GameSaveExportSummary {
+  name: string
+  territory: GameSave['territory']
+  mode: GameSave['mode']
+  simulationDay: number
+  lineCount: number
+  stationCount: number
+  balance: number
+  debt: number
+  createdAt: string
+  updatedAt: string
+}
 
 export interface GameSaveExportEnvelope {
   format: typeof GAME_SAVE_EXPORT_FORMAT
   formatVersion: number
   exportedAt: string
   gameSaveVersion: number
+  summary: GameSaveExportSummary
   save: GameSave
 }
 
@@ -34,12 +48,39 @@ export function assertGameSaveShape(value: unknown): asserts value is GameSave {
   if (!isRecord(value.data.economy)) throw new Error('Données financières manquantes.')
 }
 
+export function buildGameSaveExportSummary(save: GameSave): GameSaveExportSummary {
+  const physicalStations = new Set<string>()
+  let lineCount = 0
+  for (const line of save.data.network.lines) {
+    if (line.status !== 'PROJECT') lineCount += 1
+    const stations = [
+      ...(Array.isArray(line.stations) ? line.stations : []),
+      ...((line.branches ?? []).flatMap(branch => branch.stations ?? [])),
+    ]
+    for (const station of stations) physicalStations.add(station.sharedStationId || station.id)
+  }
+
+  return {
+    name: save.name,
+    territory: save.territory,
+    mode: save.mode,
+    simulationDay: Math.max(1, Math.floor(Number(save.data.simulationDay) || 1)),
+    lineCount,
+    stationCount: physicalStations.size,
+    balance: Number(save.data.economy.balance) || 0,
+    debt: Math.max(0, Number(save.data.economy.debtPrincipal) || 0),
+    createdAt: save.createdAt,
+    updatedAt: save.updatedAt,
+  }
+}
+
 export function serializeGameSave(save: GameSave) {
   const envelope: GameSaveExportEnvelope = {
     format: GAME_SAVE_EXPORT_FORMAT,
     formatVersion: GAME_SAVE_EXPORT_FORMAT_VERSION,
     exportedAt: new Date().toISOString(),
     gameSaveVersion: save.version,
+    summary: buildGameSaveExportSummary(save),
     save,
   }
   return JSON.stringify(envelope, null, 2)
@@ -55,7 +96,8 @@ export function parseGameSaveExport(content: string): GameSave {
   }
 
   if (isRecord(parsed) && parsed.format === GAME_SAVE_EXPORT_FORMAT) {
-    if (parsed.formatVersion !== GAME_SAVE_EXPORT_FORMAT_VERSION) {
+    const version = Number(parsed.formatVersion)
+    if (!Number.isInteger(version) || version < 1 || version > GAME_SAVE_EXPORT_FORMAT_VERSION) {
       throw new Error('Cette version du format d’export CLU Métropole n’est pas prise en charge.')
     }
     assertGameSaveShape(parsed.save)

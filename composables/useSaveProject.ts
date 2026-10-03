@@ -9,11 +9,19 @@ export default function useSaveProject() {
   const toast = useToast()
   const { t } = useI18n()
   const { version, line, presetBased } = storeToRefs(useProject())
-  const { indices } = storeToRefs(useCustomLineIndices())
+  const customIndicesStore = useCustomLineIndices()
 
   function stringifyLine() {
     const involvedCustomIndices = getCustomIndicesIds(line.value)
-    const customIndices = indices.value.filter(index => involvedCustomIndices.includes(index.id))
+
+    /*
+     * Phase 24 : findIndexById résout d'abord les indices embarqués dans le
+     * projet, puis la bibliothèque. Un plan importé depuis Métropole reste donc
+     * autonome lors de ses sauvegardes suivantes, sans forcer l'ajout global.
+     */
+    const customIndices = involvedCustomIndices
+      .map(id => customIndicesStore.findIndexById(id))
+      .filter((index): index is CustomLineIndexDescription => index !== null)
 
     return JSON.stringify({
       version: version.value,
@@ -31,6 +39,7 @@ export default function useSaveProject() {
     a.href = url
     a.download = `${name?.replace(/(\.json)$/, '')}.json`
     a.click()
+    URL.revokeObjectURL(url)
 
     toast.add({
       summary: t('ui.toasts.save.success.title'),

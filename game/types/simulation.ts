@@ -1,3 +1,5 @@
+import type { GamePassengersDayReport } from './passengers'
+
 import type {
   GameFareLevel,
   GameFareManagementMode,
@@ -12,6 +14,7 @@ import type {
   GameMaintenanceLevel,
   GameRegulationMode,
   GameRollingStockUpgrades,
+  GameScheduleMode,
   GameServiceLevel,
   GameTransportMode,
 } from './network'
@@ -48,12 +51,35 @@ export interface GameLineOperationalState {
   consecutiveBadDays: number
 }
 
+export type GameStationNetworkRole = 'LOCAL' | 'INTERCHANGE' | 'HUB' | 'SATURATED'
+
+export interface GameSegmentDailySimulation {
+  fromStationId: string
+  toStationId: string
+  fromStationName: string
+  toStationName: string
+  routedPassengers: number
+  loadRate: number
+  pressureScore: number
+  infrastructureCapacityLevel?: number
+  infrastructureSpeedLevel?: number
+  infrastructureReliabilityLevel?: number
+  effectiveCapacityMultiplier?: number
+}
+
 export interface GameStationDailySimulation {
   stationId: string
   stationName: string
   estimatedDailyFootfall: number
   estimatedPlatformPassengers: number
   estimatedPeakPlatformPassengers?: number
+  /** Phase 17 : flux réellement routés par Voyageurs 2.0. */
+  boardings?: number
+  alightings?: number
+  transferBoardings?: number
+  leftBehindPassengers?: number
+  hubScore?: number
+  networkRole?: GameStationNetworkRole
   stationCapacity: number
   utilizationRate: number
   interchangeLineCount: number
@@ -76,6 +102,18 @@ export interface GameLineDailySimulation {
   effectiveTravelTimeMinutes: number
 
   serviceLevel?: GameServiceLevel
+  /** V46 : source de service utilisée pour cette journée. */
+  scheduleMode?: GameScheduleMode
+  scheduledTrips?: number
+  activeMissionCount?: number
+  peakScheduledTripsPerHour?: number
+  /** V47 : impact PCC / perturbations sur la production réelle. */
+  operationalDisruptionCount?: number
+  operationalTrips?: number
+  cancelledTrips?: number
+  extraTrips?: number
+  operationsDelayMinutes?: number
+  operationsCapacityMultiplier?: number
   departuresPerHour?: number
   headwayMinutes?: number
   serviceDemandMultiplier?: number
@@ -138,6 +176,16 @@ export interface GameLineDailySimulation {
   busiestStationUtilization?: number
   busiestStationName?: string | null
   stations?: GameStationDailySimulation[]
+  /** Phase 17 : pression voyageurs par tronçon réellement emprunté. */
+  segments?: GameSegmentDailySimulation[]
+  bottleneckSegmentName?: string | null
+  bottleneckSegmentLoadRate?: number
+  infrastructureCapacityMultiplier?: number
+  infrastructureSpeedMultiplier?: number
+  infrastructureReliabilityScore?: number
+  infrastructureModernizedSegmentCount?: number
+  depotDistanceKm?: number | null
+  depotOperatingOverhead?: number
 
   serviceQualityScore?: number
   serviceQualityDemandMultiplier?: number
@@ -167,6 +215,12 @@ export interface GameLineDailySimulation {
   topDemandConstraints: string[]
   diagnostics?: GameLineDiagnostic[]
 
+  /** V49 : flux OD réellement affectés à cette ligne par Voyageurs 2.0. */
+  networkRoutedPassengers?: number
+  networkTransferBoardings?: number
+  networkLeftBehindPassengers?: number
+  networkLoadRate?: number
+
   revenue: number
   operatingCost: number
   netResult: number
@@ -194,6 +248,8 @@ export interface GameSimulationDayReport {
   boardingDemandPassengers?: number
   averageOccupancyRate?: number
   networkPressureScore?: number
+  /** V49 : simulation origine → destination, correspondances et saturation réseau. */
+  passengersV2?: GamePassengersDayReport
   lines: GameLineDailySimulation[]
 
   demandModel?: GameDemandModel

@@ -5,6 +5,8 @@ import {
 import {
   GAME_ROLLING_STOCK_UPGRADE_MAX_LEVEL,
   getRollingStockDefinition,
+  getDefaultRollingStockModel,
+  getRollingStockModel,
   getRollingStockUpgradeDefinition,
   normalizeRollingStockUpgrades,
 } from '../../config/rollingStock'
@@ -17,10 +19,11 @@ import {
   distanceBetweenStationsKm,
 } from '../economy'
 
-import { getLineServiceRoutes } from '../network/geometry'
+import { getLineAllStations, getLineServiceRoutes } from '../network/geometry'
 
 import type {
   GameLine,
+  GameNetworkState,
   GameRollingStockUpgradeKey,
   GameServiceLevel,
   GameStation,
@@ -33,6 +36,7 @@ interface GameLineServiceShape {
   stations: GameStation[]
   branches?: GameLine['branches']
   rollingStockUpgrades?: GameLine['rollingStockUpgrades']
+  rollingStockModelId?: GameLine['rollingStockModelId']
 }
 
 export interface GameRollingStockPerformance {
@@ -64,6 +68,50 @@ function longestServiceRoute(line: Pick<GameLineServiceShape, 'stations' | 'bran
   return { route: best, lengthKm: bestLength }
 }
 
+
+export interface GameDepotAccessMetrics {
+  depotId: string | null
+  distanceKm: number | null
+  operatingCostMultiplier: number
+  regularityPenalty: number
+  label: 'NONE' | 'NEAR' | 'FAR' | 'VERY_FAR'
+}
+
+export function calculateDepotDistanceKm(
+  line: Pick<GameLine, 'stations' | 'branches'>,
+  depot: { longitude: number; latitude: number },
+) {
+  const stations = getLineAllStations(line)
+  return stations.length
+    ? Math.min(...stations.map(station => distanceBetweenStationsKm(station, depot)))
+    : 0
+}
+
+export function calculateDepotAccessMetrics(
+  line: Pick<GameLine, 'id' | 'mode' | 'depotId' | 'stations' | 'branches'>,
+  network?: Pick<GameNetworkState, 'depots'> | null,
+): GameDepotAccessMetrics {
+  if (!line.depotId || !network?.depots?.length) {
+    return { depotId: null, distanceKm: null, operatingCostMultiplier: 1.035, regularityPenalty: 1.5, label: 'NONE' }
+  }
+  const depot = network.depots.find(item => item.id === line.depotId && item.mode === line.mode)
+  if (!depot) {
+    return { depotId: null, distanceKm: null, operatingCostMultiplier: 1.035, regularityPenalty: 1.5, label: 'NONE' }
+  }
+  const distanceKm = calculateDepotDistanceKm(line, depot)
+  const normalizedDistance = Math.max(0, distanceKm)
+  const operatingCostMultiplier = 1 + Math.min(0.14, normalizedDistance * 0.004)
+  const regularityPenalty = normalizedDistance <= 5
+    ? 0
+    : Math.min(7, (normalizedDistance - 5) * 0.22)
+  const label = normalizedDistance <= 5
+    ? 'NEAR'
+    : normalizedDistance <= 15
+      ? 'FAR'
+      : 'VERY_FAR'
+  return { depotId: depot.id, distanceKm: normalizedDistance, operatingCostMultiplier, regularityPenalty, label }
+}
+
 export function calculateRollingStockLineLengthKm(
   line: Pick<GameLineServiceShape, 'stations' | 'branches'>,
 ) {
@@ -71,37 +119,44 @@ export function calculateRollingStockLineLengthKm(
 }
 
 export function rollingStockPerformance(
-  line: Pick<GameLineServiceShape, 'rollingStockUpgrades'>,
+  line: Pick<GameLineServiceShape, 'rollingStockUpgrades'> & Partial<Pick<GameLineServiceShape, 'mode' | 'rollingStockModelId'>>,
 ): GameRollingStockPerformance {
   const upgrades = normalizeRollingStockUpgrades(line.rollingStockUpgrades)
   const totalUpgradeLevels = Object.values(upgrades).reduce((total, value) => total + value, 0)
+  const model = line.mode ? getRollingStockModel(line.rollingStockModelId, line.mode) : null
 
-  let generation = 'Classique'
-  if (totalUpgradeLevels >= 11) generation = 'Nouvelle génération'
-  else if (totalUpgradeLevels >= 7) generation = 'Haute performance'
-  else if (totalUpgradeLevels >= 3) generation = 'Modernisé'
+  let generation = model?.generationLabel ?? 'Classique'
+  if (totalUpgradeLevels >= 7) generation = `${generation} · modernisé`
+  else if (totalUpgradeLevels >= 3) generation = `${generation} · amélioré`
+
+  // Le modèle Standard de chaque mode doit conserver exactement le risque V50.
+  // Les autres modèles sont comparés à cette référence : > 1 = moins fiable,
+  // < 1 = plus fiable. Cela évite toute amélioration silencieuse à la migration.
+  const modelReliabilityMultiplier = model && line.mode
+    ? Math.min(1.18, Math.max(0.78, getDefaultRollingStockModel(line.mode).reliability / Math.max(0.01, model.reliability)))
+    : 1
 
   return {
     generation,
     capacityMultiplier: 1 + upgrades.capacity * 0.10,
-    speedMultiplier: 1 + upgrades.speed * 0.06,
-    reliabilityMultiplier: Math.max(0.45, 1 - upgrades.reliability * 0.16),
+    speedMultiplier: (model?.commercialSpeedMultiplier ?? 1) * (1 + upgrades.speed * 0.06),
+    reliabilityMultiplier: Math.max(0.38, modelReliabilityMultiplier * (1 - upgrades.reliability * 0.16)),
     maintenanceCostMultiplier: Math.max(0.68, 1 - upgrades.efficiency * 0.08),
-    operatingCostMultiplier: Math.max(0.82, 1 - upgrades.efficiency * 0.04),
+    operatingCostMultiplier: Math.max(0.68, (model?.energyIndex ?? 1) * (1 - upgrades.efficiency * 0.04)),
     dwellTimeMultiplier: Math.max(0.72, 1 - upgrades.boarding * 0.07),
     totalUpgradeLevels,
   }
 }
 
 export function effectiveVehicleCapacity(
-  line: Pick<GameLineServiceShape, 'mode' | 'rollingStockUpgrades'>,
+  line: Pick<GameLineServiceShape, 'mode' | 'rollingStockUpgrades' | 'rollingStockModelId'>,
 ) {
-  const base = getModeSimulationDefinition(line.mode).vehicleCapacity
+  const base = getRollingStockModel(line.rollingStockModelId, line.mode).capacity
   return Math.max(1, Math.round(base * rollingStockPerformance(line).capacityMultiplier))
 }
 
 export function effectiveAverageSpeedKmH(
-  line: Pick<GameLineServiceShape, 'mode' | 'rollingStockUpgrades'>,
+  line: Pick<GameLineServiceShape, 'mode' | 'rollingStockUpgrades' | 'rollingStockModelId'>,
 ) {
   const base = getModeSimulationDefinition(line.mode).averageSpeedKmH
   return base * rollingStockPerformance(line).speedMultiplier
@@ -168,13 +223,14 @@ export function calculateFleetSupportedDeparturesPerHour(
   return normalizedVehicles * 60 / roundTripMinutes
 }
 
-export function calculateVehiclePurchaseCost(mode: GameTransportMode, vehicleCount: number) {
+export function calculateVehiclePurchaseCost(mode: GameTransportMode, vehicleCount: number, modelId?: string) {
   const count = Math.max(0, Math.floor(vehicleCount))
-  return getRollingStockDefinition(mode).purchaseCost * count
+  return getRollingStockModel(modelId, mode).purchaseCost * count
 }
 
+
 export function calculateRollingStockUpgradeCost(
-  line: Pick<GameLine, 'mode' | 'vehicleCount' | 'rollingStockUpgrades' | 'serviceLevel' | 'stations' | 'branches'>,
+  line: Pick<GameLine, 'mode' | 'vehicleCount' | 'rollingStockUpgrades' | 'rollingStockModelId' | 'serviceLevel' | 'stations' | 'branches'>,
   key: GameRollingStockUpgradeKey,
 ) {
   const levels = normalizeRollingStockUpgrades(line.rollingStockUpgrades)
@@ -182,7 +238,7 @@ export function calculateRollingStockUpgradeCost(
   if (currentLevel >= GAME_ROLLING_STOCK_UPGRADE_MAX_LEVEL) return 0
 
   const definition = getRollingStockUpgradeDefinition(key)
-  const unitCost = getRollingStockDefinition(line.mode).purchaseCost
+  const unitCost = getRollingStockModel(line.rollingStockModelId, line.mode).purchaseCost
   const referenceFleet = Math.max(
     1,
     Math.max(

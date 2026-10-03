@@ -15,6 +15,7 @@ export type GameEventFrequency =
   | 'FREQUENT'
 
 export type GameGraphicsQuality =
+  | 'AUTO'
   | 'ECO'
   | 'BALANCED'
   | 'HIGH'

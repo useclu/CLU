@@ -65,6 +65,8 @@ Record<GameTransportMode, number> = {
   TRAIN: 65_000,
   BUS: 15_000,
   BRT: 28_000,
+  CABLE: 22_000,
+  FERRY: 14_000,
 }
 
 export function isGameStationFacilityLevel(

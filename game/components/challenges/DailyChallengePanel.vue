@@ -3,6 +3,7 @@ import { currentGameLocaleTag } from '../../config/i18n'
 import { computed, ref } from 'vue'
 import { createDailyChallengeDefinition, utcDateKey } from '../../engine/challenges'
 import { getGameTerritoryCatalogEntry } from '../../config/territories'
+import { getTransportModeDefinition } from '../../config/transportModes'
 import { useMetropoleGame } from '../../composables/useMetropoleGame'
 import { useGameAudio } from '../../composables/useGameAudio'
 
@@ -41,7 +42,7 @@ async function launch() {
       <article><span>Carte</span><strong>{{ getGameTerritoryCatalogEntry(definition.territory).label }}</strong><small>Carte réelle uniquement</small></article>
       <article><span>Capital</span><strong>{{ money(definition.startingCapital) }}</strong><small>Imposé</small></article>
       <article><span>Difficulté</span><strong>{{ definition.difficulty === 'EXTREME' ? 'Extrême' : 'Hardcore' }}</strong><small>Aucune triche</small></article>
-      <article><span>Modes</span><strong>{{ definition.allowedModes.join(' · ') }}</strong><small>Les autres sont bloqués</small></article>
+      <article><span>Modes</span><strong>{{ definition.allowedModes.map(mode => getTransportModeDefinition(mode).label).join(' · ') }}</strong><small>Les autres sont bloqués</small></article>
     </div>
     <div class="daily-grid">
       <div><h4>Objectifs</h4><ul><li v-for="objective in definition.objectives" :key="objective.id"><b>{{ objective.title }}</b><span>{{ objective.description }}</span></li></ul></div>

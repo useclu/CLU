@@ -6,7 +6,9 @@ import {
 } from '../config/economy'
 import {
   borrowMoney,
+  borrowProjectMoney,
   calculateCreditLimit,
+  calculateProjectCreditLimit,
   calculatePublicDevelopmentFunding,
   repayDebt,
 } from '../engine/economy'
@@ -65,6 +67,18 @@ export function useGameEconomy() {
     )
   })
   const availableCredit = computed(() => Math.max(0, creditLimit.value - debtPrincipal.value))
+  const projectCreditLimit = computed(() => {
+    const profile = game.state.value.save?.data.freePlaySettings.economyProfile ?? 'STANDARD'
+    return Math.round(
+      calculateProjectCreditLimit(
+        network.lines.value.length,
+        totalOperatingRevenue.value,
+        totalInvestment.value,
+        creditScore.value,
+      ) * GAME_ECONOMY_PROFILE_MULTIPLIERS[profile].credit,
+    )
+  })
+  const projectAvailableCredit = computed(() => Math.max(0, projectCreditLimit.value - debtPrincipal.value))
   const operatingResult = computed(() => totalOperatingRevenue.value - totalOperatingCosts.value)
   const isInDebt = computed(() => balance.value < 0 || debtPrincipal.value > 0)
   const transactions = computed(() => economy.value?.transactions ?? [])
@@ -97,6 +111,16 @@ export function useGameEconomy() {
     if (!save) return { ok: false, code: 'INVALID_AMOUNT' as const, message: 'Aucune partie active.' }
     const creditMultiplier = GAME_ECONOMY_PROFILE_MULTIPLIERS[save.data.freePlaySettings.economyProfile].credit
     const result = borrowMoney(save.data.economy, amount, save.data.simulationDay, save.data.network.lines.length, creditMultiplier)
+    if (result.ok) await game.persistCurrentGame()
+    return result
+  }
+
+  async function borrowProject(amount: number) {
+    assertWritable()
+    const save = game.state.value.save
+    if (!save) return { ok: false, code: 'INVALID_AMOUNT' as const, message: 'Aucune partie active.' }
+    const creditMultiplier = GAME_ECONOMY_PROFILE_MULTIPLIERS[save.data.freePlaySettings.economyProfile].credit
+    const result = borrowProjectMoney(save.data.economy, amount, save.data.simulationDay, save.data.network.lines.length, creditMultiplier)
     if (result.ok) await game.persistCurrentGame()
     return result
   }
@@ -144,6 +168,8 @@ export function useGameEconomy() {
     insolvencyStatus,
     creditLimit,
     availableCredit,
+    projectCreditLimit,
+    projectAvailableCredit,
     operatingResult,
     isInDebt,
     borrowsToday,
@@ -153,6 +179,7 @@ export function useGameEconomy() {
     recentTransactions,
     modeCosts,
     borrow,
+    borrowProject,
     repay,
   }
 }

@@ -32,7 +32,7 @@ export function normalizeFleetCondition(
 export function calculateUnavailableVehicleRate(
   line: Pick<
     GameLine,
-    'fleetCondition' | 'maintenanceLevel' | 'rollingStockUpgrades'
+    'fleetCondition' | 'maintenanceLevel' | 'rollingStockUpgrades' | 'mode' | 'rollingStockModelId' | 'depotId'
   >,
 ) {
   const condition = normalizeFleetCondition(
@@ -63,14 +63,15 @@ export function calculateUnavailableVehicleRate(
     * getMaintenanceLevelDefinition(
       line.maintenanceLevel,
     ).reliabilityMultiplier
-    * rollingStockPerformance(line).reliabilityMultiplier,
+    * rollingStockPerformance(line).reliabilityMultiplier
+    * (line.depotId ? 0.92 : 1),
   )
 }
 
 export function calculateUnavailableVehicles(
   line: Pick<
     GameLine,
-    'vehicleCount' | 'fleetCondition' | 'maintenanceLevel' | 'rollingStockUpgrades'
+    'vehicleCount' | 'fleetCondition' | 'maintenanceLevel' | 'rollingStockUpgrades' | 'mode' | 'rollingStockModelId' | 'depotId'
   >,
 ) {
   const vehicleCount = Math.max(
@@ -104,7 +105,7 @@ export function calculateUnavailableVehicles(
 export function calculateAvailableVehicles(
   line: Pick<
     GameLine,
-    'vehicleCount' | 'fleetCondition' | 'maintenanceLevel' | 'rollingStockUpgrades'
+    'vehicleCount' | 'fleetCondition' | 'maintenanceLevel' | 'rollingStockUpgrades' | 'mode' | 'rollingStockModelId' | 'depotId'
   >,
 ) {
   const vehicleCount = Math.max(
@@ -121,7 +122,7 @@ export function calculateAvailableVehicles(
 export function calculateDailyFleetConditionDelta(
   line: Pick<
     GameLine,
-    'vehicleCount' | 'serviceLevel' | 'maintenanceLevel'
+    'vehicleCount' | 'serviceLevel' | 'maintenanceLevel' | 'depotId'
   >,
   serviceFulfillmentRate = 1,
 ) {
@@ -140,7 +141,7 @@ export function calculateDailyFleetConditionDelta(
     Math.min(1.4, serviceFulfillmentRate),
   )
 
-  return maintenance.dailyConditionRecovery - wear
+  return maintenance.dailyConditionRecovery + (line.depotId ? 0.08 : 0) - wear
 }
 
 export function applyDailyFleetMaintenance(

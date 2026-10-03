@@ -9,7 +9,7 @@ export type CookieConsentState = {
 }
 
 const STORAGE_KEY = 'clu_cookie_consent_v1'
-const VERSION = '1.0'
+const VERSION = '1.1'
 const state = ref<CookieConsentState | null>(null)
 const ready = ref(false)
 const panelOpen = ref(false)
@@ -82,6 +82,7 @@ function applyGoogleConsent(consent: CookieConsentState | null) {
 function loadAnalyticsIfAllowed(consent: CookieConsentState | null) {
   if (
     typeof document === 'undefined'
+    || import.meta.dev
     || !consent?.analytics
     || analyticsLoaded
   ) return
