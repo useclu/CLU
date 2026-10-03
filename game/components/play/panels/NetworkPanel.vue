@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { currentGameLocale, currentGameLocaleTag, translateGameText, formatGameInteger, formatGameCurrencyCompact, formatGamePercent, formatGameSignedPercent, gameNumericCollator } from '../../../config/i18n'
+import { currentGameLocale, currentGameLocaleTag, translateGameText } from '../../../config/i18n'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { getTransportModeDefinition } from '../../../config/transportModes'
 import {
@@ -85,7 +85,7 @@ const fleetPending = reactive<Record<string, boolean>>({})
 // (1, 2, 10 / A, B / T1, T2...) sans modifier l'ordre persistant du réseau.
 const LINE_MODE_ORDER: GameLine['mode'][] = ['RER', 'TRAIN', 'METRO', 'TRAM', 'CABLE', 'FERRY', 'BRT', 'BUS']
 const lineGroups = computed(() => {
-  const collator = gameNumericCollator()
+  const collator = new Intl.Collator(currentGameLocaleTag(), { numeric: true, sensitivity: 'base' })
   return LINE_MODE_ORDER
     .map(mode => ({
       mode,
@@ -191,11 +191,11 @@ onMounted(() => {
 watch(collapsedModes, modes => {
   try { localStorage.setItem(LINE_GROUPS_STORAGE_KEY, JSON.stringify(modes)) }
   catch { /* Préférence purement locale. */ }
-})
+}, { deep: true })
 watch(favoriteLineIds, ids => {
   try { localStorage.setItem(LINE_FAVORITES_STORAGE_KEY, JSON.stringify(ids)) }
   catch { /* Préférence purement locale. */ }
-})
+}, { deep: true })
 
 watch(() => selection.selectedLineId.value, async lineId => {
   if (!lineId) return
@@ -211,16 +211,16 @@ watch(() => selection.selectedLineId.value, async lineId => {
 }, { flush: 'post' })
 
 function money(value: number) {
-  return formatGameCurrencyCompact(value)
+  return new Intl.NumberFormat(currentGameLocaleTag(), { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 function integer(value: number) {
-  return formatGameInteger(value)
+  return new Intl.NumberFormat(currentGameLocaleTag(), { maximumFractionDigits: 0 }).format(value)
 }
 function percent(value: number) {
-  return formatGamePercent(value)
+  return new Intl.NumberFormat(currentGameLocaleTag(), { style: 'percent', maximumFractionDigits: 0 }).format(value)
 }
 function signedPercent(value: number) {
-  const formatted = formatGameSignedPercent(value)
+  const formatted = new Intl.NumberFormat(currentGameLocaleTag(), { style: 'percent', maximumFractionDigits: 0, signDisplay: 'always' }).format(value)
   return formatted.replace('+0 %', '0 %').replace('+0%', '0%')
 }
 function signedNumber(value: number, suffix = '') {
@@ -818,6 +818,54 @@ function connectionDistanceLabel(line: GameLine, stationId: string, otherLineId:
 .analysis-rows{display:grid;border-top:1px solid rgba(255,255,255,.055)}.analysis-rows>div{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid rgba(255,255,255,.045);background:transparent}.analysis-rows span{font-size:calc(8px * var(--clu-text-scale,1));opacity:.58}.analysis-rows strong{font-size:calc(9.5px * var(--clu-text-scale,1));white-space:nowrap}.analysis-rows small{font-size:calc(7.5px * var(--clu-text-scale,1));opacity:.42;text-align:right}.compact-scope{gap:4px;margin-bottom:6px}.compact-scope button{padding:4px 6px;font-size:calc(7.5px * var(--clu-text-scale,1))}.compact-trends{display:flex;align-items:center;gap:12px;margin-top:6px;padding:0 2px}.compact-trends>span{display:flex;align-items:baseline;gap:4px;padding:0;background:transparent;border:0;border-radius:0}.compact-trends small{font-size:calc(7.5px * var(--clu-text-scale,1));opacity:.42}.compact-trends b{font-size:calc(8px * var(--clu-text-scale,1))}.line-core-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.line-core-metrics>div{min-height:44px}.line-core-metrics small{font-size:calc(7.5px * var(--clu-text-scale,1));line-height:1.3;opacity:.45}.line-core-metrics .passenger-summary,.line-core-metrics .bottleneck-summary{grid-column:1/-1;min-height:0}.passenger-summary{position:relative;margin-top:9px;border-left:2px solid rgba(79,211,220,.42)}.passenger-summary::before{content:'';position:absolute;left:-2px;right:0;top:-8px;height:1px;background:rgba(255,255,255,.07)}.bottleneck-summary{background:rgba(236,170,73,.035)!important;border-left:2px solid rgba(236,170,73,.35)}.line-auto-reading{padding-top:4px;border-top:1px solid rgba(255,255,255,.06)}.line-auto-reading .diagnostic-list{gap:6px}.line-auto-reading .diagnostic-title{font-size:calc(9px * var(--clu-text-scale,1));opacity:.62}.line-auto-reading .diagnostic-card{padding:8px;border-radius:8px}.line-auto-reading .diagnostic-card span,.line-auto-reading .diagnostic-card small{font-size:calc(8px * var(--clu-text-scale,1));line-height:1.35}
 @media(max-width:560px){.line-core-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.line-core-metrics .passenger-summary,.line-core-metrics .bottleneck-summary{grid-column:1/-1}}
 
+
+
+/* Responsive interne du module Réseau : le panneau peut être étroit même sur un grand écran. */
+.network-panel{container-type:inline-size;min-width:0;width:100%;max-width:100%}
+.network-panel :is(.line-card,.line-summary-row,.line-summary,.line-details,details,.sub-card,.explain-box,.network-overview,.metrics-grid,.form-grid,.fleet-adjuster,.upgrade-list,.upgrade-row,.regulation-card,.line-finance-card,.analysis-rows,.identity-editor){min-width:0;max-width:100%;box-sizing:border-box}
+.network-panel :is(.line-details,details,.sub-card,.explain-box) :is(p,small,strong,b,span,label){overflow-wrap:anywhere}
+.network-panel :is(button,input,select){max-width:100%;box-sizing:border-box}
+.sub-card__head>*{min-width:0}
+
+@container (max-width:620px){
+  .line-finance-card{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fleet-adjuster{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .fleet-adjuster>span{grid-column:1/-1}
+  .fleet-adjuster .counter{min-width:0;width:100%}
+  .fleet-adjuster .counter input{flex:1;width:auto;min-width:48px}
+  .fleet-adjuster>button{min-width:0;white-space:normal}
+  .upgrade-row{grid-template-columns:minmax(0,1fr)}
+  .upgrade-row button{width:100%;white-space:normal}
+  .metrics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .form-grid{grid-template-columns:minmax(0,1fr)}
+  .station-row{flex-wrap:wrap}
+  .sub-card__head{align-items:flex-start;flex-wrap:wrap}
+  .sub-card__head>b{max-width:100%;text-align:right}
+  .identity-editor__head{align-items:flex-start;flex-direction:column}
+  .identity-editor__actions{flex-wrap:wrap;justify-content:flex-start}
+  .analysis-rows>div{grid-template-columns:minmax(0,1fr) auto}
+  .analysis-rows small{grid-column:1/-1;text-align:left}
+  .line-core-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .line-core-metrics .passenger-summary,.line-core-metrics .bottleneck-summary{grid-column:1/-1}
+}
+
+@container (max-width:460px){
+  .overview-metrics--essential,.metrics-grid,.metrics-grid.compact,.line-core-metrics{grid-template-columns:minmax(0,1fr)}
+  .metrics-grid .wide,.line-core-metrics .passenger-summary,.line-core-metrics .bottleneck-summary{grid-column:1}
+  .fleet-adjuster{grid-template-columns:minmax(0,1fr)}
+  .fleet-adjuster>span,.fleet-adjuster>.counter,.fleet-adjuster>button{grid-column:1;width:100%}
+  .fleet-adjuster .counter{justify-content:stretch}
+  .fleet-adjuster .counter button{flex:none}
+  .fleet-adjuster .counter input{flex:1;width:100%}
+  .sub-card__head{display:grid;grid-template-columns:minmax(0,1fr);gap:4px}
+  .sub-card__head>b{text-align:left}
+  .choice-row button,.button-row button{white-space:normal}
+  .diagram-head{align-items:flex-start;flex-direction:column}
+  .diagram-head small{text-align:left}
+  .diagram-stop{grid-template-columns:22px minmax(0,1fr)}
+  .diagram-connections{grid-column:2;justify-content:flex-start;max-width:none;padding-bottom:5px}
+  .compact-trends{flex-wrap:wrap}
+}
 
 .network-panel :is(button,input,select):disabled{cursor:not-allowed;filter:saturate(.35);opacity:.48}
 </style>

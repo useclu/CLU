@@ -10,6 +10,7 @@ import { useGameTerritory } from '../../composables/useGameTerritory'
 import { useGameTransitRuntime } from '../../composables/useGameTransitRuntime'
 import { useMetropoleGame } from '../../composables/useMetropoleGame'
 import { findLineStation, getLineAllStations, getLineServiceRoutes, getLineTerminusStations } from '../../engine/network/geometry'
+import { getSegmentCoordinates } from '../../engine/network/pathGeometry'
 import { stationDistanceMeters } from '../../engine/transitRuntime'
 import type { GamePassengerJourneyLeg, GamePassengerJourneyPlan } from '../../types/passengers'
 import type { GameLine, GameStation, GameTransportMode } from '../../types/network'
@@ -35,6 +36,32 @@ interface JourneyChoice {
   destinationPlatform: StationPlatform
   requestedMinute: number
   boardingMinute: number
+}
+
+interface JourneyMapSegment {
+  lineId: string
+  color: string
+  coordinates: Array<[number, number]>
+}
+
+interface JourneyMapWalk {
+  coordinates: Array<[number, number]>
+}
+
+interface JourneyMapPoint {
+  longitude: number
+  latitude: number
+  kind: 'ORIGIN' | 'TRANSFER' | 'DESTINATION'
+  label: string
+  lineLabel?: string
+  lineColor?: string
+}
+
+interface JourneyMapHighlight {
+  key: string
+  segments: JourneyMapSegment[]
+  walks: JourneyMapWalk[]
+  points: JourneyMapPoint[]
 }
 
 interface DirectJourneyAlternative extends JourneyChoice {
@@ -85,7 +112,11 @@ type JourneySection = JourneyRideSection | JourneyWalkSection
 type EndpointKind = 'ORIGIN' | 'DESTINATION'
 
 defineProps<{ compact?: boolean }>()
-const emit = defineEmits<{ plannerChange: [open: boolean] }>()
+const emit = defineEmits<{
+  plannerChange: [open: boolean]
+  journeyChange: [highlight: JourneyMapHighlight | null]
+  journeyFocusChange: [focused: boolean]
+}>()
 
 const network = useGameNetwork()
 const territory = useGameTerritory()
@@ -110,6 +141,7 @@ const origin = ref<StationPlace | null>(null)
 const destination = ref<StationPlace | null>(null)
 const departureMinute = ref(clock.gameMinutes.value)
 const selectedJourneyIndex = ref(0)
+const selectedDirectAlternativeKey = ref<string | null>(null)
 const lineBoardLineId = ref<string | null>(null)
 const lineBoardStationId = ref<string | null>(null)
 const departureRows = ref<NetworkDepartureRow[]>([])
@@ -210,6 +242,7 @@ function setOverlayOpen(open: boolean) {
     activeSearch.value = null
     activeEndpoint.value = null
     lineBoardLineId.value = null
+    selectedDirectAlternativeKey.value = null
     lineBoardStationId.value = null
     departureBoardRefreshToken += 1
     stopDepartureBoardTimer()
@@ -294,6 +327,7 @@ function focusLineBoard() {
 function selectEndpoint(kind: EndpointKind, place: StationPlace) {
   departureMinute.value = clock.gameMinutes.value
   selectedJourneyIndex.value = 0
+  selectedDirectAlternativeKey.value = null
   if (kind === 'ORIGIN') {
     origin.value = place
     originQuery.value = place.name
@@ -316,11 +350,13 @@ function swapEndpoints() {
   destinationQuery.value = previousOriginQuery
   activeEndpoint.value = null
   selectedJourneyIndex.value = 0
+  selectedDirectAlternativeKey.value = null
   departureMinute.value = clock.gameMinutes.value
 }
 
 function clearEndpoint(kind: EndpointKind) {
   selectedJourneyIndex.value = 0
+  selectedDirectAlternativeKey.value = null
   if (kind === 'ORIGIN') {
     origin.value = null
     originQuery.value = ''
@@ -337,6 +373,7 @@ function openPlannerForStation(kind: EndpointKind, lineId: string, stationId: st
   setOverlayOpen(true)
   departureMinute.value = clock.gameMinutes.value
   selectedJourneyIndex.value = 0
+  selectedDirectAlternativeKey.value = null
   if (kind === 'ORIGIN') {
     origin.value = place
     originQuery.value = place.name
@@ -456,11 +493,42 @@ const journeyBundle = computed(() => {
 
 const journeyOptions = computed(() => journeyBundle.value.choices)
 const directAlternatives = computed(() => journeyBundle.value.directAlternatives)
-const journey = computed(() => journeyOptions.value[selectedJourneyIndex.value] ?? journeyOptions.value[0] ?? null)
+const recommendedJourney = computed(() => journeyOptions.value[selectedJourneyIndex.value] ?? journeyOptions.value[0] ?? null)
 
-watch([() => origin.value?.key, () => destination.value?.key], () => { selectedJourneyIndex.value = 0 })
+function directAlternativeKey(alternative: DirectJourneyAlternative) {
+  return `${alternative.line.id}:${Math.round(alternative.boardingMinute)}:${Math.round(alternative.plan.arrivalMinute ?? -1)}`
+}
+
+const selectedDirectAlternative = computed(() => selectedDirectAlternativeKey.value
+  ? directAlternatives.value.find(alternative => directAlternativeKey(alternative) === selectedDirectAlternativeKey.value) ?? null
+  : null)
+
+const journey = computed(() => selectedDirectAlternative.value ?? recommendedJourney.value)
+
+function selectJourneyDeparture(index: number) {
+  selectedJourneyIndex.value = index
+  selectedDirectAlternativeKey.value = null
+}
+
+function selectRecommendedRoute() {
+  selectedDirectAlternativeKey.value = null
+}
+
+function selectDirectAlternative(alternative: DirectJourneyAlternative) {
+  selectedDirectAlternativeKey.value = directAlternativeKey(alternative)
+}
+
+watch([() => origin.value?.key, () => destination.value?.key], () => {
+  selectedJourneyIndex.value = 0
+  selectedDirectAlternativeKey.value = null
+})
 watch(journeyOptions, options => {
   if (selectedJourneyIndex.value >= options.length) selectedJourneyIndex.value = 0
+})
+watch(directAlternatives, alternatives => {
+  if (selectedDirectAlternativeKey.value && !alternatives.some(alternative => directAlternativeKey(alternative) === selectedDirectAlternativeKey.value)) {
+    selectedDirectAlternativeKey.value = null
+  }
 })
 
 function stationsForRideLeg(leg: GamePassengerJourneyLeg) {
@@ -601,6 +669,96 @@ const journeySections = computed<JourneySection[]>(() => {
 
 const firstRideSection = computed(() => journeySections.value.find((section): section is JourneyRideSection => section.kind === 'RIDE') ?? null)
 
+function stationForLegEnd(lineId: string, stationId: string) {
+  const line = lineById.value.get(lineId)
+  if (!line) return null
+  return findLineStation(line, stationId)
+}
+
+function appendPathCoordinates(target: Array<[number, number]>, segment: Array<[number, number]>) {
+  for (const coordinate of segment) {
+    const previous = target[target.length - 1]
+    if (!previous || Math.abs(previous[0] - coordinate[0]) > 1e-9 || Math.abs(previous[1] - coordinate[1]) > 1e-9) {
+      target.push(coordinate)
+    }
+  }
+}
+
+const journeyMapHighlight = computed<JourneyMapHighlight | null>(() => {
+  const choice = journey.value
+  if (!overlayOpen.value || !choice?.plan?.found) return null
+  const segments: JourneyMapSegment[] = []
+  const walks: JourneyMapWalk[] = []
+  const points: JourneyMapPoint[] = []
+  const pointByKey = new Map<string, JourneyMapPoint>()
+
+  function addPoint(station: GameStation | null, kind: JourneyMapPoint['kind'], label: string, line: GameLine | null = null) {
+    if (!station) return
+    const key = `${kind}:${station.longitude.toFixed(7)}:${station.latitude.toFixed(7)}`
+    const code = line?.shortCode?.trim() || ''
+    const existing = pointByKey.get(key)
+    if (existing) {
+      if (code) {
+        const codes = existing.lineLabel ? existing.lineLabel.split(' › ').filter(Boolean) : []
+        if (!codes.includes(code)) existing.lineLabel = [...codes, code].join(' › ')
+        existing.lineColor = line?.color || existing.lineColor
+      }
+      return
+    }
+    const point: JourneyMapPoint = {
+      longitude: station.longitude,
+      latitude: station.latitude,
+      kind,
+      label,
+      lineLabel: code || undefined,
+      lineColor: line?.color,
+    }
+    pointByKey.set(key, point)
+    points.push(point)
+  }
+
+  choice.plan.legs.forEach((leg, index) => {
+    const lastLeg = index === choice.plan.legs.length - 1
+    if (leg.kind === 'RIDE' && leg.lineId) {
+      const line = lineById.value.get(leg.lineId)
+      const stations = stationsForRideLeg(leg)
+      if (line && stations.length >= 2) {
+        const coordinates: Array<[number, number]> = []
+        for (let stationIndex = 1; stationIndex < stations.length; stationIndex += 1) {
+          const from = stations[stationIndex - 1]!
+          const to = stations[stationIndex]!
+          appendPathCoordinates(coordinates, getSegmentCoordinates(line, from, to) ?? [[from.longitude, from.latitude], [to.longitude, to.latitude]])
+        }
+        if (coordinates.length >= 2) segments.push({ lineId: line.id, color: line.color, coordinates })
+        addPoint(stations[0] ?? null, index === 0 ? 'ORIGIN' : 'TRANSFER', leg.fromStationName, line)
+        addPoint(stations[stations.length - 1] ?? null, lastLeg ? 'DESTINATION' : 'TRANSFER', leg.toStationName, line)
+      }
+      return
+    }
+
+    if (leg.kind === 'WALK') {
+      const from = stationForLegEnd(leg.fromLineId, leg.fromStationId)
+      const to = stationForLegEnd(leg.toLineId, leg.toStationId)
+      if (from && to) {
+        walks.push({ coordinates: [[from.longitude, from.latitude], [to.longitude, to.latitude]] })
+        addPoint(from, index === 0 ? 'ORIGIN' : 'TRANSFER', leg.fromStationName, lineById.value.get(leg.fromLineId) ?? null)
+        addPoint(to, lastLeg ? 'DESTINATION' : 'TRANSFER', leg.toStationName, lineById.value.get(leg.toLineId) ?? null)
+      }
+    }
+  })
+
+  const signature = choice.plan.legs.map(leg => `${leg.kind}:${leg.lineId ?? ''}:${leg.fromLineId}:${leg.fromStationId}>${leg.toLineId}:${leg.toStationId}`).join('|')
+  return {
+    key: `${selectedDirectAlternativeKey.value ?? `recommended:${selectedJourneyIndex.value}`}:${Math.round(choice.boardingMinute)}:${signature}`,
+    segments,
+    walks,
+    points,
+  }
+})
+
+watch(journeyMapHighlight, highlight => emit('journeyChange', highlight), { immediate: true })
+watch([overlayOpen, journeyFocused], ([open, focused]) => emit('journeyFocusChange', Boolean(open && focused)), { immediate: true })
+
 function focusJourney() {
   const stations: GameStation[] = []
   for (const section of journeySections.value) {
@@ -617,13 +775,25 @@ function focusJourney() {
   const west = Math.min(...longitudes); const east = Math.max(...longitudes)
   const south = Math.min(...latitudes); const north = Math.max(...latitudes)
   const epsilon = 0.01
+  const desktopJourneyPanel = typeof window !== 'undefined' && window.innerWidth > 760
   focusGameMapBounds({
     west: west === east ? west - epsilon : west,
     east: west === east ? east + epsilon : east,
     south: south === north ? south - epsilon : south,
     north: south === north ? north + epsilon : north,
+  }, {
+    padding: desktopJourneyPanel
+      ? { top: 96, right: Math.min(470, Math.max(390, Math.round(window.innerWidth * .31))), bottom: 92, left: 88 }
+      : { top: 92, right: 48, bottom: 250, left: 48 },
+    maxZoom: 14.2,
+    duration: 820,
   })
 }
+
+watch(() => journeyMapHighlight.value?.key ?? '', key => {
+  if (!key) return
+  nextTick(() => focusJourney())
+})
 
 const BOARD_MODES = new Set<GameTransportMode>(['RER', 'TRAIN', 'METRO', 'TRAM', 'CABLE', 'FERRY'])
 const BOARD_PAGE_SIZE = 5
@@ -741,9 +911,9 @@ function sameLineBranchTransfer(index: number) {
     <button v-if="!overlayOpen" type="button" class="search-launcher" title="Rechercher" aria-label="Ouvrir la recherche" @click="openSearch">⌕</button>
 
     <Teleport to="body">
-      <div v-if="overlayOpen" class="search-overlay-layer">
-        <button type="button" class="search-scrim" aria-label="Fermer la recherche" @click="closeSearch" />
-        <div class="search-hub" @click.stop>
+      <div v-if="overlayOpen" class="search-overlay-layer" :class="{ 'journey-mode': journeyFocused }">
+        <button v-if="!journeyFocused" type="button" class="search-scrim" aria-label="Fermer la recherche" @click="closeSearch" />
+        <div class="search-hub" :class="{ 'journey-hub': journeyFocused }" @click.stop>
         <header class="search-hub-head">
           <div><small>CLU · Explorer le réseau</small><strong>{{ journeyFocused ? 'Votre itinéraire' : lineBoardOpen ? 'Horaires de la ligne' : 'Où souhaitez-vous aller ?' }}</strong><span>{{ currentGameMoment }}</span></div>
           <button type="button" aria-label="Fermer" title="Fermer" @click="closeSearch">×</button>
@@ -826,8 +996,17 @@ function sameLineBranchTransfer(index: number) {
 
             <div class="journey-clockline"><span>Maintenant <b>{{ currentGameMoment }}</b></span><span>Départ recherché <b>{{ calendarMomentLabel(departureMinute) }}</b></span></div>
 
-            <div v-if="journeyOptions.length > 1" class="departure-tabs" aria-label="Départs proches">
-              <button v-for="(option, index) in journeyOptions" :key="`${option.requestedMinute}-${option.boardingMinute}-${index}`" type="button" :class="{ active: selectedJourneyIndex === index }" @click="selectedJourneyIndex = index">
+            <div v-if="directAlternatives.length" class="route-choice-tabs" aria-label="Itinéraires proposés">
+              <button type="button" :class="{ active: !selectedDirectAlternativeKey }" @click="selectRecommendedRoute">
+                <strong>Recommandé</strong><small v-if="recommendedJourney">{{ roundedMinutes(recommendedJourney.plan.totalMinutes) }} min · {{ recommendedJourney.plan.transfers }} corr.</small>
+              </button>
+              <button v-for="alternative in directAlternatives" :key="directAlternativeKey(alternative)" type="button" :class="{ active: selectedDirectAlternativeKey === directAlternativeKey(alternative) }" @click="selectDirectAlternative(alternative)">
+                <strong>Direct · <span data-i18n-skip>{{ alternative.line.shortCode }}</span></strong><small>{{ roundedMinutes(alternative.plan.totalMinutes) }} min · 0 corr.</small>
+              </button>
+            </div>
+
+            <div v-if="journeyOptions.length > 1 && !selectedDirectAlternativeKey" class="departure-tabs" aria-label="Départs proches">
+              <button v-for="(option, index) in journeyOptions" :key="`${option.requestedMinute}-${option.boardingMinute}-${index}`" type="button" :class="{ active: selectedJourneyIndex === index }" @click="selectJourneyDeparture(index)">
                 <strong>{{ calendarMomentLabel(option.boardingMinute, true) }}</strong><small>{{ roundedMinutes(option.plan.totalMinutes) }} min</small>
               </button>
             </div>
@@ -868,14 +1047,6 @@ function sameLineBranchTransfer(index: number) {
 
             <footer class="journey-foot"><span v-if="roundedMinutes(journey.plan.waitingMinutes)">Attente {{ roundedMinutes(journey.plan.waitingMinutes) }} min</span><span v-if="roundedMinutes(journey.plan.walkingMinutes)">Marche {{ roundedMinutes(journey.plan.walkingMinutes) }} min</span><strong>Arrivée {{ calendarMomentLabel(journey.plan.arrivalMinute) }}</strong></footer>
 
-            <section v-if="directAlternatives.length" class="journey-alternatives">
-              <header><div><strong>Autres trajets directs</strong><small>Plus lents parfois, mais sans correspondance.</small></div><span>{{ directAlternatives.length }}</span></header>
-              <article v-for="alternative in directAlternatives" :key="`${alternative.line.id}-${alternative.boardingMinute}`">
-                <span class="alt-line-badge" :style="{ background: alternative.line.color }">{{ alternative.line.shortCode }}</span>
-                <div><strong data-i18n-skip>{{ alternative.line.name }}</strong><small>Direct · départ {{ calendarMomentLabel(alternative.boardingMinute) }} · {{ waitLabel(alternative.boardingMinute - departureMinute) }}</small></div>
-                <span class="alt-times"><b>{{ roundedMinutes(alternative.plan.totalMinutes) }} min</b><small>arr. {{ calendarMomentLabel(alternative.plan.arrivalMinute, true) }}</small></span>
-              </article>
-            </section>
           </div>
           <div v-else-if="origin && destination" class="journey-empty">Aucun itinéraire disponible à cette heure avec le réseau actuel.</div>
 
@@ -906,4 +1077,24 @@ function sameLineBranchTransfer(index: number) {
 .walk-transfer{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:center;padding:12px 4px;border-top:1px dashed rgba(255,255,255,.14);border-bottom:1px dashed rgba(255,255,255,.14)}.walk-transfer>span{font-size:16px}.walk-transfer>div{display:grid;gap:2px}.walk-transfer strong{font-size:calc(10px * var(--clu-text-scale,1))}.walk-transfer small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.52}.walk-transfer time{font-size:calc(10px * var(--clu-text-scale,1));font-weight:800}.journey-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 14px 10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.07);font-size:calc(8px * var(--clu-text-scale,1));opacity:.68}.journey-foot strong{margin-left:auto;color:#dffcff}.journey-alternatives{margin:0 14px 14px;border:1px solid rgba(136,225,231,.15);border-radius:12px;overflow:hidden;background:rgba(76,174,181,.04)}.journey-alternatives>header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.07)}.journey-alternatives>header>div{display:grid;gap:1px}.journey-alternatives>header strong{font-size:calc(9px * var(--clu-text-scale,1))}.journey-alternatives>header small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.5}.journey-alternatives>header>span{min-width:22px;height:22px;border-radius:999px;background:rgba(141,233,238,.12);display:grid;place-items:center;font-size:8px}.journey-alternatives article{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.06)}.journey-alternatives article:last-child{border-bottom:0}.alt-line-badge{min-width:34px;height:27px;padding:0 6px;border-radius:7px;display:grid;place-items:center;color:#081014;font-weight:950;font-size:9px}.journey-alternatives article>div{display:grid;gap:1px;min-width:0}.journey-alternatives article>div strong{font-size:calc(9px * var(--clu-text-scale,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.journey-alternatives article>div small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.52}.alt-times{display:grid;justify-items:end;gap:1px;white-space:nowrap}.alt-times b{font-size:calc(10px * var(--clu-text-scale,1));color:#a6f2f6}.alt-times small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.5}.journey-empty{padding:10px;border-radius:9px;background:rgba(207,87,87,.09);font-size:calc(9px * var(--clu-text-scale,1));color:#ffb1b1}
 @media(max-width:850px){.discovery-grid{grid-template-columns:1fr}.search-module{padding:9px}.module-results{position:relative;left:auto;right:auto;top:auto;max-height:150px}.search-hub{width:min(680px,100%);max-height:100%}}
 @media(max-width:620px){.quick-navigation{position:fixed;left:10px;bottom:139px}.search-launcher{width:44px;height:44px}.search-overlay-layer{padding:62px 8px 8px;align-items:stretch}.search-hub{width:100%;max-height:100%;border-radius:18px;padding:12px}.search-hub-head strong{font-size:calc(17px * var(--clu-text-scale,1))}.journey-fields{grid-template-columns:1fr}.swap-route{width:100%;height:28px}.journey-summary-line b{margin-left:0;width:100%}.network-departure-list article{grid-template-columns:38px minmax(0,1fr) 58px}.board-mission{display:none}.network-departures>footer>small{display:none}.journey-clockline{display:grid}.journey-alternatives article{grid-template-columns:auto minmax(0,1fr)}.alt-times{grid-column:2;justify-items:start}.map-route-button{font-size:0}.map-route-button:after{content:'◎';font-size:14px}}
+
+
+/* Navigation cartographique : une fois le trajet calculé, la carte redevient
+   l'élément principal et le planificateur adopte un format compact à droite. */
+.search-overlay-layer.journey-mode{place-items:stretch end;padding:82px 16px 18px;pointer-events:none}
+.search-overlay-layer.journey-mode .search-hub{width:min(410px,calc(100vw - 32px));max-height:calc(100dvh - 100px);padding:12px;border-radius:18px;background:rgba(7,13,18,.94);box-shadow:0 22px 72px rgba(0,0,0,.48);backdrop-filter:blur(18px)}
+.search-overlay-layer.journey-mode .search-hub-head strong{font-size:calc(17px * var(--clu-text-scale,1))}
+.search-overlay-layer.journey-mode .journey-fields{grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr)}
+.search-overlay-layer.journey-mode .endpoint-input input{height:34px}
+.search-overlay-layer.journey-mode .swap-route{height:35px}
+.search-overlay-layer.journey-mode .journey-board{max-height:none}
+.route-choice-tabs{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(118px,1fr);gap:6px;overflow-x:auto;padding:8px;border-bottom:1px solid rgba(255,255,255,.08);scrollbar-width:none}
+.route-choice-tabs::-webkit-scrollbar{display:none}
+.route-choice-tabs button{min-width:0;padding:8px 9px;border:1px solid rgba(255,255,255,.09);border-radius:9px;background:rgba(255,255,255,.035);color:inherit;text-align:left;display:grid;gap:2px;cursor:pointer}
+.route-choice-tabs button:hover{background:rgba(116,224,231,.08)}
+.route-choice-tabs button.active{border-color:rgba(116,224,231,.42);background:rgba(77,198,207,.13);box-shadow:inset 0 0 0 1px rgba(116,224,231,.08)}
+.route-choice-tabs strong{font-size:calc(9px * var(--clu-text-scale,1));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.route-choice-tabs small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.55;white-space:nowrap}
+@media(max-width:760px){.search-overlay-layer.journey-mode{padding:62px 8px 8px;place-items:stretch}.search-overlay-layer.journey-mode .search-hub{width:100%;max-height:100%;border-radius:18px}.search-overlay-layer.journey-mode .journey-fields{grid-template-columns:1fr}.route-choice-tabs{grid-auto-columns:minmax(112px,72vw)}}
+
 </style>

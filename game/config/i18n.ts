@@ -3161,6 +3161,13 @@ const FINAL_EXACT_6: Record<string, TranslationRow> = {
   '500 Md€': row('€500bn', '500 Mrd. €', '€ 500 mld.', '500.000 M€', '500 mld. €', '500 mil M€', '500 mld €'),
 }
 
+// Navigation cartographique — variantes d’itinéraire compactes.
+Object.assign(FINAL_EXACT_4, {
+  'Recommandé': row('Recommended', 'Empfohlen', 'Aanbevolen', 'Recomendado', 'Consigliato', 'Recomendado', 'Polecane'),
+  'Itinéraires proposés': row('Suggested routes', 'Vorgeschlagene Routen', 'Voorgestelde routes', 'Itinerarios propuestos', 'Itinerari proposti', 'Itinerários sugeridos', 'Proponowane trasy'),
+  'Direct': row('Direct', 'Direkt', 'Rechtstreeks', 'Directo', 'Diretto', 'Direto', 'Bezpośrednio'),
+})
+
 export function translateGameText(input: string, locale: GameLocale): string {
   if (locale === 'fr' || !input) return input
   const target = locale as Exclude<GameLocale, 'fr'>

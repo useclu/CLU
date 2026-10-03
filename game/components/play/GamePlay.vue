@@ -104,6 +104,13 @@ interface GameLineLaunchConfiguration {
   specificTicketPrice: number
 }
 
+interface JourneyMapHighlight {
+  key: string
+  segments: Array<{ lineId: string; color: string; coordinates: Array<[number, number]> }>
+  walks: Array<{ coordinates: Array<[number, number]> }>
+  points: Array<{ longitude: number; latitude: number; kind: 'ORIGIN' | 'TRANSFER' | 'DESTINATION'; label: string; lineLabel?: string; lineColor?: string }>
+}
+
 const game = useMetropoleGame()
 const network = useGameNetwork()
 const economy = useGameEconomy()
@@ -150,6 +157,8 @@ const assistantOpen = ref(false)
 const lineVisibilityOpen = ref(false)
 const dimmedLineIds = ref<string[]>([])
 const routePlannerOpen = ref(false)
+const routeJourneyFocused = ref(false)
+const routeJourneyHighlight = ref<JourneyMapHighlight | null>(null)
 const exportingWorldSave = ref(false)
 const worldExportOpen = ref(false)
 const editorExportOpen = ref(false)
@@ -1398,13 +1407,25 @@ function handleGameShellPointerDown(event: PointerEvent) {
 
 function handlePlannerChange(open: boolean) {
   routePlannerOpen.value = open
-  if (!open) return
+  if (!open) {
+    routeJourneyFocused.value = false
+    routeJourneyHighlight.value = null
+    return
+  }
   managementOpen.value = false
   diversOpen.value = false
   closeContextPanels()
   creationOpen.value = false
   panelOpen.value = false
   persistPanelState()
+}
+
+function handleJourneyFocusChange(focused: boolean) {
+  routeJourneyFocused.value = focused
+}
+
+function handleJourneyChange(highlight: JourneyMapHighlight | null) {
+  routeJourneyHighlight.value = highlight
 }
 
 function dismissWorldPulse(item: GameWorldPulseItem) {
@@ -2231,6 +2252,7 @@ onUnmounted(() => {
       :operations-disruptions="operations.activeDisruptions.value"
       :substitution-services="operations.activeSubstitutions.value"
       :project-municipality-codes="projectForecast?.municipalityCodes ?? []"
+      :journey-highlight="routeJourneyHighlight"
       @map-click="handleMapClick"
       @draft-preview="handleDraftPreview"
       @line-click="handleLineClick"
@@ -2423,8 +2445,14 @@ onUnmounted(() => {
       @close="editorExportOpen = false"
     />
 
-    <div v-if="routePlannerOpen" class="planner-focus-backdrop" aria-hidden="true" />
-    <QuickNavigation v-if="gameplayReady && !network.isBuilding.value && !network.isEditing.value && !creationOpen" :compact="quickNavigationCompact" @planner-change="handlePlannerChange" />
+    <div v-if="routePlannerOpen && !routeJourneyFocused" class="planner-focus-backdrop" aria-hidden="true" />
+    <QuickNavigation
+      v-if="gameplayReady && !network.isBuilding.value && !network.isEditing.value && !creationOpen"
+      :compact="quickNavigationCompact"
+      @planner-change="handlePlannerChange"
+      @journey-focus-change="handleJourneyFocusChange"
+      @journey-change="handleJourneyChange"
+    />
 
     <nav v-if="contextDockVisible" class="map-context-dock" aria-label="Informations contextuelles">
       <button type="button" :class="{ active: mapInsightMode !== 'NONE' }" :title="`${translateGameText('Lecture du territoire', currentGameLocale())} · ${mapInsightLabel}`" :aria-label="`${translateGameText('Lecture du territoire', currentGameLocale())} · ${mapInsightLabel}`" @click="cycleMapInsightMode"><span>◉</span><i v-if="mapInsightMode !== 'NONE'" class="insight-badge">{{ mapInsightMode === 'POPULATION' ? 'P' : mapInsightMode === 'ACCESSIBILITY' ? 'A' : mapInsightMode === 'GROWTH' ? '↗' : mapInsightMode === 'FLOW' ? '⇄' : mapInsightMode === 'SATURATION' ? '▲' : '!'  }}</i></button>

@@ -62,6 +62,13 @@ interface GameMapDraftAnchor {
   kind?: string
 }
 
+interface GameJourneyHighlight {
+  key: string
+  segments: Array<{ lineId: string; color: string; coordinates: Array<[number, number]> }>
+  walks: Array<{ coordinates: Array<[number, number]> }>
+  points: Array<{ longitude: number; latitude: number; kind: 'ORIGIN' | 'TRANSFER' | 'DESTINATION'; label: string; lineLabel?: string; lineColor?: string }>
+}
+
 const props = defineProps<{
   lines: GameLine[]
   dimmedLineIds?: string[]
@@ -88,6 +95,7 @@ const props = defineProps<{
   projectMunicipalityCodes?: string[]
   operationsDisruptions?: GameManualDisruption[]
   substitutionServices?: GameBusSubstitutionService[]
+  journeyHighlight?: GameJourneyHighlight | null
 }>()
 
 const emit = defineEmits<{
@@ -610,6 +618,7 @@ function workLineWidthExpression(): any {
 function focusedLineOpacity(): any {
   return [
     'case',
+    ['==', ['get', 'journeyContext'], 1], .075,
     ['==', ['get', 'dimmed'], 1], .055,
     ['all', ['==', ['get', 'focusContext'], 1], ['!=', ['get', 'focused'], 1]], .22,
     ['==', ['get', 'status'], 'PROJECT'], .84,
@@ -620,6 +629,7 @@ function focusedLineOpacity(): any {
 function focusedStationOpacity(): any {
   return [
     'case',
+    ['==', ['get', 'journeyContext'], 1], .16,
     ['all', ['==', ['get', 'focusContext'], 1], ['!=', ['get', 'focused'], 1]], .58,
     1,
   ]
@@ -780,6 +790,7 @@ function getLineCollection() {
           selected: line.id === props.selectedLineId ? 1 : 0,
           focused: line.id === focusLineId ? 1 : 0,
           focusContext,
+          journeyContext: props.journeyHighlight ? 1 : 0,
           dimmed: (props.dimmedLineIds ?? []).includes(line.id) ? 1 : 0,
           corridorOffset: chunk.corridorOffset,
           corridorCount: chunk.corridorCount,
@@ -790,6 +801,47 @@ function getLineCollection() {
         },
       }))
     }),
+  }
+}
+
+function getJourneyLineCollection() {
+  const highlight = props.journeyHighlight
+  if (!highlight) return { type: 'FeatureCollection', features: [] }
+  const features: GeoJsonFeature[] = []
+  for (const segment of highlight.segments) {
+    if (!Array.isArray(segment.coordinates) || segment.coordinates.length < 2) continue
+    features.push({
+      type: 'Feature',
+      properties: { kind: 'RIDE', lineId: segment.lineId, color: segment.color },
+      geometry: { type: 'LineString', coordinates: segment.coordinates },
+    })
+  }
+  for (const walk of highlight.walks) {
+    if (!Array.isArray(walk.coordinates) || walk.coordinates.length < 2) continue
+    features.push({
+      type: 'Feature',
+      properties: { kind: 'WALK', color: '#eafcff' },
+      geometry: { type: 'LineString', coordinates: walk.coordinates },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function getJourneyPointCollection() {
+  const highlight = props.journeyHighlight
+  if (!highlight) return { type: 'FeatureCollection', features: [] }
+  return {
+    type: 'FeatureCollection',
+    features: highlight.points.map(point => ({
+      type: 'Feature',
+      properties: {
+        kind: point.kind,
+        label: point.label,
+        lineLabel: point.lineLabel ?? '',
+        lineColor: point.lineColor ?? '#ffffff',
+      },
+      geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
+    })),
   }
 }
 
@@ -907,6 +959,7 @@ function getStationCollection() {
               draftAnchor: station.id === props.draftAnchor?.stationId ? 1 : 0,
               focused: line.id === focusLineId ? 1 : 0,
               focusContext,
+              journeyContext: props.journeyHighlight ? 1 : 0,
               terminus: terminusIds.has(station.id) ? 1 : 0,
               junction: junctionIds.has(station.id) ? 1 : 0,
               interchange: interchangeStationIds.has(`${line.id}:${station.id}`) ? 1 : 0,
@@ -1587,6 +1640,10 @@ function raiseNetworkPointLayers() {
     'game-network-station-core',
     'game-network-station-labels',
     'game-network-stations-hit',
+    'game-journey-points-halo',
+    'game-journey-points-core',
+    'game-journey-transfer-line-labels',
+    'game-journey-point-labels',
   ]) {
     try { if (map.getLayer(layerId)) map.moveLayer(layerId) } catch {}
   }
@@ -1614,6 +1671,27 @@ function refreshOperationsLayer() {
   if (hasSetData(operationsSource)) operationsSource.setData(getOperationsOverlayCollection())
 }
 
+function refreshJourneyLayers() {
+  if (!map || !mapReady.value) return
+  const lineSource = map.getSource('game-journey-lines')
+  const pointSource = map.getSource('game-journey-points')
+  if (hasSetData(lineSource)) lineSource.setData(getJourneyLineCollection())
+  if (hasSetData(pointSource)) pointSource.setData(getJourneyPointCollection())
+  // Le trajet doit rester la lecture principale, même si une couche d'analyse
+  // (flux, perturbation...) était active avant l'ouverture du planificateur.
+  for (const layerId of [
+    'game-journey-lines-casing',
+    'game-journey-lines',
+    'game-journey-walks',
+    'game-journey-points-halo',
+    'game-journey-points-core',
+    'game-journey-transfer-line-labels',
+    'game-journey-point-labels',
+  ]) {
+    try { if (map.getLayer(layerId)) map.moveLayer(layerId) } catch {}
+  }
+}
+
 function refreshPassengerMetricLayers() {
   if (!map || !mapReady.value) return
   const empty = { type: 'FeatureCollection', features: [] }
@@ -1637,6 +1715,7 @@ function refreshNetworkLayers() {
   if (!map || !mapReady.value) return
   refreshLineStationLayers()
   refreshOperationsLayer()
+  refreshJourneyLayers()
   refreshPassengerMetricLayers()
   void rebuildStationMarkers()
   refreshProjectCatchment()
@@ -2017,7 +2096,7 @@ function formatPopulation(
   return formatGameNumber(population)
 }
 
-type DeferredMapRefresh = 'LINE_STATION' | 'STATIONS' | 'OPERATIONS' | 'METRICS' | 'INTERCHANGES' | 'DEPOTS' | 'VEHICLES' | 'VISUAL'
+type DeferredMapRefresh = 'LINE_STATION' | 'STATIONS' | 'OPERATIONS' | 'JOURNEY' | 'METRICS' | 'INTERCHANGES' | 'DEPOTS' | 'VEHICLES' | 'VISUAL'
 const deferredMapRefreshes = new Set<DeferredMapRefresh>()
 let deferredMapRefreshFrame: number | null = null
 
@@ -2031,6 +2110,7 @@ function scheduleMapRefresh(...kinds: DeferredMapRefresh[]) {
     if (pending.has('LINE_STATION')) refreshLineStationLayers()
     else if (pending.has('STATIONS')) refreshStationLayer()
     if (pending.has('OPERATIONS')) refreshOperationsLayer()
+    if (pending.has('JOURNEY')) refreshJourneyLayers()
     if (pending.has('METRICS')) refreshPassengerMetricLayers()
     if (pending.has('INTERCHANGES')) refreshInterchangeLayers(!pending.has('LINE_STATION') && !pending.has('STATIONS'))
     if (pending.has('DEPOTS')) refreshDepotLayer()
@@ -2090,6 +2170,11 @@ watch(
 watch(
   () => (props.dimmedLineIds ?? []).join('|'),
   () => scheduleMapRefresh('LINE_STATION'),
+)
+
+watch(
+  () => props.journeyHighlight?.key ?? '',
+  () => scheduleMapRefresh('LINE_STATION', 'JOURNEY'),
 )
 
 watch(
@@ -3124,6 +3209,7 @@ onMounted(async () => {
             'line-offset': corridorOffsetExpression(),
             'line-opacity': [
               'case',
+              ['==', ['get', 'journeyContext'], 1], .035,
               ['==', ['get', 'dimmed'], 1], .025,
               ['all', ['==', ['get', 'focusContext'], 1], ['!=', ['get', 'focused'], 1]], .18,
               .86,
@@ -3143,7 +3229,7 @@ onMounted(async () => {
             'line-color': '#eaffff',
             'line-width': focusLineWidthExpression(),
             'line-offset': corridorOffsetExpression(),
-            'line-opacity': ['case', ['==', ['get', 'dimmed'], 1], .02, .16],
+            'line-opacity': ['case', ['==', ['get', 'journeyContext'], 1], .012, ['==', ['get', 'dimmed'], 1], .02, .16],
             'line-blur': sharedCorridorExtra(.6, 3.2),
           },
         })
@@ -3196,11 +3282,53 @@ onMounted(async () => {
             'line-offset': corridorOffsetExpression(),
             'line-opacity': [
               'case',
+              ['==', ['get', 'journeyContext'], 1], .045,
               ['==', ['get', 'dimmed'], 1], .04,
               ['all', ['==', ['get', 'focusContext'], 1], ['!=', ['get', 'focused'], 1]], .16,
               .62,
             ],
             'line-dasharray': [2, 2],
+          },
+        })
+
+        // Itinéraire actif : le réseau complet reste en contexte très léger,
+        // tandis que seuls les tronçons réellement empruntés sont redessinés ici.
+        map.addSource('game-journey-lines', { type: 'geojson', data: getJourneyLineCollection() })
+        map.addLayer({
+          id: 'game-journey-lines-casing',
+          type: 'line',
+          source: 'game-journey-lines',
+          filter: ['==', ['get', 'kind'], 'RIDE'],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#071014',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 5, 7, 10, 10.5, 15, 16],
+            'line-opacity': .88,
+          },
+        })
+        map.addLayer({
+          id: 'game-journey-lines',
+          type: 'line',
+          source: 'game-journey-lines',
+          filter: ['==', ['get', 'kind'], 'RIDE'],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 5, 4.2, 10, 7, 15, 11.5],
+            'line-opacity': .98,
+          },
+        })
+        map.addLayer({
+          id: 'game-journey-walks',
+          type: 'line',
+          source: 'game-journey-lines',
+          filter: ['==', ['get', 'kind'], 'WALK'],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#eafcff',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2.4, 12, 3.5, 16, 4.5],
+            'line-opacity': .92,
+            'line-dasharray': [1.2, 1.2],
           },
         })
 
@@ -3325,6 +3453,7 @@ onMounted(async () => {
             'circle-color': '#ffffff',
             'circle-opacity': [
               'case',
+              ['==', ['get', 'journeyContext'], 1], .16,
               ['==', ['get', 'focusContext'], 1], ['case', ['==', ['get', 'focused'], 1], .96, .46],
               .92,
             ],
@@ -3345,6 +3474,7 @@ onMounted(async () => {
             'circle-color': ['get', 'color'],
             'circle-opacity': [
               'case',
+              ['==', ['get', 'journeyContext'], 1], .18,
               ['==', ['get', 'focusContext'], 1], ['case', ['==', ['get', 'focused'], 1], 1, .48],
               1,
             ],
@@ -3375,6 +3505,7 @@ onMounted(async () => {
           minzoom: 10.4,
           filter: [
             'all',
+            ['==', ['get', 'journeyContext'], 0],
             ['==', ['get', 'interchange'], 0],
             [
               'any',
@@ -3397,6 +3528,76 @@ onMounted(async () => {
             'text-halo-color': 'rgba(6,12,17,.94)',
             'text-halo-width': 1.6,
             'text-opacity': .92,
+          },
+        })
+
+        map.addSource('game-journey-points', { type: 'geojson', data: getJourneyPointCollection() })
+        map.addLayer({
+          id: 'game-journey-points-halo',
+          type: 'circle',
+          source: 'game-journey-points',
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 6.5, 11, 9.5, 15, 12],
+            'circle-color': '#ffffff',
+            'circle-opacity': .98,
+            'circle-stroke-color': '#071014',
+            'circle-stroke-width': ['case', ['==', ['get', 'kind'], 'TRANSFER'], 2.4, 3.2],
+          },
+        })
+        map.addLayer({
+          id: 'game-journey-points-core',
+          type: 'circle',
+          source: 'game-journey-points',
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 2.8, 11, 4, 15, 5.2],
+            'circle-color': ['case', ['==', ['get', 'kind'], 'ORIGIN'], '#69e0e7', ['==', ['get', 'kind'], 'DESTINATION'], '#f2c95d', '#ffffff'],
+            'circle-opacity': 1,
+          },
+        })
+        map.addLayer({
+          id: 'game-journey-transfer-line-labels',
+          type: 'symbol',
+          source: 'game-journey-points',
+          minzoom: 7.6,
+          filter: ['all', ['==', ['get', 'kind'], 'TRANSFER'], ['!=', ['get', 'lineLabel'], '']],
+          layout: {
+            'text-field': ['get', 'lineLabel'],
+            'text-font': ['Arial', 'Segoe UI'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 8, 10, 12, 12, 15, 14],
+            'text-offset': [0, -1.35],
+            'text-anchor': 'bottom',
+            'text-padding': 2,
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
+          paint: {
+            'text-color': ['get', 'lineColor'],
+            'text-halo-color': 'rgba(5,10,14,.98)',
+            'text-halo-width': 3.2,
+            'text-halo-blur': .35,
+            'text-opacity': 1,
+          },
+        })
+        map.addLayer({
+          id: 'game-journey-point-labels',
+          type: 'symbol',
+          source: 'game-journey-points',
+          minzoom: 8.8,
+          filter: ['!=', ['get', 'kind'], 'TRANSFER'],
+          layout: {
+            'text-field': ['get', 'label'],
+            'text-font': ['Arial', 'Segoe UI'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10, 13, 12, 16, 13],
+            'text-offset': [0, 1.45],
+            'text-anchor': 'top',
+            'text-padding': 5,
+            'text-optional': true,
+          },
+          paint: {
+            'text-color': '#ffffff',
+            'text-halo-color': 'rgba(5,10,14,.96)',
+            'text-halo-width': 1.8,
+            'text-opacity': .96,
           },
         })
 
@@ -3913,7 +4114,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="map-shell">
+  <div class="map-shell" :class="{ 'journey-map-active': Boolean(props.journeyHighlight) }">
     <div
       ref="mapContainer"
       class="map-container"
@@ -4367,4 +4568,11 @@ onBeforeUnmount(() => {
 .commune-build-action{width:100%;margin-top:4px;padding:9px 10px;border:1px solid rgba(79,211,220,.28);border-radius:10px;background:rgba(79,211,220,.11);color:#d8fbfd;font-weight:850;cursor:pointer;text-align:center}.commune-build-action:hover{background:rgba(79,211,220,.17)}
 
 .commune-live-item{grid-column:1/-1!important;padding:9px 10px!important;border:1px solid rgba(85,205,135,.18)!important;border-radius:10px!important;background:rgba(85,205,135,.06)!important;display:grid!important;gap:2px!important}.commune-live-item--event{border-color:rgba(229,170,85,.25)!important;background:rgba(229,170,85,.07)!important}.commune-live-item small{font-size:9px;opacity:.55}.commune-live-item strong{white-space:normal!important;line-height:1.25!important}
+
+
+/* Mode itinéraire : les badges du réseau complet passent au second plan ; les
+   points de départ/arrivée du trajet sont rendus par les couches dédiées. */
+.journey-map-active :deep(.clu-terminus-marker),
+.journey-map-active :deep(.clu-interchange-marker){opacity:.12!important;filter:saturate(.35);transition:opacity .15s ease}
+
 </style>

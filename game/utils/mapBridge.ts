@@ -3,7 +3,13 @@ import type { GameMunicipalityBounds } from '../types/territory'
 import { getLineAllStations, getLineTerminusStations } from '../engine/network/geometry'
 
 let mapInstance: any = null
-let pendingBounds: GameMunicipalityBounds | null = null
+interface GameMapFocusOptions {
+  padding?: number | { top: number; right: number; bottom: number; left: number }
+  maxZoom?: number
+  duration?: number
+}
+
+let pendingBounds: { bounds: GameMunicipalityBounds; options?: GameMapFocusOptions } | null = null
 let pendingOverlay: { lines: GameLine[]; selectedLineId: string | null; activeLineId: string | null; editingLineId: string | null; dimmedLineIds: string[] } | null = null
 let terminusMarkers: Array<{ marker: any; element: HTMLElement; lineId: string }> = []
 let terminusMarkerSignature = ''
@@ -26,11 +32,16 @@ function mapReady() {
 
 function focusPendingBounds() {
   if (!mapInstance || !pendingBounds || !mapReady()) return
-  const bounds = pendingBounds
+  const pending = pendingBounds
   pendingBounds = null
+  const bounds = pending.bounds
   mapInstance.fitBounds(
     [[bounds.west, bounds.south], [bounds.east, bounds.north]],
-    { padding: { top: 115, right: 80, bottom: 80, left: 120 }, maxZoom: 13.5, duration: 900 },
+    {
+      padding: pending.options?.padding ?? { top: 115, right: 80, bottom: 80, left: 120 },
+      maxZoom: pending.options?.maxZoom ?? 13.5,
+      duration: pending.options?.duration ?? 900,
+    },
   )
 }
 
@@ -214,8 +225,8 @@ export async function captureGameMapBasemap(
   return lastBasemapSnapshot
 }
 
-export function focusGameMapBounds(bounds: GameMunicipalityBounds) {
-  pendingBounds = { ...bounds }
+export function focusGameMapBounds(bounds: GameMunicipalityBounds, options?: GameMapFocusOptions) {
+  pendingBounds = { bounds: { ...bounds }, options }
   focusPendingBounds()
 }
 
