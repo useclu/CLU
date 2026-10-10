@@ -5,6 +5,9 @@ import {
   GAME_MAX_BORROWS_PER_DAY,
   GAME_PROJECT_CREDIT_MAX,
   GAME_PROJECT_CREDIT_MULTIPLIER,
+  GAME_PMR_STATION_SURCHARGE_RATE,
+  GAME_PMR_SUBSIDY_RECOVERY_RATE,
+  GAME_PMR_SUBSIDY_TRANCHE_RATE,
   GAME_PUBLIC_DEVELOPMENT_FIRST_DAY,
   GAME_PUBLIC_DEVELOPMENT_MAX_GRANT,
   GAME_PUBLIC_DEVELOPMENT_MIN_GRANT,
@@ -228,8 +231,13 @@ export function createEmptyEconomy(startingBudget = GAME_INITIAL_BUDGET, unlimit
   }
 }
 
-export function calculateStationConstructionCost(mode: GameTransportMode): number {
-  return getModeEconomyDefinition(mode).stationCost
+export function calculateStationConstructionCost(mode: GameTransportMode, accessiblePmr = false): number {
+  const base = getModeEconomyDefinition(mode).stationCost
+  return accessiblePmr ? Math.round(base * (1 + GAME_PMR_STATION_SURCHARGE_RATE)) : base
+}
+
+export function calculateStationPmrSurcharge(mode: GameTransportMode): number {
+  return Math.round(getModeEconomyDefinition(mode).stationCost * GAME_PMR_STATION_SURCHARGE_RATE)
 }
 
 export function calculateSegmentConstructionCost(
@@ -259,7 +267,7 @@ export function calculateLineLengthKm(line: Pick<GameLine, 'stations' | 'branche
 export function calculateLineProjectCost(line: GameLine) {
   const infrastructure = getInfrastructureDefinition(line.mode, line.infrastructureType)
   const lengthKm = calculateLineLengthKm(line)
-  const stationsCost = getLineAllStations(line).length * calculateStationConstructionCost(line.mode)
+  const stationsCost = getLineAllStations(line).reduce((sum, station) => sum + calculateStationConstructionCost(line.mode, station.accessiblePmr === true), 0)
   const segmentsCost = calculateSegmentConstructionCost(
     line.mode,
     lengthKm,
@@ -593,6 +601,37 @@ export function processPublicDevelopmentFunding(
     nextDay: economy.publicFundingNextDay,
     breakdown: calculated.breakdown,
   }
+}
+
+export function applyPmrAccessibilityGrant(
+  economy: GameEconomyState,
+  network: { lines: GameLine[] },
+) {
+  let total = 0
+  let stationCount = 0
+  for (const line of network.lines) {
+    if (line.status !== 'OPERATIONAL') continue
+    const surcharge = calculateStationPmrSurcharge(line.mode)
+    if (surcharge <= 0) continue
+    const ceiling = Math.round(surcharge * GAME_PMR_SUBSIDY_RECOVERY_RATE)
+    const tranche = Math.max(1, Math.round(surcharge * GAME_PMR_SUBSIDY_TRANCHE_RATE))
+    for (const station of getLineAllStations(line)) {
+      if (station.accessiblePmr !== true) continue
+      const received = Math.max(0, Math.round(Number(station.pmrSubsidyReceived ?? 0)))
+      const due = Math.min(tranche, Math.max(0, ceiling - received))
+      if (due <= 0) continue
+      station.pmrSubsidyReceived = received + due
+      total += due
+      stationCount += 1
+    }
+  }
+  if (total <= 0) return null
+  const note = `Prime PMR progressive · ${stationCount} arrêt(s) accessible(s)`
+  economy.balance += total
+  economy.totalSubsidies += total
+  const transaction = createTransaction('ACCESSIBILITY_GRANT', -total, undefined, { note })
+  appendEconomyTransaction(economy, transaction)
+  return transaction
 }
 
 export function applyPassengerCompensation(

@@ -25,6 +25,7 @@ import WorldExportPanel from './WorldExportPanel.vue'
 import EditorExportPanel from './EditorExportPanel.vue'
 import QuickNavigation from './QuickNavigation.vue'
 import AssistantPanel from './AssistantPanel.vue'
+import LineSocialFeed from './LineSocialFeed.vue'
 
 import { useMetropoleGame } from '../../composables/useMetropoleGame'
 import { useGameNetwork } from '../../composables/useGameNetwork'
@@ -56,7 +57,7 @@ import {
 } from '../../config/transportModes'
 import { GAME_SERVICE_LEVELS } from '../../config/operations'
 import { GAME_MAINTENANCE_LEVELS } from '../../config/maintenance'
-import { calculateLineLengthKm } from '../../engine/economy'
+import { calculateLineLengthKm, calculateStationConstructionCost } from '../../engine/economy'
 import { findLineStation, getLineAllStations, getLineTerminusStations } from '../../engine/network/geometry'
 import { findMunicipalityForStation } from '../../engine/territory'
 import { useGameTransitRuntime } from '../../composables/useGameTransitRuntime'
@@ -71,12 +72,13 @@ import { useGameHelp } from '../../composables/useGameHelp'
 import { useGameDialog } from '../../composables/useGameDialog'
 import { useCluOnline } from '../../composables/useCluOnline'
 import type { GameVisualVehicle } from '../../engine/transitRuntime'
-import type { GameLine, GameMaintenanceLevel, GameRegulationMode, GameRollingStockUpgradeKey, GameRollingStockUpgrades, GameServiceLevel } from '../../types/network'
+import type { GameLine, GameMaintenanceLevel, GameRegulationMode, GameRollingStockUpgradeKey, GameRollingStockUpgrades, GameServiceLevel, GameStationUrbanContext } from '../../types/network'
 import type { GameEconomyTransaction } from '../../types/economy'
 import { getGameTerritoryCatalogEntry } from '../../config/territories'
 import { isoDateForGameDay } from '../../config/calendar'
 import { buildGameWorldPulse } from '../../engine/worldPulse'
-import { buildProjectForecast } from '../../engine/projectForecast'
+import { buildStationNameSuggestions } from '../../utils/stationNaming'
+import type { GameWorldPlaceAnchor } from '../../types/worldTerritory'
 import { estimateLocalEventServiceCost } from '../../engine/municipalities'
 import { buildCluEditorProject, buildWorldExportModel, renderWorldExportPng, serializeCluEditorProject } from '../../engine/sharing'
 import type { GameWorldExportOptions } from '../../engine/sharing'
@@ -155,6 +157,7 @@ const diversOpen = ref(false)
 const actionsOpen = ref(false)
 const assistantOpen = ref(false)
 const lineVisibilityOpen = ref(false)
+const lineSocialOpen = ref(false)
 const dimmedLineIds = ref<string[]>([])
 const routePlannerOpen = ref(false)
 const routeJourneyFocused = ref(false)
@@ -172,6 +175,9 @@ const borrowConfirmation = ref<BorrowConfirmation | null>(null)
 const selectedVehicle = ref<GameVisualVehicle | null>(null)
 const mapOverlayOpen = ref(false)
 const stationNameDraft = ref('')
+const stationNameSuggestions = ref<string[]>([])
+const stationNameSuggestionPage = ref(0)
+const stationPmrDraft = ref(false)
 const knownLineStatuses = ref<Record<string, string>>(Object.fromEntries(network.lines.value.map(line => [line.id, line.status])))
 const knownCompletedMunicipalityRequests = ref(new Set(municipalities.recentResolvedRequests.value.filter(request => request.status === 'COMPLETED').map(request => request.id)))
 const knownCompletedObjectives = ref(new Set(game.state.value.save?.data.objectives.completed.map(item => item.id) ?? []))
@@ -192,7 +198,6 @@ const projectBorrowBusy = ref(false)
 const launchCommitBusy = ref(false)
 const editProjectFinanceBusy = ref(false)
 const editProjectFinanceFeedback = ref<string | null>(null)
-const projectForecastOpen = ref(false)
 const mapInsightMode = ref<GameMapInsightMode>('NONE')
 const eventPreparationEventId = ref<string | null>(null)
 const eventPreparationLineId = ref<string | null>(null)
@@ -217,6 +222,7 @@ const startupTerritoryName = computed(() => {
   const save = game.state.value.save
   if (!save) return 'Métropole'
   if (save.territory === 'GENERATED') return save.data.generatedTerritory?.name || 'Carte fictive'
+  if (save.territory === 'WORLD') return save.data.worldTerritory?.cityName || 'Carte du monde'
   return getGameTerritoryCatalogEntry(save.territory).label
 })
 
@@ -502,7 +508,7 @@ async function applyEventPreparation(level: 'LIGHT' | 'STRONG', serviceKind = ev
   finally { eventPreparationBusy.value = false }
 }
 
-const quickNavigationCompact = computed(() => managementOpen.value || diversOpen.value || worldExportOpen.value || editorExportOpen.value || panelOpen.value || actionsOpen.value || assistantOpen.value)
+const quickNavigationCompact = computed(() => managementOpen.value || diversOpen.value || worldExportOpen.value || editorExportOpen.value || panelOpen.value || actionsOpen.value || assistantOpen.value || lineSocialOpen.value)
 
 const majorPanelOpen = computed(() => (
   creationOpen.value
@@ -626,19 +632,6 @@ const editTraceActionLabel = computed(() => {
   return terminus.has(station.id) ? '↗ Prolonger' : '↗ Nouvelle branche'
 })
 
-const projectForecast = computed(() => {
-  const line = projectLine.value
-  const save = game.state.value.save
-  if (!line || !save) return null
-  return buildProjectForecast(
-    line,
-    save.data.network,
-    territory.municipalities.value,
-    displayedProjectCost.value,
-    displayedProjectLength.value,
-  )
-})
-
 const municipalityInsights = computed<GameMapMunicipalityInsight[]>(() => {
   const save = game.state.value.save
   const developments = new Map((save?.data.municipalities?.development ?? []).map(item => [item.code, item] as const))
@@ -712,12 +705,6 @@ function cycleMapInsightMode() {
   const index = modes.indexOf(mapInsightMode.value)
   mapInsightMode.value = modes[(index + 1) % modes.length] ?? 'NONE'
 }
-
-function compactMetric(value: number) {
-  return formatGameNumberCompact(Math.max(0, value))
-}
-
-watch(projectModeActive, active => { if (!active) projectForecastOpen.value = false })
 
 function lineWithLaunchConfiguration(line: GameLine, config: GameLineLaunchConfiguration) {
   return {
@@ -930,6 +917,7 @@ function transactionFinancialReason(transaction: GameEconomyTransaction) {
     OBJECTIVE_REWARD: 'Récompense d’objectif',
     MUNICIPALITY_SUBSIDY: 'Subvention communale',
     PUBLIC_DEVELOPMENT_GRANT: 'Dotation publique',
+    ACCESSIBILITY_GRANT: 'Prime PMR',
     PASSENGER_COMPENSATION: 'Compensation voyageurs',
     DEBT_BORROW: 'Emprunt',
     DEBT_REPAYMENT: 'Remboursement de dette',
@@ -1025,7 +1013,9 @@ async function publishCurrentSaveOnline() {
     if (!currentSave) throw new Error(translateGameText('La sauvegarde actuelle est indisponible.', currentGameLocale()))
     const mapId = currentSave.territory === 'GENERATED'
       ? `GENERATED:${currentSave.data.generatedTerritory?.seed || 'CURRENT'}`
-      : currentSave.territory
+      : currentSave.territory === 'WORLD'
+        ? `WORLD:${currentSave.data.worldTerritory?.countryCode || ''}:${currentSave.data.worldTerritory?.latitude ?? ''}:${currentSave.data.worldTerritory?.longitude ?? ''}:${currentSave.data.worldTerritory?.radiusKm ?? ''}`
+        : currentSave.territory
     await online.creerPartie({
       nom: onlinePublishName.value.trim() || currentSave.name || 'Ma métropole',
       visibilite: onlinePublishVisibility.value,
@@ -1072,7 +1062,79 @@ function openDebtFinancing() {
   financeDebtFocusToken.value += 1
   selectTool('FINANCES')
 }
-async function handleMapClick(longitude: number, latitude: number, routeCoordinates?: Array<[number, number]>) {
+function pendingStationLine() {
+  const pending = network.pendingStationNaming.value
+  if (!pending) return null
+  if (network.editDraft.value?.id === pending.lineId) return network.editDraft.value
+  return network.lines.value.find(line => line.id === pending.lineId) ?? null
+}
+
+const stationPmrSurcharge = computed(() => {
+  const line = pendingStationLine()
+  if (!line) return 0
+  return Math.max(0, calculateStationConstructionCost(line.mode, true) - calculateStationConstructionCost(line.mode, false))
+})
+
+const pendingStationUrbanContext = computed(() => {
+  const pending = network.pendingStationNaming.value
+  const line = pendingStationLine()
+  if (!pending || !line) return null
+  return getLineAllStations(line).find(item => item.id === pending.stationId)?.urbanContext ?? null
+})
+const pendingStationUrbanHighlights = computed(() => {
+  const context = pendingStationUrbanContext.value
+  if (!context) return []
+  return [...new Set([...(context.poiNames ?? []), ...(context.parkNames ?? []), ...(context.waterNames ?? [])])].slice(0, 5)
+})
+const pendingStationUrbanPotential = computed(() => {
+  const multiplier = Number(pendingStationUrbanContext.value?.demandMultiplier ?? 1)
+  const label = multiplier >= 1.25 ? 'Élevé' : multiplier >= 1.10 ? 'Moyen' : 'Standard'
+  return { label, bonusPercent: Math.max(0, Math.round((multiplier - 1) * 100)) }
+})
+
+function refreshStationNameSuggestions(reset = false) {
+  const pending = network.pendingStationNaming.value
+  if (!pending) {
+    stationNameSuggestions.value = []
+    return
+  }
+  if (reset) stationNameSuggestionPage.value = 0
+  const line = pendingStationLine()
+  const station = line ? getLineAllStations(line).find(item => item.id === pending.stationId) : null
+  if (!station) return
+  stationNameSuggestions.value = buildStationNameSuggestions({
+    cityName: territory.worldSettings.value?.cityName,
+    fallbackLocality: pending.suggestedName,
+    context: station.urbanContext,
+    longitude: station.longitude,
+    latitude: station.latitude,
+    usedNames: network.lines.value.flatMap(item => getLineAllStations(item).filter(candidate => candidate.id !== station.id).map(candidate => candidate.name)),
+    page: stationNameSuggestionPage.value,
+    locale: territory.worldSettings.value?.preferredLocale ?? currentGameLocale(),
+  })
+  if (!stationNameDraft.value.trim() || reset) stationNameDraft.value = stationNameSuggestions.value[0] ?? pending.suggestedName
+}
+
+function moreStationNameSuggestions() {
+  stationNameSuggestionPage.value += 1
+  refreshStationNameSuggestions(false)
+}
+
+function chooseStationNameSuggestion(value: string) {
+  stationNameDraft.value = value
+}
+
+async function handleWorldPlacesDiscovered(places: GameWorldPlaceAnchor[]) {
+  // En Online, seule la copie autoritaire de l’administrateur peut enrichir
+  // les ancres territoriales. Les participants consomment ensuite la mutation
+  // ou le snapshot diffusé par le Durable Object : ils ne publient jamais une
+  // géographie calculée depuis leur propre viewport MapLibre.
+  if (onlineAccepted.value && !online.estAdmin.value) return
+  try { await territory.updateWorldPlaceAnchors(places) }
+  catch (error) { console.warn('[CLU Métropole] Synchronisation des localités WORLD ignorée :', error) }
+}
+
+async function handleMapClick(longitude: number, latitude: number, routeCoordinates?: Array<[number, number]>, urbanContext?: GameStationUrbanContext) {
   if (challenge.readOnly.value) return
   if (network.routeGuideMode.value) {
     network.addDraftGuidePoint(longitude, latitude)
@@ -1082,10 +1144,18 @@ async function handleMapClick(longitude: number, latitude: number, routeCoordina
     territory.municipalities.value,
     { id: 'preview', name: '', longitude, latitude },
   )
-  const placed = await network.handleMapClick(longitude, latitude, municipality?.name ?? 'Nouvelle station', !municipality, routeCoordinates)
+  const worldLocality = game.state.value.save?.territory === 'WORLD'
+    ? (urbanContext?.localityName || municipality?.name || territory.worldSettings.value?.cityName)
+    : municipality?.name
+  const placed = await network.handleMapClick(longitude, latitude, worldLocality ?? 'Nouvelle station', !municipality && game.state.value.save?.territory !== 'WORLD', routeCoordinates)
   if (placed) audio.playUi('CLICK')
   draftPreviewMetrics.value = null
-  if (network.pendingStationNaming.value) stationNameDraft.value = network.pendingStationNaming.value.suggestedName
+  if (network.pendingStationNaming.value) {
+    if (urbanContext) await network.setPendingStationUrbanContext(urbanContext)
+    stationPmrDraft.value = false
+    stationNameDraft.value = network.pendingStationNaming.value.suggestedName
+    refreshStationNameSuggestions(true)
+  }
 }
 function handleLineClick(lineId: string) {
   if (network.isBuilding.value || network.isEditing.value) return
@@ -1138,13 +1208,18 @@ function handleVehicleClick(vehicle: GameVisualVehicle) {
   selectedVehicle.value = vehicle
 }
 async function confirmStationName() {
+  await network.setPendingStationAccessiblePmr(stationPmrDraft.value)
   await network.finalizePendingStationName(stationNameDraft.value)
   audio.playUi('CONFIRM')
   stationNameDraft.value = ''
+  stationNameSuggestions.value = []
+  stationPmrDraft.value = false
 }
 async function cancelStationName() {
   await network.cancelPendingStationName()
   stationNameDraft.value = ''
+  stationNameSuggestions.value = []
+  stationPmrDraft.value = false
 }
 
 function handleStationNameKeydown(event: KeyboardEvent) {
@@ -1325,6 +1400,7 @@ function closeContextPanels() {
   actionsOpen.value = false
   assistantOpen.value = false
   lineVisibilityOpen.value = false
+  lineSocialOpen.value = false
 }
 
 function toggleLineVisibilityPanel() {
@@ -1332,6 +1408,7 @@ function toggleLineVisibilityPanel() {
   if (lineVisibilityOpen.value) {
     actionsOpen.value = false
     assistantOpen.value = false
+    lineSocialOpen.value = false
     managementOpen.value = false
     diversOpen.value = false
     panelOpen.value = false
@@ -1379,6 +1456,21 @@ function toggleActionsPanel() {
   actionsOpen.value = !actionsOpen.value
   if (actionsOpen.value) {
     assistantOpen.value = false
+    lineVisibilityOpen.value = false
+    lineSocialOpen.value = false
+    managementOpen.value = false
+    diversOpen.value = false
+    panelOpen.value = false
+    persistPanelState()
+  }
+}
+
+function toggleLineSocialPanel() {
+  lineSocialOpen.value = !lineSocialOpen.value
+  if (lineSocialOpen.value) {
+    actionsOpen.value = false
+    assistantOpen.value = false
+    lineVisibilityOpen.value = false
     managementOpen.value = false
     diversOpen.value = false
     panelOpen.value = false
@@ -1390,6 +1482,8 @@ function toggleAssistantPanel() {
   assistantOpen.value = !assistantOpen.value
   if (assistantOpen.value) {
     actionsOpen.value = false
+    lineVisibilityOpen.value = false
+    lineSocialOpen.value = false
     managementOpen.value = false
     diversOpen.value = false
     panelOpen.value = false
@@ -1398,10 +1492,10 @@ function toggleAssistantPanel() {
 }
 
 function handleGameShellPointerDown(event: PointerEvent) {
-  if (!actionsOpen.value && !assistantOpen.value && !lineVisibilityOpen.value) return
+  if (!actionsOpen.value && !assistantOpen.value && !lineVisibilityOpen.value && !lineSocialOpen.value) return
   const target = event.target instanceof HTMLElement ? event.target : null
   if (!target) return
-  if (target.closest('.map-context-dock, .assistant-panel, .world-pulse, .line-visibility-panel')) return
+  if (target.closest('.map-context-dock, .assistant-panel, .world-pulse, .line-visibility-panel, .line-social-panel')) return
   closeContextPanels()
 }
 
@@ -1502,6 +1596,7 @@ function currentTerritoryExportLabel() {
   const save = game.state.value.save
   if (!save) return 'Métropole'
   if (save.territory === 'GENERATED') return save.data.generatedTerritory?.name || 'Carte fictive'
+  if (save.territory === 'WORLD') return save.data.worldTerritory?.cityName || 'Carte du monde'
   return getGameTerritoryCatalogEntry(save.territory).label
 }
 
@@ -2227,7 +2322,7 @@ onUnmounted(() => {
 <template>
   <main ref="gameShellRef" class="game-shell" @pointerdown="handleGameShellPointerDown">
     <GameMap
-      :key="mapInstanceKey"
+      :key="`${mapInstanceKey}-${userSettings.mapTheme}`"
       :lines="network.displayLines.value"
       :dimmed-line-ids="dimmedLineIds"
       :active-line-id="network.activeLineId.value ?? network.editingLineId.value"
@@ -2235,6 +2330,7 @@ onUnmounted(() => {
       :selected-station-id="network.editSelectedStationId.value ?? selection.selectedStationId.value"
       :territory-id="game.state.value.save?.territory ?? 'ILE_DE_FRANCE'"
       :generated-territory="game.state.value.save?.data.generatedTerritory ?? null"
+      :world-territory="game.state.value.save?.data.worldTerritory ?? null"
       :draft-anchor="mapDraftAnchor"
       :draft-guide-points="network.draftGuidePoints.value"
       :routing-mode="projectLine?.routingMode ?? 'ASSISTED'"
@@ -2246,14 +2342,16 @@ onUnmounted(() => {
       :simulation-playing="clock.playing.value"
       :show-buildings-2d5="userSettings.buildings2D5"
       :graphics-quality="userSettings.graphicsQuality"
+      :map-theme="userSettings.mapTheme"
+      :poi-display-level="userSettings.poiDisplayLevel"
       :municipality-insights="municipalityInsights"
       :line-reports="simulation.lastDayReport.value?.lines ?? []"
       :insight-mode="mapInsightMode"
       :operations-disruptions="operations.activeDisruptions.value"
       :substitution-services="operations.activeSubstitutions.value"
-      :project-municipality-codes="projectForecast?.municipalityCodes ?? []"
       :journey-highlight="routeJourneyHighlight"
       @map-click="handleMapClick"
+      @world-places-discovered="handleWorldPlacesDiscovered"
       @draft-preview="handleDraftPreview"
       @line-click="handleLineClick"
       @station-click="handleStationClick"
@@ -2323,7 +2421,6 @@ onUnmounted(() => {
             <button type="button" :class="{ active: network.routeGuideMode.value }" :aria-pressed="network.routeGuideMode.value" title="Ajouter un point de passage sans créer de station" @click="network.toggleRouteGuideMode()">{{ projectGuideLabel }}</button>
           </div>
           <div class="project-buttons project-buttons--inline project-buttons--creation">
-            <button class="project-forecast-trigger" type="button" :class="{ active: projectForecastOpen }" title="Voir la population, la demande et les correspondances estimées" @click="projectForecastOpen = !projectForecastOpen">◎ Prévision</button>
             <div class="project-history-actions" aria-label="Historique du tracé">
               <button type="button" :disabled="!network.canUndoDraft.value" title="Avant · Ctrl+Z" @click="network.undoDraft()">←</button>
               <button type="button" :disabled="!network.canRedoDraft.value" title="Après · Ctrl+Y" @click="network.redoDraft()">→</button>
@@ -2346,7 +2443,6 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="project-buttons project-buttons--inline project-buttons--edit">
-            <button class="project-forecast-trigger" type="button" :class="{ active: projectForecastOpen }" title="Voir la population, la demande et les correspondances estimées" @click="projectForecastOpen = !projectForecastOpen">◎ Prévision</button>
             <div class="project-history-actions" aria-label="Historique du tracé">
               <button type="button" :disabled="!network.canUndoDraft.value" title="Avant · Ctrl+Z" @click="network.undoDraft()">←</button>
               <button type="button" :disabled="!network.canRedoDraft.value" title="Après · Ctrl+Y" @click="network.redoDraft()">→</button>
@@ -2383,7 +2479,6 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="project-buttons project-buttons--inline project-buttons--edit">
-          <button class="project-forecast-trigger" type="button" :class="{ active: projectForecastOpen }" title="Voir la population, la demande et les correspondances estimées" @click="projectForecastOpen = !projectForecastOpen">◎ Prévision</button>
           <div class="project-history-actions" aria-label="Historique du tracé">
             <button type="button" :disabled="!network.canUndoDraft.value" title="Avant · Ctrl+Z" @click="network.undoDraft()">←</button>
             <button type="button" :disabled="!network.canRedoDraft.value" title="Après · Ctrl+Y" @click="network.redoDraft()">→</button>
@@ -2394,19 +2489,6 @@ onUnmounted(() => {
       </div>
       <small v-if="!network.activeLine.value && editProjectFinanceFeedback" class="project-edit-finance-feedback" role="status">{{ editProjectFinanceFeedback }}</small>
     </section>
-
-    <aside v-if="projectForecastOpen && projectForecast && projectModeActive" class="project-forecast-panel" :class="{ 'for-edit': network.isEditing.value, 'for-selected-edit': Boolean(network.editSelectedStation.value) }" aria-label="Prévision du projet">
-      <div class="project-forecast-head"><div><span>PRÉVISION DU PROJET</span><strong>{{ translateGameText(projectForecast.tone === 'STRUCTURING' ? 'Axe structurant' : projectForecast.tone === 'BALANCED' ? 'Projet équilibré' : 'Desserte locale', currentGameLocale()) }}</strong></div><button type="button" aria-label="Fermer" @click="projectForecastOpen = false">×</button></div>
-      <div class="project-forecast-metrics">
-        <span><small>Population desservie</small><b>{{ compactMetric(projectForecast.populationServed) }}</b></span>
-        <span><small>Communes</small><b>{{ projectForecast.municipalityCount }}</b></span>
-        <span><small>Potentiel voyageurs</small><b>~{{ compactMetric(projectForecast.estimatedDailyDemand) }}/j</b></span>
-        <span><small>Correspondances</small><b>{{ projectForecast.interchangeCount }}</b></span>
-        <span><small>Coût / km</small><b>{{ money(projectForecast.costPerKm) }}</b></span>
-      </div>
-      <div class="project-forecast-advice"><p>{{ translateGameText(projectForecast.advice, currentGameLocale()) }}</p><span v-if="projectLine && projectForecast.suggestedMode !== projectLine.mode">{{ translateGameText('Mode à étudier', currentGameLocale()) }} : <b>{{ getTransportModeDefinition(projectForecast.suggestedMode).label }}</b></span><span v-else>{{ translateGameText('Le mode choisi est cohérent avec cette première estimation.', currentGameLocale()) }}</span></div>
-      <small class="project-forecast-note">{{ translateGameText('Estimation de conception : la fréquentation réelle dépendra ensuite des horaires, du matériel, des correspondances et de l’évolution du territoire.', currentGameLocale()) }}</small>
-    </aside>
 
     <nav v-if="!projectModeActive && !routePlannerOpen" class="tool-dock tool-dock--simple" aria-label="Actions principales">
       <button class="create-line-button" type="button" :disabled="challenge.readOnly.value || !onlineCanCreateLine" :title="!onlineCanCreateLine ? translateGameText('Vous n’avez pas la permission de créer des lignes.', currentGameLocale()) : ''" @click="openCreation()"><b>＋</b><span>{{ challenge.readOnly.value ? 'Lecture seule' : !onlineCanCreateLine ? translateGameText('Non autorisé', currentGameLocale()) : 'Créer' }}</span></button>
@@ -2458,6 +2540,7 @@ onUnmounted(() => {
       <button type="button" :class="{ active: mapInsightMode !== 'NONE' }" :title="`${translateGameText('Lecture du territoire', currentGameLocale())} · ${mapInsightLabel}`" :aria-label="`${translateGameText('Lecture du territoire', currentGameLocale())} · ${mapInsightLabel}`" @click="cycleMapInsightMode"><span>◉</span><i v-if="mapInsightMode !== 'NONE'" class="insight-badge">{{ mapInsightMode === 'POPULATION' ? 'P' : mapInsightMode === 'ACCESSIBILITY' ? 'A' : mapInsightMode === 'GROWTH' ? '↗' : mapInsightMode === 'FLOW' ? '⇄' : mapInsightMode === 'SATURATION' ? '▲' : '!'  }}</i></button>
       <button type="button" :class="{ active: lineVisibilityOpen || anyLineDimmed }" :title="anyLineDimmed ? 'Certaines lignes sont atténuées' : 'Visibilité des lignes'" aria-label="Visibilité des lignes" @click="toggleLineVisibilityPanel"><span>{{ anyLineDimmed ? '🙈' : '👁️' }}</span><i v-if="anyLineDimmed">{{ dimmedLineIds.length }}</i></button>
       <button type="button" :class="{ active: actionsOpen }" title="Actions et opportunités" aria-label="Actions et opportunités" @click="toggleActionsPanel"><span>⚡</span><i v-if="worldPulseItems.length">{{ worldPulseItems.length }}</i></button>
+      <button type="button" :class="{ active: lineSocialOpen }" :title="translateGameText('Fil voyageurs', currentGameLocale())" :aria-label="translateGameText('Fil voyageurs', currentGameLocale())" @click="toggleLineSocialPanel"><span>@</span></button>
       <button v-if="onlineAccepted" type="button" :title="translateGameText('Chat de la partie', currentGameLocale())" :aria-label="translateGameText('Chat de la partie', currentGameLocale())" @click="openOnlineChat"><span>💬</span><i v-if="online.chatNonLus.value || (online.estAdmin.value && online.demandesEnAttente.value.length)">{{ Math.min(9, online.chatNonLus.value + (online.estAdmin.value ? online.demandesEnAttente.value.length : 0)) }}</i></button>
       <button type="button" :class="{ active: assistantOpen }" title="CLU Assistant" aria-label="CLU Assistant" @click="toggleAssistantPanel"><span>✦</span><i v-if="assistantMessageCount">{{ Math.min(9, assistantMessageCount) }}</i></button>
     </nav>
@@ -2472,6 +2555,9 @@ onUnmounted(() => {
         </label>
         <p v-if="lineVisibilityChoices.length === 0">Aucune ligne à afficher.</p>
       </div>
+    </aside>
+    <aside v-if="lineSocialOpen && !routePlannerOpen" class="line-social-panel" :aria-label="translateGameText('Fil voyageurs', currentGameLocale())">
+      <LineSocialFeed @close="lineSocialOpen = false" />
     </aside>
     <WorldPulse v-if="actionsOpen && !routePlannerOpen" :items="worldPulseItems" @focus="focusWorldPulse" @manage="manageWorldPulse" @dismiss="dismissWorldPulse" />
     <AssistantPanel v-if="assistantOpen && !routePlannerOpen" @close="assistantOpen = false" />
@@ -2625,8 +2711,19 @@ onUnmounted(() => {
         <span class="eyebrow">Nouvelle station</span>
         <h3 id="station-name-title">Nom de l’arrêt</h3>
         <p v-if="network.pendingStationNaming.value.outsideLoadedTerritory" class="outside-territory"><strong>Hors territoire chargé.</strong> CLU ne dispose pas ici du nom communal local. Choisissez librement le nom de l’arrêt.</p>
-        <p v-else>CLU propose le nom de la commune. Modifiez-le maintenant si vous préférez un nom de gare, de quartier ou de lieu.</p>
-        <input v-model="stationNameDraft" maxlength="60" autofocus @keydown="handleStationNameKeydown" @keyup.stop>
+        <p v-else-if="game.state.value.save?.territory !== 'WORLD'">CLU propose le nom de la commune. Modifiez-le maintenant si vous préférez un nom de gare, de quartier ou de lieu.</p>
+        <div v-if="stationNameSuggestions.length" class="station-name-suggestions">
+          <div class="station-name-suggestions__head"><strong>{{ translateGameText('Suggestions', currentGameLocale()) }}</strong><button class="station-name-refresh" type="button" :title="translateGameText('Recharger les propositions', currentGameLocale())" :aria-label="translateGameText('Recharger les propositions', currentGameLocale())" @click="moreStationNameSuggestions">↻</button></div>
+          <div><button v-for="suggestion in stationNameSuggestions" :key="suggestion" type="button" :class="{ active: stationNameDraft === suggestion }" data-i18n-skip @click="chooseStationNameSuggestion(suggestion)">{{ suggestion }}</button></div>
+        </div>
+        <label class="station-name-free"><span>{{ translateGameText('Nom libre', currentGameLocale()) }}</span><input v-model="stationNameDraft" maxlength="60" autofocus @keydown="handleStationNameKeydown" @keyup.stop></label>
+        <section class="station-pmr-choice">
+          <div><strong>{{ translateGameText('Accessibilité PMR', currentGameLocale()) }}</strong><small>{{ translateGameText('Rendre cet arrêt accessible augmente son coût de construction de 35 %. Des primes publiques peuvent en rembourser une partie progressivement.', currentGameLocale()) }}</small></div>
+          <div class="station-pmr-buttons">
+            <button type="button" :class="{ active: !stationPmrDraft }" @click="stationPmrDraft = false">{{ translateGameText('Non accessible PMR', currentGameLocale()) }}</button>
+            <button type="button" :class="{ active: stationPmrDraft }" @click="stationPmrDraft = true">♿ {{ translateGameText('Accessible PMR', currentGameLocale()) }} <small v-if="stationPmrSurcharge">+{{ money(stationPmrSurcharge) }}</small></button>
+          </div>
+        </section>
         <div class="station-name-actions"><button class="cancel" type="button" @click="cancelStationName">Annuler</button><button class="confirm" type="button" @click="confirmStationName">Confirmer et continuer</button></div>
       </section>
     </div>
@@ -2803,7 +2900,8 @@ onUnmounted(() => {
 <style scoped>
 .launch-config-backdrop{position:absolute;inset:0;z-index:59;background:rgba(0,0,0,.56);backdrop-filter:blur(9px);display:grid;place-items:center;padding:16px}.launch-config-dialog{width:min(900px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:20px;border:1px solid rgba(255,255,255,.12);border-radius:20px;background:#0f181e;box-shadow:0 28px 90px rgba(0,0,0,.52);display:grid;gap:15px}.launch-config-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.launch-config-head h2{margin:2px 0 0;font-size:calc(22px * var(--clu-text-scale,1))}.launch-config-head>button{width:34px;height:34px;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:rgba(255,255,255,.05);color:inherit;font-size:calc(21px * var(--clu-text-scale,1));cursor:pointer}.launch-config-intro{margin:0;font-size:calc(11px * var(--clu-text-scale,1));line-height:1.55;opacity:.68}.launch-config-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.launch-config-summary>div{padding:10px;border-radius:10px;background:rgba(255,255,255,.04);display:grid;gap:2px}.launch-config-summary span{font-size:calc(9px * var(--clu-text-scale,1));opacity:.52}.launch-config-summary strong{font-size:calc(12px * var(--clu-text-scale,1))}.launch-config-actions-top{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid rgba(79,211,220,.15);border-radius:11px;background:rgba(79,211,220,.055)}.launch-config-actions-top .recommended{border:1px solid rgba(79,211,220,.38);background:rgba(79,211,220,.15);color:inherit;border-radius:9px;padding:8px 10px;cursor:pointer;white-space:nowrap}.launch-config-actions-top small{font-size:calc(9px * var(--clu-text-scale,1));line-height:1.4;opacity:.58}.launch-config-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.launch-config-grid>section{padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.025);display:grid;gap:9px}.launch-config-grid h3{margin:0;font-size:calc(12px * var(--clu-text-scale,1))}.launch-advanced{border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:0 12px;background:rgba(255,255,255,.018)}.launch-advanced>summary{cursor:pointer;padding:12px 0;font-size:calc(11px * var(--clu-text-scale,1));font-weight:800}.launch-advanced[open]>summary{margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,.07)}.launch-config-grid--advanced{padding-bottom:12px}.launch-config-grid small{font-size:calc(9px * var(--clu-text-scale,1));line-height:1.45;opacity:.58}.launch-upgrades{grid-row:span 2}.launch-choice-row{display:flex;gap:6px;flex-wrap:wrap}.launch-choice-row button,.launch-fleet-counter button,.launch-level-counter button,.launch-config-footer button{border:1px solid rgba(255,255,255,.11);background:rgba(255,255,255,.055);color:inherit;border-radius:9px;padding:7px 9px;cursor:pointer}.launch-choice-row button.active{border-color:rgba(79,211,220,.45);background:rgba(79,211,220,.16)}.launch-fleet-counter{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.launch-fleet-counter input{width:76px;padding:7px;text-align:center;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:#121c23;color:inherit}.launch-fleet-counter .fit{margin-left:4px}.launch-upgrade-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:8px;border-radius:9px;background:rgba(255,255,255,.03)}.launch-upgrade-row>div:first-child{display:grid;gap:2px}.launch-level-counter{display:flex;align-items:center;gap:6px}.launch-level-counter b{min-width:34px;text-align:center;font-size:calc(10px * var(--clu-text-scale,1))}.launch-level-counter button:disabled{opacity:.35;cursor:not-allowed}.launch-warning{margin:0;padding:8px 10px;border:1px solid rgba(241,171,71,.22);border-radius:9px;background:rgba(190,116,31,.08);color:#f2c579;font-size:calc(10px * var(--clu-text-scale,1));line-height:1.45}.launch-cost-breakdown{display:flex;gap:8px;flex-wrap:wrap}.launch-cost-breakdown span{padding:8px 10px;border-radius:9px;background:rgba(255,255,255,.04);font-size:calc(9px * var(--clu-text-scale,1));display:flex;gap:8px}.launch-cost-breakdown .total{margin-left:auto;border:1px solid rgba(79,211,220,.16);background:rgba(79,211,220,.055)}.project-financing-card{display:grid;gap:12px;padding:14px;border:1px solid rgba(79,211,220,.26);border-radius:14px;background:linear-gradient(135deg,rgba(79,211,220,.09),rgba(79,211,220,.025));box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}.project-financing-card.blocked{border-color:rgba(241,171,71,.28);background:linear-gradient(135deg,rgba(190,116,31,.09),rgba(190,116,31,.025))}.project-financing-copy{display:grid;gap:4px}.project-financing-kicker{font-size:calc(9px * var(--clu-text-scale,1));font-weight:850;text-transform:uppercase;letter-spacing:.11em;color:#7ce6ec}.project-financing-card.blocked .project-financing-kicker{color:#f2c579}.project-financing-missing{font-size:calc(18px * var(--clu-text-scale,1));line-height:1.15}.project-financing-copy p{max-width:680px;margin:1px 0 0;font-size:calc(10px * var(--clu-text-scale,1));line-height:1.48;color:rgba(255,255,255,.62)}.project-financing-proposal{display:grid;grid-template-columns:minmax(155px,.72fr) minmax(260px,1.28fr);grid-template-areas:'figure meta' 'actions actions';gap:8px}.project-financing-figure{grid-area:figure;display:grid;gap:3px;padding:11px 12px;border-radius:11px;background:rgba(7,14,18,.44);border:1px solid rgba(255,255,255,.07)}.project-financing-figure small,.project-financing-meta small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.5}.project-financing-figure strong{font-size:calc(16px * var(--clu-text-scale,1));color:#a4f1f3}.project-financing-meta{grid-area:meta;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.project-financing-meta span{display:grid;gap:3px;padding:10px 11px;border-radius:11px;background:rgba(7,14,18,.32);border:1px solid rgba(255,255,255,.055)}.project-financing-meta b{font-size:calc(11px * var(--clu-text-scale,1));overflow-wrap:anywhere}.project-financing-actions{grid-area:actions;display:flex;justify-content:flex-end;gap:8px;padding-top:2px}.project-financing-actions button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.055);color:inherit;border-radius:9px;padding:9px 11px;cursor:pointer;font-weight:750}.project-financing-actions .primary{border-color:rgba(79,211,220,.42);background:rgba(79,211,220,.17)}.project-financing-actions .secondary{color:rgba(255,255,255,.72)}.project-financing-actions button:disabled{opacity:.42;cursor:not-allowed}.project-financing-unavailable{display:flex;flex-wrap:wrap;gap:7px}.project-financing-unavailable span{padding:8px 10px;border-radius:9px;background:rgba(255,255,255,.04);font-size:calc(9px * var(--clu-text-scale,1))}.project-financing-feedback{padding:8px 10px;border-radius:9px;background:rgba(79,211,220,.07);font-size:calc(9px * var(--clu-text-scale,1));line-height:1.45;color:#a4f1f3}.borrow-confirmation-backdrop{position:fixed!important;inset:0!important;z-index:10050!important;background:rgba(0,0,0,.62)!important;backdrop-filter:blur(10px);display:grid;place-items:center;padding:18px}.borrow-confirmation-dialog{width:min(500px,calc(100vw - 36px));padding:22px;border-radius:18px;border:1px solid rgba(79,211,220,.28);background:#10191f;box-shadow:0 28px 90px rgba(0,0,0,.62)}.borrow-confirmation-dialog h3{margin:5px 0 7px;font-size:calc(20px * var(--clu-text-scale,1))}.borrow-confirmation-dialog>p{margin:0;font-size:calc(11px * var(--clu-text-scale,1));line-height:1.55;color:rgba(255,255,255,.66)}.borrow-confirmation-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:15px}.borrow-confirmation-summary span{display:grid;gap:3px;padding:10px;border-radius:10px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.045)}.borrow-confirmation-summary small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.5}.borrow-confirmation-summary strong{font-size:calc(11px * var(--clu-text-scale,1));overflow-wrap:anywhere}.borrow-confirmation-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.borrow-confirmation-dialog .dialog-actions button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:inherit;border-radius:9px;padding:9px 11px;cursor:pointer}.borrow-confirmation-dialog .dialog-actions .finance-action{background:rgba(79,211,220,.17);border-color:rgba(79,211,220,.42)}.borrow-confirmation-dialog .dialog-actions button:disabled{opacity:.45;cursor:not-allowed}@media(max-width:760px){.project-financing-proposal{grid-template-columns:1fr;grid-template-areas:'figure' 'meta' 'actions'}.project-financing-meta{grid-template-columns:1fr}.project-financing-actions{flex-direction:column-reverse}.project-financing-actions button{width:100%}.borrow-confirmation-summary{grid-template-columns:1fr}.borrow-confirmation-dialog .dialog-actions{flex-direction:column-reverse}.borrow-confirmation-dialog .dialog-actions button{width:100%}}.launch-config-footer{display:flex;justify-content:flex-end;gap:8px;padding-top:2px}.launch-config-footer .primary{background:rgba(79,211,220,.17);border-color:rgba(79,211,220,.42)}.launch-config-footer button:disabled{opacity:.4;cursor:not-allowed}@media(max-width:760px){.launch-config-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.launch-config-grid{grid-template-columns:1fr}.launch-upgrades{grid-row:auto}.launch-config-actions-top{align-items:flex-start;flex-direction:column}.launch-config-footer{flex-direction:column-reverse}.launch-config-footer button{width:100%}}
 .budget-kpi{position:relative}.financial-pulse{position:absolute;z-index:6;left:50%;top:100%;transform:translate(-50%,5px);padding:3px 7px;border-radius:7px;font-style:normal;font-size:calc(14px * var(--clu-text-scale,1));line-height:1.15;font-weight:950;letter-spacing:.01em;white-space:nowrap;background:rgba(8,14,19,.92);border:1px solid currentColor;box-shadow:0 5px 18px rgba(0,0,0,.34);animation:money-pulse 2s ease forwards;pointer-events:none}.financial-pulse.positive{color:#62f09b}.financial-pulse.negative{color:#ff6f79}.time-controls{position:absolute;z-index:22;left:18px;bottom:18px;display:flex;align-items:center;gap:7px;padding:7px 8px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(8,14,19,.82);backdrop-filter:blur(16px)}.time-controls button{border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.05);color:inherit;padding:6px 8px;cursor:pointer}.time-controls strong{min-width:40px;font-size:calc(11px * var(--clu-text-scale,1));font-variant-numeric:tabular-nums}.speed-tabs{display:flex;gap:3px}.speed-tabs button{padding:5px 6px;font-size:calc(8px * var(--clu-text-scale,1))}.speed-tabs button.active{border-color:rgba(79,211,220,.42);background:rgba(79,211,220,.16);color:#a8f5f8}.day-progress{position:absolute;z-index:21;left:50%;bottom:18px;transform:translateX(-50%);width:min(420px,42vw);display:grid;grid-template-columns:auto 1fr;align-items:center;gap:11px;padding:7px 10px;border:1px solid rgba(255,255,255,.08);border-radius:11px;background:rgba(8,14,19,.72);backdrop-filter:blur(14px)}.day-progress span{display:grid;gap:1px;min-width:150px;white-space:nowrap}.day-progress span b{font-size:calc(9px * var(--clu-text-scale,1));font-weight:800}.day-progress span small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.5}.day-progress>div{height:5px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}.day-progress i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#4fd3dc,#9cecf0);transition:width .2s linear}.time-notices{position:absolute;z-index:40;left:18px;bottom:76px;width:min(390px,calc(100vw - 36px));display:grid;gap:6px;pointer-events:none}.pause-entry-notice{padding:8px 11px;border:1px solid rgba(79,211,220,.22);border-radius:10px;background:rgba(11,31,36,.94);font-size:calc(10px * var(--clu-text-scale,1));line-height:1.4;box-shadow:0 8px 30px rgba(0,0,0,.25)}.pause-entry-notice--warning{border-color:rgba(239,184,75,.3);color:#f2cf80}.project-trace-actions{display:flex;align-items:center}.project-trace-actions button.active{border-color:rgba(79,211,220,.42);background:rgba(79,211,220,.16)}@keyframes money-pulse{0%{opacity:0;transform:translate(-50%,10px) scale(.88)}10%{opacity:1;transform:translate(-50%,4px) scale(1.08)}22%{transform:translate(-50%,2px) scale(1)}78%{opacity:1;transform:translate(-50%,-2px) scale(1)}100%{opacity:0;transform:translate(-50%,-18px) scale(1.03)}}
-.help-backdrop{position:absolute;inset:0;z-index:78;background:rgba(0,0,0,.58);backdrop-filter:blur(10px);display:grid;place-items:center;padding:18px}.game-shell{position:fixed;inset:0;z-index:9999;width:100%;height:100%;min-height:100vh;overflow:hidden;background:#091015;color:#edf6f7;font-family:Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:dark}.challenge-result-backdrop{position:absolute;inset:0;z-index:75;background:rgba(0,0,0,.58);backdrop-filter:blur(10px);display:grid;place-items:center;padding:18px}.challenge-clock{display:grid;gap:1px;min-width:92px;padding:5px 8px;border:1px solid rgba(242,193,64,.25);border-radius:9px;background:rgba(105,76,13,.13);color:#ffe18a}.challenge-clock small{font-size:calc(7px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.08em;opacity:.6}.challenge-clock strong{font-size:calc(11px * var(--clu-text-scale,1));font-variant-numeric:tabular-nums}.challenge-clock.ended{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#bfc9cc}.topbar{position:absolute;z-index:30;top:14px;min-height:58px;padding:8px 11px;border:1px solid rgba(255,255,255,.1);border-radius:16px;background:rgba(8,14,19,.84);backdrop-filter:blur(16px);display:flex;align-items:center;gap:12px;box-shadow:0 10px 34px rgba(0,0,0,.22)}.topbar--brand{left:16px;right:auto;width:max-content;max-width:min(390px,42vw);padding-left:14px}.topbar--stats{right:16px;left:auto;width:max-content;max-width:calc(100vw - 470px)}.brand{display:flex;align-items:center;gap:10px;min-width:0}.brand>b{font-size:calc(20px * var(--clu-text-scale,1));letter-spacing:.08em}.brand span,.top-kpis span{display:grid;min-width:0}.brand strong{max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.brand small,.top-kpis small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.48;margin-top:2px}.top-kpis{display:flex;gap:11px;align-items:center}.top-kpis strong{font-size:calc(12px * var(--clu-text-scale,1));white-space:nowrap}.debt-kpi-button{display:grid;gap:2px;min-width:92px;padding:5px 9px;border:1px solid rgba(255,104,112,.24);border-radius:10px;background:rgba(175,44,54,.10);color:inherit;text-align:left;cursor:pointer}.debt-kpi-button:hover,.debt-kpi-button:focus-visible{border-color:rgba(255,104,112,.5);background:rgba(175,44,54,.17);outline:none}.debt-kpi-button small{font-size:calc(9px * var(--clu-text-scale,1));opacity:.66;margin:0}.debt-kpi-button strong{color:#ff6f79;font-size:calc(12px * var(--clu-text-scale,1));font-variant-numeric:tabular-nums}.debt{color:#ff9c9c}.day-action{position:relative;display:flex}.day-button,.bilan-button,.menu-button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.07);color:inherit;border-radius:11px;padding:9px 12px;cursor:pointer}.day-button{background:rgba(77,211,220,.16);border-color:rgba(77,211,220,.32);white-space:nowrap}.bilan-button{display:flex;align-items:center;gap:6px;white-space:nowrap}.bilan-button b{font-size:calc(13px * var(--clu-text-scale,1))}.bilan-button span{font-size:calc(10px * var(--clu-text-scale,1));font-weight:700}.day-button:disabled{opacity:.4;cursor:not-allowed}.day-tooltip{position:absolute;right:0;top:46px;width:290px;padding:9px 10px;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:#10191f;color:#edf6f7;font-size:calc(10px * var(--clu-text-scale,1));line-height:1.45;box-shadow:0 14px 34px rgba(0,0,0,.42);opacity:0;pointer-events:none;transform:translateY(-3px);transition:opacity .15s ease,transform .15s ease;z-index:80}.day-action:hover .day-tooltip,.day-action:focus-within .day-tooltip{opacity:1;transform:translateY(0)}.menu-button{font-size:calc(17px * var(--clu-text-scale,1))}.city-search{position:relative;width:210px;flex:none}.city-search>input{width:100%;height:38px;padding:0 12px 0 32px;border-radius:11px;border:1px solid rgba(255,255,255,.12);background:#101a20;color:#edf6f7;outline:none}.city-search>input:focus{border-color:rgba(79,211,220,.52);box-shadow:0 0 0 3px rgba(79,211,220,.08)}.search-icon{position:absolute;left:11px;top:8px;font-size:calc(16px * var(--clu-text-scale,1));opacity:.55;z-index:2}.city-suggestions{position:absolute;left:0;right:0;top:44px;padding:6px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0e171d;box-shadow:0 18px 50px rgba(0,0,0,.48);display:grid;gap:3px}.city-suggestions button{border:0;background:transparent;color:inherit;border-radius:8px;padding:8px 9px;text-align:left;display:flex;align-items:center;justify-content:space-between;cursor:pointer}.city-suggestions button:hover{background:rgba(79,211,220,.1)}.city-suggestions span{display:grid}.city-suggestions small{font-size:calc(9px * var(--clu-text-scale,1));opacity:.48;margin-top:2px}.city-search-empty{position:absolute;left:0;right:0;top:44px;padding:10px 11px;border-radius:11px;border:1px solid rgba(255,255,255,.1);background:#0e171d;box-shadow:0 18px 50px rgba(0,0,0,.42);font-size:calc(10px * var(--clu-text-scale,1));line-height:1.4;color:#b7c1c7}.project-dock{position:absolute;z-index:26;top:91px;left:50%;transform:translateX(-50%);width:min(1180px,calc(100vw - 210px));min-height:96px;padding:10px 12px;border:1px solid rgba(79,211,220,.28);border-radius:15px;background:rgba(7,14,19,.91);backdrop-filter:blur(18px);box-shadow:0 16px 45px rgba(0,0,0,.34);display:grid;grid-template-columns:minmax(200px,1fr) auto;grid-template-areas:'copy stats' 'routing buttons';align-items:center;gap:8px 13px}.project-dock.with-panel{left:575px;right:18px;width:auto;transform:none}.project-dock.edit-focus{left:16px;right:16px;width:auto;transform:none;grid-template-columns:minmax(190px,1fr) minmax(360px,auto);grid-template-areas:'copy stats' 'edit edit' 'routing buttons'}.project-dock.edit-focus .project-stats{display:grid;grid-template-columns:repeat(5,minmax(76px,1fr));min-width:0}.project-dock.edit-focus .project-stats span{min-width:0}.project-dock.edit-focus .project-copy{min-width:0}.project-dock.warning{border-color:rgba(242,179,80,.46)}.project-copy{grid-area:copy;display:grid;gap:2px;min-width:190px}.project-copy strong{font-size:calc(13px * var(--clu-text-scale,1))}.project-copy small{font-size:calc(10px * var(--clu-text-scale,1));opacity:.58;line-height:1.35}.project-kicker{font-size:calc(8px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.13em;color:#75dbe2}.project-stats{grid-area:stats;display:flex;gap:7px;min-width:0}.project-stats span{min-width:92px;padding:7px 9px;border-radius:9px;background:rgba(255,255,255,.045);display:grid;gap:1px}.project-stats small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.48}.project-stats b{font-size:calc(11px * var(--clu-text-scale,1))}.project-stats em{font-size:calc(8px * var(--clu-text-scale,1));font-style:normal;color:#83dfe5;margin-top:1px}.project-preview-stat{box-shadow:inset 0 0 0 1px rgba(79,211,220,.16);background:rgba(79,211,220,.065)!important}.project-preview-over{box-shadow:inset 0 0 0 1px rgba(255,121,121,.32);background:rgba(176,55,55,.1)!important}.project-preview-over b,.project-preview-over em{color:#ff9d9d!important}.project-warning b{color:#f0bd68}.project-edit-actions,.project-routing-actions,.project-buttons{display:flex;gap:6px;align-items:center;min-width:0}.project-routing-actions{grid-area:routing}.project-buttons{grid-area:buttons;justify-content:flex-end;flex-wrap:wrap}.project-edit-actions{grid-area:edit}.project-routing-actions{padding:4px 6px;border-radius:10px;background:rgba(6,13,18,.38);border:1px solid rgba(255,255,255,.06)}.project-routing-actions>span{display:grid;min-width:54px}.project-routing-actions small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.45}.project-routing-actions b{font-size:calc(9px * var(--clu-text-scale,1))}.project-routing-actions button{padding:7px 8px!important;font-size:calc(9px * var(--clu-text-scale,1))}.project-routing-actions button.active{background:rgba(79,211,220,.16)!important;border-color:rgba(79,211,220,.38)!important;color:#a9f7fb}.project-edit-actions{min-width:0}.selected-edit-station{display:grid;min-width:140px;max-width:220px;padding:6px 9px;border-radius:9px;background:rgba(79,211,220,.08);border:1px solid rgba(79,211,220,.14)}.selected-edit-station small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.5}.selected-edit-station b{font-size:calc(10px * var(--clu-text-scale,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.danger-edit{color:#ff9d9d!important}.project-dock button:disabled{opacity:.36;cursor:not-allowed}.project-dock button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.055);color:inherit;border-radius:9px;padding:8px 10px;cursor:pointer;white-space:nowrap}.project-primary{background:rgba(79,211,220,.17)!important;border-color:rgba(79,211,220,.42)!important}.project-cancel{color:#ff9d9d!important}.project-history-actions{display:flex;gap:4px;padding-right:3px;border-right:1px solid rgba(255,255,255,.08)}.project-history-actions button{padding:8px 9px}.project-history-actions span{display:none;font-size:calc(9px * var(--clu-text-scale,1))}.bilan-backdrop{position:absolute;inset:0;z-index:64;background:rgba(0,0,0,.5);backdrop-filter:blur(9px);display:grid;place-items:center}.tool-dock{position:absolute;z-index:20;left:18px;top:94px;display:grid;gap:6px;padding:7px;border-radius:15px;border:1px solid rgba(255,255,255,.09);background:rgba(8,14,19,.76);backdrop-filter:blur(16px)}.tool-dock button{position:relative;width:56px;min-height:49px;border:0;border-radius:10px;background:transparent;color:inherit;display:grid;place-items:center;gap:1px;cursor:pointer}.tool-dock button.active{background:rgba(255,255,255,.10)}.tool-dock b{font-size:calc(16px * var(--clu-text-scale,1))}.tool-dock span{font-size:calc(8px * var(--clu-text-scale,1));opacity:.6}.tool-dock i{position:absolute;right:3px;top:3px;min-width:15px;height:15px;padding:0 3px;border-radius:99px;background:#f5b45f;color:#111;font:700 calc(9px * var(--clu-text-scale,1))/15px sans-serif}.side-panel{position:absolute;z-index:17;left:87px;top:94px;bottom:18px;width:min(410px,calc(100vw - 120px));border:1px solid rgba(255,255,255,.1);border-radius:18px;background:rgba(8,14,19,.86);backdrop-filter:blur(20px);box-shadow:0 18px 55px rgba(0,0,0,.28);overflow:hidden}.panel-top{height:38px;padding:0 12px 0 16px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;font-size:calc(10px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.12em;opacity:.65}.panel-top-actions{display:flex;align-items:center;gap:8px;padding-left:6px}.panel-top button{width:28px;height:28px;border:0;background:transparent;color:inherit;font-size:calc(20px * var(--clu-text-scale,1));cursor:pointer;display:grid;place-items:center}.panel-top-actions button:first-child{border:1px solid rgba(79,211,220,.14);border-radius:8px;color:#9cecf0;font-size:calc(12px * var(--clu-text-scale,1));font-weight:800}.panel-top-actions button:last-child{opacity:.78}.panel-scroll{height:calc(100% - 38px);overflow:auto;padding:18px;scrollbar-width:thin}.menu-backdrop,.action-backdrop,.borrow-confirmation-backdrop{position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.44);backdrop-filter:blur(8px);display:grid;place-items:center}.borrow-confirmation-backdrop{z-index:66;background:rgba(0,0,0,.56)}.pause-menu{width:min(390px,calc(100vw - 40px));animation:pause-in .18s ease-out;padding:22px;border-radius:20px;background:#10181e;border:1px solid rgba(255,255,255,.12);display:grid;gap:9px;box-shadow:0 24px 80px rgba(0,0,0,.45)}.pause-menu h2{margin:2px 0 0}.pause-hero p{margin:5px 0 8px;font-size:calc(11px * var(--clu-text-scale,1));opacity:.55}.pause-rules{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 10px}.pause-rules span{padding:5px 7px;border-radius:999px;background:rgba(255,255,255,.05);font-size:calc(9px * var(--clu-text-scale,1));color:rgba(255,255,255,.62)}.pause-menu button{padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.055);color:inherit;text-align:left;cursor:pointer;display:flex;align-items:center;gap:11px;transition:transform .16s ease,background .16s ease,border-color .16s ease}.pause-menu button:hover{transform:translateY(-1px);background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18)}.pause-menu button span{display:grid;gap:2px}.pause-menu button small{opacity:.5}.pause-menu button.resume{background:rgba(69,211,219,.14);border-color:rgba(69,211,219,.35)}.settings-dialog{width:min(820px,calc(100vw - 40px));max-height:min(760px,calc(100vh - 40px));display:grid;grid-template-rows:auto minmax(0,1fr);border-radius:20px;background:#10181e;border:1px solid rgba(255,255,255,.12);box-shadow:0 24px 80px rgba(0,0,0,.45);overflow:hidden}.settings-dialog__header{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:17px 19px;border-bottom:1px solid rgba(255,255,255,.08)}.settings-dialog__header h2{margin:2px 0 0;font-size:calc(20px * var(--clu-text-scale,1))}.settings-dialog__header button{width:34px;height:34px;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:rgba(255,255,255,.05);color:inherit;font-size:calc(21px * var(--clu-text-scale,1));cursor:pointer}.settings-dialog__scroll{min-height:0;overflow:auto;padding:18px;scrollbar-width:thin}.action-dialog{width:min(430px,calc(100vw - 38px));padding:22px;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:#10191f;box-shadow:0 24px 80px rgba(0,0,0,.5)}.action-dialog h3{margin:5px 0 7px}.action-dialog p{margin:0;font-size:calc(12px * var(--clu-text-scale,1));line-height:1.6;opacity:.72}.borrow-confirmation-dialog{width:min(470px,calc(100vw - 38px));padding:22px;border-radius:18px;border:1px solid rgba(79,211,220,.22);background:#10191f;box-shadow:0 24px 80px rgba(0,0,0,.55)}.borrow-confirmation-dialog h3{margin:5px 0 7px}.borrow-confirmation-dialog>p{margin:0;font-size:calc(12px * var(--clu-text-scale,1));line-height:1.55;opacity:.72}.borrow-confirmation-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:15px}.borrow-confirmation-summary span{display:grid;gap:3px;padding:10px;border-radius:10px;background:rgba(255,255,255,.045)}.borrow-confirmation-summary small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.5}.borrow-confirmation-summary strong{font-size:calc(11px * var(--clu-text-scale,1));overflow-wrap:anywhere}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.dialog-actions button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:inherit;border-radius:9px;padding:8px 11px;cursor:pointer}.dialog-actions .finance-action{background:rgba(79,211,220,.16);border-color:rgba(79,211,220,.38)}.station-name-backdrop{position:absolute;inset:0;z-index:57;background:rgba(0,0,0,.38);backdrop-filter:blur(5px);display:grid;place-items:center}.station-name-dialog{width:min(420px,calc(100vw - 38px));padding:20px;border:1px solid rgba(255,255,255,.13);border-radius:18px;background:#0f181e;box-shadow:0 24px 70px rgba(0,0,0,.48)}.station-name-dialog h3{margin:6px 0}.station-name-dialog p{font-size:calc(11px * var(--clu-text-scale,1));line-height:1.55;opacity:.62}.station-name-dialog input{width:100%;box-sizing:border-box;margin:8px 0 10px;padding:10px 11px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:#142027;color:inherit;outline:none}.station-name-actions{display:grid;grid-template-columns:auto 1fr;gap:8px}.station-name-dialog button{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.055);color:inherit;cursor:pointer}.station-name-dialog .confirm{border-color:rgba(79,211,220,.38);background:rgba(79,211,220,.16)}.station-name-dialog .cancel{color:#ffc0c0}.outside-territory{padding:9px 10px;border-radius:9px;background:rgba(238,172,70,.08);border:1px solid rgba(238,172,70,.16)}.outside-territory strong{color:#f1bd6e}.bankruptcy-backdrop{position:absolute;inset:0;z-index:58;background:rgba(20,4,7,.65);backdrop-filter:blur(9px);display:grid;place-items:center}.bankruptcy-card{width:min(470px,calc(100vw - 40px));padding:24px;border:1px solid rgba(255,105,105,.28);border-radius:20px;background:#171014;box-shadow:0 28px 90px rgba(0,0,0,.55)}.bankruptcy-card h2{margin:4px 0 8px;color:#ff9393}.bankruptcy-card p{font-size:calc(12px * var(--clu-text-scale,1));line-height:1.6;opacity:.72}.bankruptcy-card>div{display:flex;gap:8px;margin-top:16px}.bankruptcy-card button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:inherit;border-radius:10px;padding:9px 12px;cursor:pointer}.creation-backdrop{position:absolute;inset:0;z-index:55;background:rgba(0,0,0,.36);backdrop-filter:blur(7px);display:grid;place-items:center;padding:12px;box-sizing:border-box}.creation-modal{width:min(500px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;padding:18px 18px 10px;border-radius:20px;background:#0f181e;border:1px solid rgba(255,255,255,.12);box-shadow:0 28px 90px rgba(0,0,0,.5);overflow:hidden}.create-line-button{margin-top:3px;border-top:1px solid rgba(255,255,255,.07)!important}.create-line-button b{font-size:calc(22px * var(--clu-text-scale,1))!important;color:#7ce6ec}.morale-kpi{padding:4px 7px;border-radius:8px}.morale-very-happy{background:rgba(26,112,69,.22);color:#6ce7a3}.morale-happy{background:rgba(66,129,75,.12);color:#9ee8b5}.morale-medium{background:rgba(173,143,46,.11);color:#f2d36d}.morale-tense{background:rgba(168,98,37,.13);color:#f3aa62}.morale-unhappy{background:rgba(163,58,58,.13);color:#ff8b8b}.morale-critical{background:rgba(128,27,27,.24);color:#ff6262}.eyebrow{font-size:calc(9px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.14em;opacity:.5}@keyframes pause-in{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}@media(max-width:1180px){.city-search{width:170px}.top-kpis .passengers-kpi{display:none}.project-dock,.project-dock.with-panel{left:96px;right:16px;width:auto;transform:none;grid-template-columns:minmax(190px,1fr) auto}.project-stats span:nth-child(-n+2){display:none}.project-dock.edit-focus .project-stats{grid-template-columns:repeat(3,minmax(72px,1fr))}.project-dock.edit-focus .project-stats span:nth-child(-n+2){display:none}.project-history-actions span{display:none}}@media(max-width:880px){.borrow-confirmation-summary{grid-template-columns:1fr} .date{display:none}.top-kpis .passengers-kpi,.top-kpis .morale-kpi{display:none}.brand{min-width:0}.city-search{display:none}.side-panel{left:78px;width:calc(100vw - 92px)}.tool-dock{left:10px}.topbar{left:10px;right:10px}.day-button{margin-left:auto}.bilan-button span{display:none}.bilan-button{padding:9px 10px}.project-dock,.project-dock.with-panel,.project-dock.edit-focus{left:12px;right:12px;width:auto;transform:none;top:88px;grid-template-columns:1fr;grid-template-areas:'copy' 'routing' 'edit' 'buttons';gap:7px}.project-stats,.project-dock.edit-focus .project-stats{display:none}.project-edit-actions{flex-wrap:wrap;width:100%}.selected-edit-station{flex:1}.project-routing-actions{width:max-content;max-width:100%;flex-wrap:wrap}.project-buttons{justify-content:flex-start;width:100%}}
+.help-backdrop{position:absolute;inset:0;z-index:78;background:rgba(0,0,0,.58);backdrop-filter:blur(10px);display:grid;place-items:center;padding:18px}.game-shell{position:fixed;inset:0;z-index:9999;width:100%;height:100%;min-height:100vh;overflow:hidden;background:#091015;color:#edf6f7;font-family:Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:dark}.challenge-result-backdrop{position:absolute;inset:0;z-index:75;background:rgba(0,0,0,.58);backdrop-filter:blur(10px);display:grid;place-items:center;padding:18px}.challenge-clock{display:grid;gap:1px;min-width:92px;padding:5px 8px;border:1px solid rgba(242,193,64,.25);border-radius:9px;background:rgba(105,76,13,.13);color:#ffe18a}.challenge-clock small{font-size:calc(7px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.08em;opacity:.6}.challenge-clock strong{font-size:calc(11px * var(--clu-text-scale,1));font-variant-numeric:tabular-nums}.challenge-clock.ended{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#bfc9cc}.topbar{position:absolute;z-index:30;top:14px;min-height:58px;padding:8px 11px;border:1px solid rgba(255,255,255,.1);border-radius:16px;background:rgba(8,14,19,.84);backdrop-filter:blur(16px);display:flex;align-items:center;gap:12px;box-shadow:0 10px 34px rgba(0,0,0,.22)}.topbar--brand{left:16px;right:auto;width:max-content;max-width:min(390px,42vw);padding-left:14px}.topbar--stats{right:16px;left:auto;width:max-content;max-width:calc(100vw - 470px)}.brand{display:flex;align-items:center;gap:10px;min-width:0}.brand>b{font-size:calc(20px * var(--clu-text-scale,1));letter-spacing:.08em}.brand span,.top-kpis span{display:grid;min-width:0}.brand strong{max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.brand small,.top-kpis small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.48;margin-top:2px}.top-kpis{display:flex;gap:11px;align-items:center}.top-kpis strong{font-size:calc(12px * var(--clu-text-scale,1));white-space:nowrap}.debt-kpi-button{display:grid;gap:2px;min-width:92px;padding:5px 9px;border:1px solid rgba(255,104,112,.24);border-radius:10px;background:rgba(175,44,54,.10);color:inherit;text-align:left;cursor:pointer}.debt-kpi-button:hover,.debt-kpi-button:focus-visible{border-color:rgba(255,104,112,.5);background:rgba(175,44,54,.17);outline:none}.debt-kpi-button small{font-size:calc(9px * var(--clu-text-scale,1));opacity:.66;margin:0}.debt-kpi-button strong{color:#ff6f79;font-size:calc(12px * var(--clu-text-scale,1));font-variant-numeric:tabular-nums}.debt{color:#ff9c9c}.day-action{position:relative;display:flex}.day-button,.bilan-button,.menu-button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.07);color:inherit;border-radius:11px;padding:9px 12px;cursor:pointer}.day-button{background:rgba(77,211,220,.16);border-color:rgba(77,211,220,.32);white-space:nowrap}.bilan-button{display:flex;align-items:center;gap:6px;white-space:nowrap}.bilan-button b{font-size:calc(13px * var(--clu-text-scale,1))}.bilan-button span{font-size:calc(10px * var(--clu-text-scale,1));font-weight:700}.day-button:disabled{opacity:.4;cursor:not-allowed}.day-tooltip{position:absolute;right:0;top:46px;width:290px;padding:9px 10px;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:#10191f;color:#edf6f7;font-size:calc(10px * var(--clu-text-scale,1));line-height:1.45;box-shadow:0 14px 34px rgba(0,0,0,.42);opacity:0;pointer-events:none;transform:translateY(-3px);transition:opacity .15s ease,transform .15s ease;z-index:80}.day-action:hover .day-tooltip,.day-action:focus-within .day-tooltip{opacity:1;transform:translateY(0)}.menu-button{font-size:calc(17px * var(--clu-text-scale,1))}.city-search{position:relative;width:210px;flex:none}.city-search>input{width:100%;height:38px;padding:0 12px 0 32px;border-radius:11px;border:1px solid rgba(255,255,255,.12);background:#101a20;color:#edf6f7;outline:none}.city-search>input:focus{border-color:rgba(79,211,220,.52);box-shadow:0 0 0 3px rgba(79,211,220,.08)}.search-icon{position:absolute;left:11px;top:8px;font-size:calc(16px * var(--clu-text-scale,1));opacity:.55;z-index:2}.city-suggestions{position:absolute;left:0;right:0;top:44px;padding:6px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0e171d;box-shadow:0 18px 50px rgba(0,0,0,.48);display:grid;gap:3px}.city-suggestions button{border:0;background:transparent;color:inherit;border-radius:8px;padding:8px 9px;text-align:left;display:flex;align-items:center;justify-content:space-between;cursor:pointer}.city-suggestions button:hover{background:rgba(79,211,220,.1)}.city-suggestions span{display:grid}.city-suggestions small{font-size:calc(9px * var(--clu-text-scale,1));opacity:.48;margin-top:2px}.city-search-empty{position:absolute;left:0;right:0;top:44px;padding:10px 11px;border-radius:11px;border:1px solid rgba(255,255,255,.1);background:#0e171d;box-shadow:0 18px 50px rgba(0,0,0,.42);font-size:calc(10px * var(--clu-text-scale,1));line-height:1.4;color:#b7c1c7}.project-dock{position:absolute;z-index:26;top:91px;left:50%;transform:translateX(-50%);width:min(1180px,calc(100vw - 210px));min-height:96px;padding:10px 12px;border:1px solid rgba(79,211,220,.28);border-radius:15px;background:rgba(7,14,19,.91);backdrop-filter:blur(18px);box-shadow:0 16px 45px rgba(0,0,0,.34);display:grid;grid-template-columns:minmax(200px,1fr) auto;grid-template-areas:'copy stats' 'routing buttons';align-items:center;gap:8px 13px}.project-dock.with-panel{left:575px;right:18px;width:auto;transform:none}.project-dock.edit-focus{left:16px;right:16px;width:auto;transform:none;grid-template-columns:minmax(190px,1fr) minmax(360px,auto);grid-template-areas:'copy stats' 'edit edit' 'routing buttons'}.project-dock.edit-focus .project-stats{display:grid;grid-template-columns:repeat(5,minmax(76px,1fr));min-width:0}.project-dock.edit-focus .project-stats span{min-width:0}.project-dock.edit-focus .project-copy{min-width:0}.project-dock.warning{border-color:rgba(242,179,80,.46)}.project-copy{grid-area:copy;display:grid;gap:2px;min-width:190px}.project-copy strong{font-size:calc(13px * var(--clu-text-scale,1))}.project-copy small{font-size:calc(10px * var(--clu-text-scale,1));opacity:.58;line-height:1.35}.project-kicker{font-size:calc(8px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.13em;color:#75dbe2}.project-stats{grid-area:stats;display:flex;gap:7px;min-width:0}.project-stats span{min-width:92px;padding:7px 9px;border-radius:9px;background:rgba(255,255,255,.045);display:grid;gap:1px}.project-stats small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.48}.project-stats b{font-size:calc(11px * var(--clu-text-scale,1))}.project-stats em{font-size:calc(8px * var(--clu-text-scale,1));font-style:normal;color:#83dfe5;margin-top:1px}.project-preview-stat{box-shadow:inset 0 0 0 1px rgba(79,211,220,.16);background:rgba(79,211,220,.065)!important}.project-preview-over{box-shadow:inset 0 0 0 1px rgba(255,121,121,.32);background:rgba(176,55,55,.1)!important}.project-preview-over b,.project-preview-over em{color:#ff9d9d!important}.project-warning b{color:#f0bd68}.project-edit-actions,.project-routing-actions,.project-buttons{display:flex;gap:6px;align-items:center;min-width:0}.project-routing-actions{grid-area:routing}.project-buttons{grid-area:buttons;justify-content:flex-end;flex-wrap:wrap}.project-edit-actions{grid-area:edit}.project-routing-actions{padding:4px 6px;border-radius:10px;background:rgba(6,13,18,.38);border:1px solid rgba(255,255,255,.06)}.project-routing-actions>span{display:grid;min-width:54px}.project-routing-actions small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.45}.project-routing-actions b{font-size:calc(9px * var(--clu-text-scale,1))}.project-routing-actions button{padding:7px 8px!important;font-size:calc(9px * var(--clu-text-scale,1))}.project-routing-actions button.active{background:rgba(79,211,220,.16)!important;border-color:rgba(79,211,220,.38)!important;color:#a9f7fb}.project-edit-actions{min-width:0}.selected-edit-station{display:grid;min-width:140px;max-width:220px;padding:6px 9px;border-radius:9px;background:rgba(79,211,220,.08);border:1px solid rgba(79,211,220,.14)}.selected-edit-station small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.5}.selected-edit-station b{font-size:calc(10px * var(--clu-text-scale,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.danger-edit{color:#ff9d9d!important}.project-dock button:disabled{opacity:.36;cursor:not-allowed}.project-dock button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.055);color:inherit;border-radius:9px;padding:8px 10px;cursor:pointer;white-space:nowrap}.project-primary{background:rgba(79,211,220,.17)!important;border-color:rgba(79,211,220,.42)!important}.project-cancel{color:#ff9d9d!important}.project-history-actions{display:flex;gap:4px;padding-right:3px;border-right:1px solid rgba(255,255,255,.08)}.project-history-actions button{padding:8px 9px}.project-history-actions span{display:none;font-size:calc(9px * var(--clu-text-scale,1))}.bilan-backdrop{position:absolute;inset:0;z-index:64;background:rgba(0,0,0,.5);backdrop-filter:blur(9px);display:grid;place-items:center}.tool-dock{position:absolute;z-index:20;left:18px;top:94px;display:grid;gap:6px;padding:7px;border-radius:15px;border:1px solid rgba(255,255,255,.09);background:rgba(8,14,19,.76);backdrop-filter:blur(16px)}.tool-dock button{position:relative;width:56px;min-height:49px;border:0;border-radius:10px;background:transparent;color:inherit;display:grid;place-items:center;gap:1px;cursor:pointer}.tool-dock button.active{background:rgba(255,255,255,.10)}.tool-dock b{font-size:calc(16px * var(--clu-text-scale,1))}.tool-dock span{font-size:calc(8px * var(--clu-text-scale,1));opacity:.6}.tool-dock i{position:absolute;right:3px;top:3px;min-width:15px;height:15px;padding:0 3px;border-radius:99px;background:#f5b45f;color:#111;font:700 calc(9px * var(--clu-text-scale,1))/15px sans-serif}.side-panel{position:absolute;z-index:17;left:87px;top:94px;bottom:18px;width:min(410px,calc(100vw - 120px));border:1px solid rgba(255,255,255,.1);border-radius:18px;background:rgba(8,14,19,.86);backdrop-filter:blur(20px);box-shadow:0 18px 55px rgba(0,0,0,.28);overflow:hidden}.panel-top{height:38px;padding:0 12px 0 16px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;font-size:calc(10px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.12em;opacity:.65}.panel-top-actions{display:flex;align-items:center;gap:8px;padding-left:6px}.panel-top button{width:28px;height:28px;border:0;background:transparent;color:inherit;font-size:calc(20px * var(--clu-text-scale,1));cursor:pointer;display:grid;place-items:center}.panel-top-actions button:first-child{border:1px solid rgba(79,211,220,.14);border-radius:8px;color:#9cecf0;font-size:calc(12px * var(--clu-text-scale,1));font-weight:800}.panel-top-actions button:last-child{opacity:.78}.panel-scroll{height:calc(100% - 38px);overflow:auto;padding:18px;scrollbar-width:thin}.menu-backdrop,.action-backdrop,.borrow-confirmation-backdrop{position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.44);backdrop-filter:blur(8px);display:grid;place-items:center}.borrow-confirmation-backdrop{z-index:66;background:rgba(0,0,0,.56)}.pause-menu{width:min(390px,calc(100vw - 40px));animation:pause-in .18s ease-out;padding:22px;border-radius:20px;background:#10181e;border:1px solid rgba(255,255,255,.12);display:grid;gap:9px;box-shadow:0 24px 80px rgba(0,0,0,.45)}.pause-menu h2{margin:2px 0 0}.pause-hero p{margin:5px 0 8px;font-size:calc(11px * var(--clu-text-scale,1));opacity:.55}.pause-rules{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 10px}.pause-rules span{padding:5px 7px;border-radius:999px;background:rgba(255,255,255,.05);font-size:calc(9px * var(--clu-text-scale,1));color:rgba(255,255,255,.62)}.pause-menu button{padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.055);color:inherit;text-align:left;cursor:pointer;display:flex;align-items:center;gap:11px;transition:transform .16s ease,background .16s ease,border-color .16s ease}.pause-menu button:hover{transform:translateY(-1px);background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18)}.pause-menu button span{display:grid;gap:2px}.pause-menu button small{opacity:.5}.pause-menu button.resume{background:rgba(69,211,219,.14);border-color:rgba(69,211,219,.35)}.settings-dialog{width:min(820px,calc(100vw - 40px));max-height:min(760px,calc(100vh - 40px));display:grid;grid-template-rows:auto minmax(0,1fr);border-radius:20px;background:#10181e;border:1px solid rgba(255,255,255,.12);box-shadow:0 24px 80px rgba(0,0,0,.45);overflow:hidden}.settings-dialog__header{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:17px 19px;border-bottom:1px solid rgba(255,255,255,.08)}.settings-dialog__header h2{margin:2px 0 0;font-size:calc(20px * var(--clu-text-scale,1))}.settings-dialog__header button{width:34px;height:34px;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:rgba(255,255,255,.05);color:inherit;font-size:calc(21px * var(--clu-text-scale,1));cursor:pointer}.settings-dialog__scroll{min-height:0;overflow:auto;padding:18px;scrollbar-width:thin}.action-dialog{width:min(430px,calc(100vw - 38px));padding:22px;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:#10191f;box-shadow:0 24px 80px rgba(0,0,0,.5)}.action-dialog h3{margin:5px 0 7px}.action-dialog p{margin:0;font-size:calc(12px * var(--clu-text-scale,1));line-height:1.6;opacity:.72}.borrow-confirmation-dialog{width:min(470px,calc(100vw - 38px));padding:22px;border-radius:18px;border:1px solid rgba(79,211,220,.22);background:#10191f;box-shadow:0 24px 80px rgba(0,0,0,.55)}.borrow-confirmation-dialog h3{margin:5px 0 7px}.borrow-confirmation-dialog>p{margin:0;font-size:calc(12px * var(--clu-text-scale,1));line-height:1.55;opacity:.72}.borrow-confirmation-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:15px}.borrow-confirmation-summary span{display:grid;gap:3px;padding:10px;border-radius:10px;background:rgba(255,255,255,.045)}.borrow-confirmation-summary small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.5}.borrow-confirmation-summary strong{font-size:calc(11px * var(--clu-text-scale,1));overflow-wrap:anywhere}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.dialog-actions button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:inherit;border-radius:9px;padding:8px 11px;cursor:pointer}.dialog-actions .finance-action{background:rgba(79,211,220,.16);border-color:rgba(79,211,220,.38)}.station-name-backdrop{position:absolute;inset:0;z-index:57;background:rgba(0,0,0,.38);backdrop-filter:blur(5px);display:grid;place-items:center;padding:12px;box-sizing:border-box}.station-name-dialog{width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;padding:18px 20px;border:1px solid rgba(255,255,255,.13);border-radius:18px;background:#0f181e;box-shadow:0 24px 70px rgba(0,0,0,.48);overflow:auto;scrollbar-width:thin}.station-name-dialog h3{margin:6px 0}.station-name-dialog p{font-size:calc(11px * var(--clu-text-scale,1));line-height:1.55;opacity:.62}.station-name-dialog input{width:100%;box-sizing:border-box;margin:8px 0 10px;padding:10px 11px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:#142027;color:inherit;outline:none}.station-name-suggestions{display:grid;gap:7px;margin:10px 0}.station-name-suggestions__head{display:flex;align-items:center;justify-content:space-between;gap:10px}.station-name-suggestions__head strong,.station-name-free>span,.station-pmr-choice>div>strong{font-size:calc(9px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.06em;opacity:.72}.station-name-suggestions__head button{padding:5px 7px!important;font-size:calc(8px * var(--clu-text-scale,1));opacity:.78}.station-name-refresh{width:30px;height:30px;display:grid;place-items:center;padding:0!important;font-size:17px!important;line-height:1;opacity:.9!important}.station-name-suggestions>div:last-child{display:flex;flex-wrap:wrap;gap:6px}.station-name-suggestions>div:last-child button{padding:7px 8px;font-size:calc(9px * var(--clu-text-scale,1));text-align:left}.station-name-suggestions button.active{border-color:rgba(79,211,220,.48);background:rgba(79,211,220,.13)}.station-name-free{display:grid}.station-name-free input{margin-top:5px}.station-urban-preview{display:grid;gap:8px;padding:10px;border:1px solid rgba(79,211,220,.14);border-radius:11px;background:rgba(79,211,220,.035)}.station-urban-preview__head{display:flex;justify-content:flex-end;gap:12px;align-items:start}.station-urban-preview__head>span{display:grid;gap:2px}.station-urban-preview__head small,.station-urban-preview__places>small{font-size:calc(8px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.08em;opacity:.5}.station-urban-preview__head strong{font-size:calc(10px * var(--clu-text-scale,1))}.station-urban-preview__head em{margin-left:6px;font-size:calc(8px * var(--clu-text-scale,1));font-style:normal;color:#7ce2e8}.station-urban-preview__places{display:grid;gap:5px}.station-urban-preview__places>div{display:flex;flex-wrap:wrap;gap:5px}.station-urban-preview__places span{padding:4px 6px;border-radius:999px;background:rgba(255,255,255,.055);font-size:calc(8px * var(--clu-text-scale,1));line-height:1.1}.station-urban-preview__places p{margin:0;font-size:calc(9px * var(--clu-text-scale,1));opacity:.52}
+.station-pmr-choice{display:grid;gap:8px;margin:5px 0 12px;padding:10px;border:1px solid rgba(255,255,255,.09);border-radius:11px;background:rgba(255,255,255,.025)}.station-pmr-choice>div:first-child{display:grid;gap:3px}.station-pmr-choice>div>small{font-size:calc(8px * var(--clu-text-scale,1));line-height:1.35;opacity:.5}.station-pmr-buttons{display:grid;grid-template-columns:1fr 1fr;gap:6px}.station-pmr-buttons button{display:flex;align-items:center;justify-content:center;gap:5px;font-size:calc(9px * var(--clu-text-scale,1))}.station-pmr-buttons button.active{border-color:rgba(91,222,162,.42);background:rgba(91,222,162,.10)}.station-pmr-buttons small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.7}.station-name-actions{display:grid;grid-template-columns:auto 1fr;gap:8px}.station-name-dialog button{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.055);color:inherit;cursor:pointer}.station-name-dialog .confirm{border-color:rgba(79,211,220,.38);background:rgba(79,211,220,.16)}.station-name-dialog .cancel{color:#ffc0c0}.outside-territory{padding:9px 10px;border-radius:9px;background:rgba(238,172,70,.08);border:1px solid rgba(238,172,70,.16)}.outside-territory strong{color:#f1bd6e}.bankruptcy-backdrop{position:absolute;inset:0;z-index:58;background:rgba(20,4,7,.65);backdrop-filter:blur(9px);display:grid;place-items:center}.bankruptcy-card{width:min(470px,calc(100vw - 40px));padding:24px;border:1px solid rgba(255,105,105,.28);border-radius:20px;background:#171014;box-shadow:0 28px 90px rgba(0,0,0,.55)}.bankruptcy-card h2{margin:4px 0 8px;color:#ff9393}.bankruptcy-card p{font-size:calc(12px * var(--clu-text-scale,1));line-height:1.6;opacity:.72}.bankruptcy-card>div{display:flex;gap:8px;margin-top:16px}.bankruptcy-card button{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:inherit;border-radius:10px;padding:9px 12px;cursor:pointer}.creation-backdrop{position:absolute;inset:0;z-index:55;background:rgba(0,0,0,.36);backdrop-filter:blur(7px);display:grid;place-items:center;padding:12px;box-sizing:border-box}.creation-modal{width:min(500px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;padding:18px 18px 10px;border-radius:20px;background:#0f181e;border:1px solid rgba(255,255,255,.12);box-shadow:0 28px 90px rgba(0,0,0,.5);overflow:hidden}.create-line-button{margin-top:3px;border-top:1px solid rgba(255,255,255,.07)!important}.create-line-button b{font-size:calc(22px * var(--clu-text-scale,1))!important;color:#7ce6ec}.morale-kpi{padding:4px 7px;border-radius:8px}.morale-very-happy{background:rgba(26,112,69,.22);color:#6ce7a3}.morale-happy{background:rgba(66,129,75,.12);color:#9ee8b5}.morale-medium{background:rgba(173,143,46,.11);color:#f2d36d}.morale-tense{background:rgba(168,98,37,.13);color:#f3aa62}.morale-unhappy{background:rgba(163,58,58,.13);color:#ff8b8b}.morale-critical{background:rgba(128,27,27,.24);color:#ff6262}.eyebrow{font-size:calc(9px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.14em;opacity:.5}@keyframes pause-in{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}@media(max-width:1180px){.city-search{width:170px}.top-kpis .passengers-kpi{display:none}.project-dock,.project-dock.with-panel{left:96px;right:16px;width:auto;transform:none;grid-template-columns:minmax(190px,1fr) auto}.project-stats span:nth-child(-n+2){display:none}.project-dock.edit-focus .project-stats{grid-template-columns:repeat(3,minmax(72px,1fr))}.project-dock.edit-focus .project-stats span:nth-child(-n+2){display:none}.project-history-actions span{display:none}}@media(max-width:880px){.borrow-confirmation-summary{grid-template-columns:1fr} .date{display:none}.top-kpis .passengers-kpi,.top-kpis .morale-kpi{display:none}.brand{min-width:0}.city-search{display:none}.side-panel{left:78px;width:calc(100vw - 92px)}.tool-dock{left:10px}.topbar{left:10px;right:10px}.day-button{margin-left:auto}.bilan-button span{display:none}.bilan-button{padding:9px 10px}.project-dock,.project-dock.with-panel,.project-dock.edit-focus{left:12px;right:12px;width:auto;transform:none;top:88px;grid-template-columns:1fr;grid-template-areas:'copy' 'routing' 'edit' 'buttons';gap:7px}.project-stats,.project-dock.edit-focus .project-stats{display:none}.project-edit-actions{flex-wrap:wrap;width:100%}.selected-edit-station{flex:1}.project-routing-actions{width:max-content;max-width:100%;flex-wrap:wrap}.project-buttons{justify-content:flex-start;width:100%}}
 
 /* V45 polish final — recherche, lisibilité financière et préparation d'exploitation */
 .budget-kpi strong.money-in{color:#66f3a0!important;font-weight:950;animation:budget-in 2s ease both}.budget-kpi strong.money-out{color:#ff6f79!important;font-weight:950;animation:budget-out 2s ease both}.financial-pulse{left:50%;top:calc(100% + 5px);padding:5px 10px;font-size:calc(17px * var(--clu-text-scale,1));font-weight:1000;border-width:2px;box-shadow:0 8px 26px rgba(0,0,0,.5)}@keyframes budget-in{0%,100%{transform:scale(1)}12%{transform:scale(1.16)}65%{transform:scale(1.04)}}@keyframes budget-out{0%,100%{transform:scale(1)}12%{transform:scale(1.16)}65%{transform:scale(1.04)}}
@@ -2830,7 +2928,7 @@ onUnmounted(() => {
   .tool-dock--simple>button{min-width:0!important;min-height:50px!important;height:50px!important;padding:5px 3px!important;display:grid!important;place-items:center!important;align-content:center!important;gap:2px!important}
   .tool-dock--simple>button b{font-size:18px!important}.tool-dock--simple>button span{font-size:9px!important;line-height:1!important}
   .tool-dock--simple .management-hub-button{margin-top:0;border-top:0!important}
-  .side-panel{position:fixed!important;left:8px!important;right:8px!important;bottom:76px!important;top:82px!important;width:auto!important;max-width:none!important;border-radius:18px!important}
+  .side-panel{position:fixed!important;left:8px!important;right:8px!important;bottom:104px!important;top:82px!important;width:auto!important;max-width:none!important;border-radius:18px!important}
   .search-hub{position:fixed!important;left:8px!important;right:8px!important;bottom:76px!important;top:auto!important;width:auto!important;max-height:min(62vh,520px)!important;border-radius:18px!important}
   .time-controls{bottom:80px!important;left:10px!important}
   .day-progress{bottom:80px!important}
@@ -2850,7 +2948,7 @@ onUnmounted(() => {
    Une seule structure : une rangée de résumé, puis une rangée d'outils uniquement
    lorsqu'un arrêt est sélectionné. Aucun CSS historique ne décide de la géométrie. */
 .time-controls .day-next-inline{margin-left:2px;background:rgba(79,211,220,.13);border-color:rgba(79,211,220,.28);font-weight:800;white-space:nowrap}.time-controls .day-next-inline:disabled{opacity:.38;cursor:not-allowed}
-.side-panel{left:98px}
+.side-panel{left:92px;bottom:108px;width:min(410px,calc(100vw - 108px))}
 .project-dock.project-dock--topbar.project-dock--compact{
   position:absolute!important;z-index:36!important;top:8px!important;left:8px!important;right:auto!important;
   width:calc(100vw - 16px)!important;max-width:calc(100vw - 16px)!important;min-width:0!important;
@@ -2879,7 +2977,6 @@ onUnmounted(() => {
 .project-tools-row .selected-edit-station{min-width:112px!important;max-width:180px!important;padding:5px 7px!important}
 .project-tools-row .project-edit-secondary-tools{gap:7px!important}
 .project-tools-row .project-edit-secondary-tools .project-routing-actions--inline{padding-left:7px!important}
-.project-dock--compact .project-forecast-trigger.active{border-color:rgba(79,211,220,.42)!important;background:rgba(79,211,220,.15)!important;color:#a9f7fb!important}
 @media(max-width:1180px){
   .project-dock.project-dock--topbar.project-dock--compact{width:calc(100vw - 16px)!important;right:auto!important;overflow:visible!important;max-height:none!important}
   .project-summary-row{flex-wrap:wrap!important;white-space:normal}.project-dock--compact.edit-selected .project-summary-row{flex-wrap:wrap!important;white-space:normal!important}.project-dock--compact:not(.edit-selected) .project-summary-row{width:100%!important;max-width:none!important}
@@ -2917,10 +3014,11 @@ onUnmounted(() => {
 .line-visibility-panel__bulk{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.line-visibility-panel__head button{border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.05);color:inherit;padding:6px 8px;font-size:9px;cursor:pointer;white-space:nowrap}.line-visibility-panel__head button:disabled{opacity:.35;cursor:default}
 .line-visibility-panel__list{overflow:auto;padding:7px;display:grid;gap:4px;scrollbar-width:thin}.line-visibility-panel__list label{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;gap:8px;padding:8px 9px;border-radius:9px;cursor:pointer}.line-visibility-panel__list label:hover{background:rgba(255,255,255,.045)}.line-visibility-panel__list label.dimmed{background:rgba(255,255,255,.025);opacity:.72}
 .line-visibility-panel__list input{accent-color:#63dce4}.line-visibility-swatch{width:8px;height:24px;border-radius:999px}.line-visibility-name{display:grid;gap:1px;min-width:0}.line-visibility-name b{font-size:10px}.line-visibility-name small{font-size:9px;opacity:.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.line-visibility-panel__list em{font-size:8px;font-style:normal;opacity:.48}.line-visibility-panel__list p{margin:8px;font-size:10px;opacity:.5}
+.line-social-panel{position:absolute;z-index:29;right:58px;top:116px;bottom:108px;width:min(480px,calc(100vw - 92px));max-height:none;border:1px solid rgba(255,255,255,.11);border-radius:14px;background:rgba(8,14,19,.96);box-shadow:0 16px 42px rgba(0,0,0,.35);overflow:auto;scrollbar-width:thin}
 @media(max-width:1080px){.topbar--brand{max-width:34vw}.topbar--stats{max-width:62vw}.top-kpis{gap:8px}}
 @media(min-width:821px){.topbar--stats .passengers-kpi,.topbar--stats .morale-kpi{display:grid!important}}
 @media(min-width:761px) and (max-width:880px){.topbar--brand{left:10px;right:auto}.topbar--stats{right:10px;left:auto}}
-@media(max-width:760px){.topbar--brand{left:8px;right:auto;top:8px;max-width:46vw;min-height:50px}.topbar--stats{right:8px;left:auto;top:8px;max-width:50vw;min-height:50px}.topbar--stats .morale-kpi,.topbar--stats .passengers-kpi,.topbar--stats .challenge-clock{display:none}.top-kpis{gap:5px}.debt-kpi-button{min-width:0}.brand small{display:none}.line-visibility-panel{position:fixed;right:56px;bottom:145px;width:min(320px,calc(100vw - 76px));max-height:calc(100vh - 180px)}}
+@media(max-width:760px){.topbar--brand{left:8px;right:auto;top:8px;max-width:46vw;min-height:50px}.topbar--stats{right:8px;left:auto;top:8px;max-width:50vw;min-height:50px}.topbar--stats .morale-kpi,.topbar--stats .passengers-kpi,.topbar--stats .challenge-clock{display:none}.top-kpis{gap:5px}.debt-kpi-button{min-width:0}.brand small{display:none}.line-visibility-panel{position:fixed;right:56px;bottom:145px;width:min(320px,calc(100vw - 76px));max-height:calc(100vh - 180px)}.line-social-panel{position:fixed;z-index:29;right:56px;top:96px;bottom:96px;width:min(450px,calc(100vw - 76px));max-height:none}}
 
 </style>
 

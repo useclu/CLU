@@ -54,7 +54,7 @@ export function createGameLine(
     customLogoDataUrl: undefined,
     shortCode: String(index),
     badgeStyle: 'CIRCLE',
-    emblem: mode === 'BRT' ? 'EXPRESS' : mode,
+    emblem: mode === 'BRT' ? 'EXPRESS' : mode === 'TER' || mode === 'TGV' ? 'TRAIN' : mode === 'CAR' ? 'BUS' : mode,
     mode,
     status: 'PROJECT',
     infrastructureType: 'AUTO',
@@ -101,6 +101,8 @@ export function createGameStation(
     longitude,
     latitude,
     facilityLevel: 'BASIC',
+    accessiblePmr: false,
+    pmrSubsidyReceived: 0,
   }
 }
 
@@ -159,7 +161,7 @@ export function normalizeServiceProfileLevel(
 }
 
 export function normalizeLineEmblem(value: unknown): GameLineEmblem {
-  return ['NONE', 'METRO', 'TRAM', 'RER', 'TRAIN', 'BUS', 'EXPRESS', 'CABLE', 'FERRY', 'STAR'].includes(String(value))
+  return ['NONE', 'METRO', 'TRAM', 'RER', 'TRAIN', 'TER', 'TGV', 'CAR', 'BUS', 'EXPRESS', 'CABLE', 'FERRY', 'STAR'].includes(String(value))
     ? value as GameLineEmblem
     : 'NONE'
 }

@@ -180,6 +180,62 @@ function calculateLongestServiceRoute(line: GameLine) {
   return best
 }
 
+function interurbanDistanceSuitability(
+  line: GameLine,
+  lengthKm: number,
+) {
+  const stationCount = Math.max(2, getLineAllStations(line).length)
+  const averageStopSpacingKm = Math.max(0, lengthKm / Math.max(1, stationCount - 1))
+
+  if (line.mode === 'TGV') {
+    const distanceFactor = lengthKm < 20
+      ? 0.16
+      : lengthKm < 40
+        ? 0.16 + (lengthKm - 20) / 20 * 0.36
+        : lengthKm < 70
+          ? 0.52 + (lengthKm - 40) / 30 * 0.43
+          : Math.min(1.08, 0.95 + (lengthKm - 70) / 230 * 0.13)
+    const stopFactor = averageStopSpacingKm < 5
+      ? 0.42
+      : averageStopSpacingKm < 10
+        ? 0.42 + (averageStopSpacingKm - 5) / 5 * 0.38
+        : averageStopSpacingKm < 18
+          ? 0.8 + (averageStopSpacingKm - 10) / 8 * 0.2
+          : 1
+    return Math.max(0.08, Math.min(1.08, distanceFactor * stopFactor))
+  }
+
+  if (line.mode === 'TER') {
+    const distanceFactor = lengthKm < 6
+      ? 0.42
+      : lengthKm < 15
+        ? 0.42 + (lengthKm - 6) / 9 * 0.43
+        : lengthKm < 30
+          ? 0.85 + (lengthKm - 15) / 15 * 0.15
+          : Math.min(1.05, 1 + (lengthKm - 30) / 170 * 0.05)
+    const stopFactor = averageStopSpacingKm < 1.5
+      ? 0.62
+      : averageStopSpacingKm < 3
+        ? 0.62 + (averageStopSpacingKm - 1.5) / 1.5 * 0.28
+        : 1
+    return Math.max(0.2, Math.min(1.05, distanceFactor * stopFactor))
+  }
+
+  if (line.mode === 'CAR') {
+    const distanceFactor = lengthKm < 4
+      ? 0.55
+      : lengthKm < 12
+        ? 0.55 + (lengthKm - 4) / 8 * 0.4
+        : lengthKm <= 120
+          ? 1
+          : Math.max(0.82, 1 - (lengthKm - 120) / 400 * 0.18)
+    const stopFactor = averageStopSpacingKm < 0.8 ? 0.76 : averageStopSpacingKm < 1.5 ? 0.9 : 1
+    return Math.max(0.3, Math.min(1, distanceFactor * stopFactor))
+  }
+
+  return 1
+}
+
 function calculateFallbackDemand(
   line: GameLine,
   lengthKm: number,
@@ -553,7 +609,7 @@ export function simulateLineDay(
       ? 'TERRITORIAL'
       : 'FALLBACK'
 
-  const demandPassengers =
+  const rawDemandPassengers =
     canUseTerritorialDemand
     && lineCoverage
     && options?.territorySummary
@@ -567,6 +623,14 @@ export function simulateLineDay(
           line,
           lengthKm,
         )
+
+  // TER, TGV et Car sont des offres interurbaines : ils doivent être utiles
+  // parce que le territoire et la distance le justifient, pas simplement parce
+  // qu'ils ont des chiffres plus élevés que les modes urbains.
+  const demandPassengers = Math.max(
+    0,
+    Math.round(rawDemandPassengers * interurbanDistanceSuitability(line, lengthKm)),
+  )
 
   const activeModifiers = options?.modifiers
     ?? DEFAULT_SIMULATION_MODIFIERS

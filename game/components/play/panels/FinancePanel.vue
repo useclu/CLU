@@ -186,7 +186,7 @@ function transactionLabel(kind: string) {
   const labels: Record<string, string> = {
     LINE_PROJECT: 'Construction de ligne', LINE_MODIFICATION: 'Modification de ligne', STATION_CONSTRUCTION: 'Station', SEGMENT_CONSTRUCTION: 'Infrastructure',
     VEHICLE_PURCHASE: 'Achat matériel', VEHICLE_SALE: 'Revente matériel', FLEET_OVERHAUL: 'Remise à neuf', FLEET_UPGRADE: 'Amélioration matériel', DEPOT_CONSTRUCTION: 'Construction dépôt', DEPOT_UPGRADE: 'Extension dépôt', INFRASTRUCTURE_UPGRADE: 'Modernisation infrastructure', STATION_UPGRADE: 'Amélioration station', TEMPORARY_SERVICE: 'Service temporaire', SERVICE_REINFORCEMENT: 'Circulation de renfort', SERVICE_SUBSTITUTION: 'Bus de substitution',
-    OBJECTIVE_REWARD: 'Objectif', MUNICIPALITY_SUBSIDY: 'Subvention commune', PUBLIC_DEVELOPMENT_GRANT: 'Dotation publique', PASSENGER_COMPENSATION: 'Compensation voyageurs', DEBT_BORROW: 'Emprunt', DEBT_REPAYMENT: 'Remboursement', DEBT_INTEREST: 'Intérêts', DEBT_PENALTY: 'Pénalité de dette',
+    OBJECTIVE_REWARD: 'Objectif', MUNICIPALITY_SUBSIDY: 'Subvention commune', PUBLIC_DEVELOPMENT_GRANT: 'Dotation publique', ACCESSIBILITY_GRANT: 'Prime PMR', PASSENGER_COMPENSATION: 'Compensation voyageurs', DEBT_BORROW: 'Emprunt', DEBT_REPAYMENT: 'Remboursement', DEBT_INTEREST: 'Intérêts', DEBT_PENALTY: 'Pénalité de dette',
   }
   return labels[kind] ?? kind
 }

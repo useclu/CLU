@@ -80,6 +80,42 @@ Record<GameTransportMode, GameModeDemandDefinition> = {
     uncoveredStationFallbackPassengers: 7_000,
   },
 
+  TER: {
+    mode: 'TER',
+    dailyPopulationCaptureRate: 0.022,
+    additionalStationCoverage: 0.11,
+    maxStationCoverageMultiplier: 1.52,
+    networkReachBonusPerMunicipality: 0.050,
+    maxNetworkReachBonus: 0.82,
+    networkStationBonus: 0.012,
+    maxNetworkStationBonus: 0.30,
+    uncoveredStationFallbackPassengers: 6_200,
+  },
+
+  TGV: {
+    mode: 'TGV',
+    dailyPopulationCaptureRate: 0.014,
+    additionalStationCoverage: 0.06,
+    maxStationCoverageMultiplier: 1.30,
+    networkReachBonusPerMunicipality: 0.070,
+    maxNetworkReachBonus: 1.05,
+    networkStationBonus: 0.009,
+    maxNetworkStationBonus: 0.24,
+    uncoveredStationFallbackPassengers: 8_500,
+  },
+
+  CAR: {
+    mode: 'CAR',
+    dailyPopulationCaptureRate: 0.0065,
+    additionalStationCoverage: 0.07,
+    maxStationCoverageMultiplier: 1.35,
+    networkReachBonusPerMunicipality: 0.032,
+    maxNetworkReachBonus: 0.48,
+    networkStationBonus: 0.005,
+    maxNetworkStationBonus: 0.12,
+    uncoveredStationFallbackPassengers: 650,
+  },
+
   BUS: {
     mode: 'BUS',
     dailyPopulationCaptureRate: 0.009,

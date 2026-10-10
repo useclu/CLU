@@ -246,7 +246,7 @@ export function normalizeOperationsState(value: Partial<GameOperationsState> | n
 }
 
 export function stationUpgradeDurationDays(line: GameLine, target: GameStationFacilityLevel) {
-  const structural = ['METRO', 'RER', 'TRAIN', 'CABLE'].includes(line.mode)
+  const structural = ['METRO', 'RER', 'TRAIN', 'TER', 'TGV', 'CABLE'].includes(line.mode)
   const base = target === 'HUB' ? 7 : 4
   return structural ? base + 2 : base
 }

@@ -3,6 +3,9 @@ export type GameTransportMode =
   | 'TRAM'
   | 'RER'
   | 'TRAIN'
+  | 'TER'
+  | 'TGV'
+  | 'CAR'
   | 'BUS'
   | 'BRT'
   | 'CABLE'
@@ -116,6 +119,9 @@ export type GameLineEmblem =
   | 'TRAM'
   | 'RER'
   | 'TRAIN'
+  | 'TER'
+  | 'TGV'
+  | 'CAR'
   | 'BUS'
   | 'EXPRESS'
   | 'CABLE'
@@ -159,12 +165,29 @@ export type GameInfrastructureType =
   | 'CABLE'
   | 'WATER'
 
+export interface GameStationUrbanContext {
+  localityName?: string
+  poiNames?: string[]
+  poiKinds?: string[]
+  roadNames?: string[]
+  waterNames?: string[]
+  parkNames?: string[]
+  /** Pondération légère de l'attractivité OD, dérivée du tissu urbain autour de l'arrêt. */
+  demandMultiplier?: number
+}
+
 export interface GameStation {
   id: string
   name: string
   longitude: number
   latitude: number
   facilityLevel?: GameStationFacilityLevel
+  /** Accessibilité fauteuil / mobilité réduite du point d'arrêt. */
+  accessiblePmr?: boolean
+  /** Prime PMR déjà reçue : évite qu'une station devienne rentable à l'infini. */
+  pmrSubsidyReceived?: number
+  /** Contexte urbain capturé à la pose depuis la carte mondiale. */
+  urbanContext?: GameStationUrbanContext
   /** Identifiant partagé quand plusieurs lignes utilisent physiquement la même station. */
   sharedStationId?: string
 }

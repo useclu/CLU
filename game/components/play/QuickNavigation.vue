@@ -3,8 +3,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { gameCalendarHeaderLabel } from '../../config/calendar'
 import { currentGameLocaleTag, formatGameNumberCompact } from '../../config/i18n'
 import { useGameClock } from '../../composables/useGameClock'
+import { useGameI18n } from '../../composables/useGameI18n'
 import { useGameNetwork } from '../../composables/useGameNetwork'
 import { useGamePassengers } from '../../composables/useGamePassengers'
+import { useGameOperations } from '../../composables/useGameOperations'
 import { useGameSimulation } from '../../composables/useGameSimulation'
 import { useGameTerritory } from '../../composables/useGameTerritory'
 import { useGameTransitRuntime } from '../../composables/useGameTransitRuntime'
@@ -14,6 +16,7 @@ import { getSegmentCoordinates } from '../../engine/network/pathGeometry'
 import { stationDistanceMeters } from '../../engine/transitRuntime'
 import type { GamePassengerJourneyLeg, GamePassengerJourneyPlan } from '../../types/passengers'
 import type { GameLine, GameStation, GameTransportMode } from '../../types/network'
+import type { GameManualDisruption } from '../../types/operations'
 import { focusGameMapBounds, focusGameMapPoint } from '../../utils/mapBridge'
 
 interface StationPlatform {
@@ -51,7 +54,7 @@ interface JourneyMapWalk {
 interface JourneyMapPoint {
   longitude: number
   latitude: number
-  kind: 'ORIGIN' | 'TRANSFER' | 'DESTINATION'
+  kind: 'ORIGIN' | 'STOP' | 'TRANSFER' | 'DESTINATION'
   label: string
   lineLabel?: string
   lineColor?: string
@@ -87,6 +90,7 @@ interface JourneyRideSection {
   arrivalMinute: number
   waitMinutes: number
   stops: JourneyRideStop[]
+  disruptions: GameManualDisruption[]
 }
 
 interface JourneyWalkSection {
@@ -121,8 +125,10 @@ const emit = defineEmits<{
 const network = useGameNetwork()
 const territory = useGameTerritory()
 const passengers = useGamePassengers()
+const operations = useGameOperations()
 const simulation = useGameSimulation()
 const clock = useGameClock()
+const i18n = useGameI18n()
 const transitRuntime = useGameTransitRuntime()
 const game = useMetropoleGame()
 
@@ -140,6 +146,7 @@ const activeEndpoint = ref<EndpointKind | null>(null)
 const origin = ref<StationPlace | null>(null)
 const destination = ref<StationPlace | null>(null)
 const departureMinute = ref(clock.gameMinutes.value)
+const accessibleOnly = ref(false)
 const selectedJourneyIndex = ref(0)
 const selectedDirectAlternativeKey = ref<string | null>(null)
 const lineBoardLineId = ref<string | null>(null)
@@ -424,7 +431,7 @@ const journeyBundle = computed(() => {
     const requestedMinute = Math.max(0, Math.round(minute))
     for (const from of origin.value!.platforms) {
       for (const to of destination.value!.platforms) {
-        const plan = planner!.plan(from.line.id, from.station.id, to.line.id, to.station.id, requestedMinute)
+        const plan = planner!.plan(from.line.id, from.station.id, to.line.id, to.station.id, requestedMinute, { accessibleOnly: accessibleOnly.value })
         if (!plan?.found || plan.totalMinutes === null) continue
         const boardingMinute = firstBoardingMinute(plan)
         if (!best || plan.totalMinutes < (best.plan.totalMinutes ?? Number.POSITIVE_INFINITY)) {
@@ -465,7 +472,7 @@ const journeyBundle = computed(() => {
     for (const from of fromPlatforms) {
       for (const to of toPlatforms) {
         if (from.station.id === to.station.id) continue
-        const plan = planner.planDirect(lineId, from.station.id, to.station.id, Math.max(0, Math.round(departureMinute.value)))
+        const plan = planner.planDirect(lineId, from.station.id, to.station.id, Math.max(0, Math.round(departureMinute.value)), { accessibleOnly: accessibleOnly.value })
         if (!plan.found || plan.totalMinutes === null) continue
         const choice: DirectJourneyAlternative = {
           line,
@@ -546,6 +553,73 @@ function stationsForRideLeg(leg: GamePassengerJourneyLeg) {
   return best
 }
 
+function disruptionTouchesRide(item: GameManualDisruption, line: GameLine, stations: GameStation[]) {
+  if (item.lineId !== line.id) return false
+  if (item.scope === 'LINE') return true
+  const stationIds = new Set(stations.map(station => station.id))
+  if (item.scope === 'STATIONS') return item.stationIds.some(stationId => stationIds.has(stationId))
+
+  const segmentFromId = item.segmentFromStationId
+  const segmentToId = item.segmentToStationId
+  if (!segmentFromId || !segmentToId) return false
+  const edgeKey = (left: string, right: string) => left < right ? `${left}|${right}` : `${right}|${left}`
+  const rideEdges = new Set(stations.slice(1).map((station, index) => edgeKey(stations[index]!.id, station.id)))
+  for (const route of getLineServiceRoutes(line)) {
+    const from = route.findIndex(station => station.id === segmentFromId)
+    const to = route.findIndex(station => station.id === segmentToId)
+    if (from < 0 || to < 0) continue
+    const low = Math.min(from, to)
+    const high = Math.max(from, to)
+    const affected = route.slice(low, high + 1)
+    if (affected.slice(1).some((station, index) => rideEdges.has(edgeKey(affected[index]!.id, station.id)))) return true
+  }
+  return false
+}
+
+function disruptionsForRide(line: GameLine | null, stations: GameStation[], boardMinute: number, arrivalMinute: number) {
+  if (!line) return [] as GameManualDisruption[]
+  const dayStart = Math.max(0, simulation.day.value - 1) * 1440
+  const rideStart = dayStart + Math.max(0, boardMinute)
+  const rideEnd = dayStart + Math.max(boardMinute, arrivalMinute)
+  return operations.state.value.disruptions
+    .filter(item => !item.resolvedAt)
+    .filter(item => item.startsAtAbsoluteMinute <= rideEnd && item.endsAtAbsoluteMinute > rideStart)
+    .filter(item => disruptionTouchesRide(item, line, stations))
+    .sort((a, b) => {
+      const severity = { MINOR: 0, MODERATE: 1, MAJOR: 2, CRITICAL: 3 } as const
+      return severity[b.severity] - severity[a.severity] || b.delayMinutes - a.delayMinutes
+    })
+}
+
+function itineraryDisruptionStatus(item: GameManualDisruption) {
+  if (item.suspended) return i18n.t('Trafic interrompu')
+  if (item.type === 'WORKS') return i18n.t('Travaux')
+  if (item.type === 'STAFF') return i18n.t('Mouvement social')
+  if (item.severity === 'CRITICAL' || item.severity === 'MAJOR') return i18n.t('Trafic très perturbé')
+  if (item.delayMinutes > 0) return i18n.t('Retards')
+  return i18n.t('Trafic perturbé')
+}
+
+function itineraryDisruptionScope(item: GameManualDisruption, line: GameLine | null) {
+  if (!line || item.scope === 'LINE') return i18n.t('Toute la ligne')
+  if (item.scope === 'STATIONS') {
+    const names = item.stationIds
+      .map(stationId => findLineStation(line, stationId)?.name)
+      .filter((name): name is string => Boolean(name))
+    return names.length ? names.slice(0, 3).join(' · ') : i18n.t('Secteur local')
+  }
+  const from = item.segmentFromStationId ? findLineStation(line, item.segmentFromStationId)?.name : null
+  const to = item.segmentToStationId ? findLineStation(line, item.segmentToStationId)?.name : null
+  return from && to ? `${from} ↔ ${to}` : i18n.t('Secteur local')
+}
+
+function itineraryDisruptionImpact(item: GameManualDisruption) {
+  const parts: string[] = []
+  if (item.delayMinutes > 0) parts.push(`+${Math.round(item.delayMinutes)} min`)
+  if (item.cancellationRate > 0) parts.push(`${Math.round(item.cancellationRate * 100)} % ${i18n.t('de circulations supprimées')}`)
+  return parts.join(' · ')
+}
+
 function rideStopCount(plan: GamePassengerJourneyPlan) {
   return plan.legs.reduce((total, leg) => total + (leg.kind === 'RIDE' ? Math.max(0, stationsForRideLeg(leg).length - 1) : 0), 0)
 }
@@ -562,13 +636,16 @@ function modeIcon(line: GameLine | null) {
   if (line.mode === 'TRAM') return '🚊'
   if (line.mode === 'CABLE') return '🚡'
   if (line.mode === 'FERRY') return '⛴️'
-  if (line.mode === 'BUS' || line.mode === 'BRT') return '🚌'
+  if (line.mode === 'BUS' || line.mode === 'BRT' || line.mode === 'CAR') return '🚌'
   return '🚆'
 }
 
 function modeLabel(mode: GameTransportMode) {
   if (mode === 'RER') return 'RER'
   if (mode === 'TRAIN') return 'Train'
+  if (mode === 'TER') return 'TER'
+  if (mode === 'TGV') return 'TGV'
+  if (mode === 'CAR') return 'Car'
   if (mode === 'METRO') return 'Métro'
   if (mode === 'TRAM') return 'Tram'
   if (mode === 'CABLE') return 'Téléphérique'
@@ -661,6 +738,7 @@ const journeySections = computed<JourneySection[]>(() => {
       arrivalMinute: boardMinute + rideMinutes,
       waitMinutes: roundedMinutes(leg.waitingMinutes),
       stops: stopTimeline(stations, boardMinute, rideMinutes),
+      disruptions: disruptionsForRide(line, stations, boardMinute, boardMinute + rideMinutes),
     })
     minute = boardMinute + rideMinutes
   })
@@ -731,6 +809,12 @@ const journeyMapHighlight = computed<JourneyMapHighlight | null>(() => {
         }
         if (coordinates.length >= 2) segments.push({ lineId: line.id, color: line.color, coordinates })
         addPoint(stations[0] ?? null, index === 0 ? 'ORIGIN' : 'TRANSFER', leg.fromStationName, line)
+        // Montrer sur la carte les mêmes arrêts intermédiaires que dans le
+        // détail du trajet, sans les confondre avec les correspondances.
+        for (let stationIndex = 1; stationIndex < stations.length - 1; stationIndex += 1) {
+          const station = stations[stationIndex]!
+          addPoint(station, 'STOP', station.name, line)
+        }
         addPoint(stations[stations.length - 1] ?? null, lastLeg ? 'DESTINATION' : 'TRANSFER', leg.toStationName, line)
       }
       return
@@ -795,7 +879,7 @@ watch(() => journeyMapHighlight.value?.key ?? '', key => {
   nextTick(() => focusJourney())
 })
 
-const BOARD_MODES = new Set<GameTransportMode>(['RER', 'TRAIN', 'METRO', 'TRAM', 'CABLE', 'FERRY'])
+const BOARD_MODES = new Set<GameTransportMode>(['RER', 'TRAIN', 'TER', 'TGV', 'CAR', 'METRO', 'TRAM', 'CABLE', 'FERRY'])
 const BOARD_PAGE_SIZE = 5
 
 function nextAnimationFrame() {
@@ -982,6 +1066,11 @@ function sameLineBranchTransfer(index: number) {
                 </div>
               </label>
             </div>
+            <label class="accessible-route-toggle" :class="{ active: accessibleOnly }">
+              <input v-model="accessibleOnly" type="checkbox">
+              <span>♿</span>
+              <div><strong>{{ i18n.t('Itinéraire accessible') }}</strong><small>{{ i18n.t('Uniquement les stations et correspondances accessibles') }}</small></div>
+            </label>
           </section>
 
           <div v-if="origin && destination && journey" class="journey-board">
@@ -1031,6 +1120,13 @@ function sameLineBranchTransfer(index: number) {
                   </header>
                   <p v-if="section.waitMinutes" class="boarding-wait">Départ {{ waitLabel(section.waitMinutes) }} · {{ calendarMomentLabel(section.boardMinute, true) }}</p>
                   <p v-else class="boarding-wait good">Départ immédiat</p>
+                  <div v-if="section.disruptions.length" class="journey-disruption-list">
+                    <article v-for="item in section.disruptions" :key="item.id" class="journey-disruption" :class="`severity-${item.severity.toLowerCase()}`">
+                      <div><span>⚠</span><strong data-i18n-skip>{{ itineraryDisruptionStatus(item) }}</strong></div>
+                      <b data-i18n-skip>{{ item.passengerMessage || item.title }}</b>
+                      <small><span data-i18n-skip>{{ itineraryDisruptionScope(item, section.line) }}</span><template v-if="itineraryDisruptionImpact(item)"> · <span data-i18n-skip>{{ itineraryDisruptionImpact(item) }}</span></template></small>
+                    </article>
+                  </div>
                   <div class="stop-list">
                     <div v-for="stop in section.stops" :key="`${section.key}-${stop.id}`" class="stop-row" :class="{ first: stop.first, last: stop.last }">
                       <div class="rail"><i /></div>
@@ -1074,7 +1170,7 @@ function sameLineBranchTransfer(index: number) {
 
 <style scoped>
 .quick-navigation{position:absolute;z-index:44;left:18px;bottom:72px;color:#edf6f7}.search-launcher{width:46px;height:46px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(8,14,19,.91);backdrop-filter:blur(16px);box-shadow:0 12px 34px rgba(0,0,0,.32);color:inherit;font-size:22px;cursor:pointer;display:grid;place-items:center}.search-launcher:hover{background:rgba(17,27,34,.96);transform:translateY(-1px)}.search-overlay-layer{position:fixed;z-index:10000;inset:0;width:100vw;height:100dvh;display:grid;place-items:center;padding:27px 17px;box-sizing:border-box;color:#edf6f7;pointer-events:none}.search-scrim{position:absolute;z-index:0;inset:0;border:0;background:rgba(2,7,10,.38);backdrop-filter:blur(6px);cursor:default;pointer-events:auto}.search-hub{position:relative;z-index:1;width:min(860px,100%);max-height:min(820px,100%);overflow:auto;padding:18px;box-sizing:border-box;pointer-events:auto;border:1px solid rgba(255,255,255,.14);border-radius:22px;background:rgba(7,13,18,.965);box-shadow:0 30px 100px rgba(0,0,0,.58);display:grid;gap:14px;scrollbar-width:thin}.search-hub-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:2px 2px 4px}.search-hub-head>div{display:grid;gap:2px}.search-hub-head small{font-size:calc(8px * var(--clu-text-scale,1));letter-spacing:.08em;text-transform:uppercase;color:#70dce4}.search-hub-head strong{font-size:calc(21px * var(--clu-text-scale,1))}.search-hub-head span{font-size:calc(9px * var(--clu-text-scale,1));opacity:.5}.search-hub-head>button{width:36px;height:36px;border:0;border-radius:10px;background:rgba(255,255,255,.06);color:inherit;font-size:22px;cursor:pointer}.discovery-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.search-module{position:relative;min-width:0;padding:11px;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.025);display:grid;gap:9px}.search-module>header{display:flex;align-items:center;gap:8px}.search-module>header>span{width:30px;height:30px;border-radius:9px;background:rgba(79,211,220,.09);display:grid;place-items:center;color:#89e8ed}.search-module>header>div{display:grid;gap:1px;min-width:0}.search-module>header strong{font-size:calc(10px * var(--clu-text-scale,1))}.search-module>header small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.48}.module-input,.endpoint-input{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;border:1px solid rgba(255,255,255,.11);border-radius:10px;background:#101a20;padding:0 4px 0 9px}.module-input:focus-within,.endpoint-input:focus-within{border-color:rgba(106,228,235,.42)}.module-input input,.endpoint-input input{min-width:0;height:38px;border:0;background:transparent;color:inherit;outline:0!important;box-shadow:none!important;font-size:calc(10px * var(--clu-text-scale,1))}.module-input button,.endpoint-input button{width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:inherit;cursor:pointer}.module-results,.endpoint-results{position:absolute;z-index:30;left:8px;right:8px;top:calc(100% - 4px);max-height:220px;overflow:auto;padding:5px;border:1px solid rgba(255,255,255,.11);border-radius:11px;background:rgba(7,13,18,.995);box-shadow:0 18px 44px rgba(0,0,0,.48);display:grid;gap:2px}.module-results button,.endpoint-results button{border:0;border-radius:8px;background:transparent;color:inherit;display:flex;align-items:center;justify-content:space-between;gap:9px;padding:8px;text-align:left;cursor:pointer}.module-results button:hover,.endpoint-results button:hover{background:rgba(79,211,220,.08)}.module-results button>span{min-width:0}.module-results strong,.endpoint-results strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(9px * var(--clu-text-scale,1))}.module-results small,.endpoint-results small{display:block;margin-top:2px;font-size:calc(7px * var(--clu-text-scale,1));opacity:.5}.mini-line-badge{min-width:28px;height:24px;padding:0 5px;border-radius:7px;display:grid;place-items:center;color:#071014;font-size:8px;font-style:normal;font-weight:900}.mini-route{position:relative;padding:12px;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.025);display:grid;gap:10px}.mini-route.focused{padding:0;border:0;background:transparent}.mini-route>header{display:flex;align-items:center;justify-content:space-between;gap:10px}.mini-route>header>div{display:flex;align-items:center;gap:7px}.mini-route>header>div>span{width:28px;height:28px;border-radius:8px;background:rgba(79,211,220,.09);display:grid;place-items:center;color:#89e8ed}.mini-route>header strong{font-size:calc(10px * var(--clu-text-scale,1))}.mini-route>header small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.48}.journey-fields{display:grid;grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr);align-items:end;gap:7px}.journey-fields label{position:relative;display:grid;gap:4px}.journey-fields label>span{font-size:calc(8px * var(--clu-text-scale,1));opacity:.55}.endpoint-results{left:0;right:0;top:calc(100% + 5px)}.swap-route,.map-route-button{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.055);color:inherit;border-radius:8px;cursor:pointer}.swap-route{height:39px}.swap-route:disabled{opacity:.35;cursor:default}.map-route-button{padding:7px 9px;white-space:nowrap}.network-departures{overflow:hidden;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:transparent;color:inherit}.network-departures>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.07);background:transparent}.network-departures>header>div{display:flex;align-items:center;gap:10px}.network-departures>header>span{font:800 9px ui-monospace,monospace;opacity:.45}.board-clock{padding:4px 6px;border-radius:6px;background:rgba(255,255,255,.055);color:#b8f2f5;font:850 12px ui-monospace,monospace}.network-departures header strong{display:block;font-size:13px}.network-departures header small{display:block;margin-top:1px;font-size:8px;opacity:.42}.network-departure-list{min-height:245px;display:grid;align-content:start;padding:2px 0;background:transparent}.network-departure-list article{display:grid;grid-template-columns:44px minmax(0,1fr) 55px 68px;align-items:center;gap:9px;min-height:47px;padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.055);background:transparent;color:inherit}.network-departure-list article:last-child{border-bottom:0}.board-line-badge{min-width:40px;height:29px;padding:0 5px;border-radius:7px;display:grid;place-items:center;color:#081014;font-weight:950;font-size:11px}.network-departure-list article>div{min-width:0}.network-departure-list article>div small{display:block;font-size:8px;opacity:.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.network-departure-list article>div strong{display:block;margin-top:1px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.board-mission{padding:3px 5px;border-radius:5px;background:rgba(255,255,255,.055);color:inherit;text-align:center;font:800 9px ui-monospace,monospace}.network-departure-list article>b{justify-self:end;color:#9debf0;font:900 12px ui-monospace,monospace;white-space:nowrap}.network-departure-list>p{margin:0;padding:34px;text-align:center;opacity:.48}.network-departures>footer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;border-top:1px solid rgba(255,255,255,.055);background:transparent;font-size:8px;opacity:.46}.network-departures>footer>div{display:flex;gap:5px}.network-departures>footer button{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.18);cursor:pointer}.network-departures>footer button.active{background:#75dce3;transform:scale(1.3)}.board-page-enter-active,.board-page-leave-active{transition:opacity .22s ease,transform .22s ease}.board-page-enter-from{opacity:0;transform:translateY(5px)}.board-page-leave-to{opacity:0;transform:translateY(-5px)}.line-board{display:grid;gap:12px}.line-board-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.line-board-identity{display:flex;align-items:center;gap:10px;min-width:0}.line-board-identity>span:last-child{display:grid;gap:2px;min-width:0}.line-board-identity small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.5;text-transform:uppercase;letter-spacing:.08em}.line-board-identity strong{font-size:calc(18px * var(--clu-text-scale,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.line-board-badge{min-width:48px;height:38px;padding:0 10px;border-radius:9px;display:grid;place-items:center;color:#081014;font-weight:950;font-size:calc(15px * var(--clu-text-scale,1))}.line-board-actions{display:flex;gap:6px}.line-board-actions button{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.055);color:inherit;border-radius:8px;padding:7px 9px;cursor:pointer}.line-board-direction{display:grid;gap:3px;padding:10px;border-radius:10px;background:rgba(255,255,255,.035)}.line-board-direction span,.line-board-station{font-size:calc(9px * var(--clu-text-scale,1));opacity:.62}.line-board-direction strong{font-size:calc(12px * var(--clu-text-scale,1))}.line-board-station{display:grid;gap:5px}.line-board-station select{min-height:38px;border:1px solid rgba(255,255,255,.11);border-radius:9px;background:#101a20;color:inherit;padding:0 9px}.departure-board{border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;background:transparent;color:inherit}.departure-board-title{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;padding:9px 10px;border-bottom:1px solid color-mix(in srgb,var(--board-accent,#76c987) 36%,transparent);background:transparent}.departure-board-title>span{padding:4px 7px;border-radius:6px;background:#2d6f43;color:#fff;font-weight:900}.departure-board-title strong{font-size:14px}.departure-board-title time{font:700 14px ui-monospace,monospace;background:rgba(255,255,255,.05);color:#a8edf1;padding:4px 6px;border-radius:5px}.departure-board-list{display:grid}.departure-board-list article{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.055)}.departure-board-list article:last-child{border-bottom:0}.departure-board-list article>span{display:grid;grid-template-columns:58px minmax(0,1fr);align-items:center;gap:8px}.departure-board-list small{font-size:10px}.departure-board-list article>span>small{padding:3px 5px;background:rgba(255,255,255,.055);color:inherit;text-align:center;font-weight:800;border-radius:4px}.departure-board-list strong{font-size:16px}.departure-board-list b{display:flex;align-items:baseline;gap:3px;font-size:18px;background:transparent;color:#9debf0;padding:4px 7px;min-width:52px;justify-content:center}.departure-board-list b small{font-size:8px;color:inherit;opacity:.5}.departure-board>p{margin:0;padding:18px;text-align:center;opacity:.45}.line-board-footer{display:flex;gap:8px;flex-wrap:wrap}.line-board-footer span{padding:6px 8px;border-radius:999px;background:rgba(255,255,255,.05);font-size:calc(8px * var(--clu-text-scale,1));opacity:.66}.journey-board{min-height:0;overflow:auto;scrollbar-width:thin;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:#0d151a}.service-hero{position:sticky;top:0;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px 9px;background:linear-gradient(180deg,#0d151a 78%,rgba(13,21,26,.92))}.service-identity{display:flex;align-items:center;gap:9px;min-width:0}.service-identity>div{display:grid;gap:1px;min-width:0}.service-identity strong{font-size:calc(19px * var(--clu-text-scale,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.service-identity small{font-size:calc(10px * var(--clu-text-scale,1));opacity:.62}.mode-symbol{width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,.07);display:grid;place-items:center;font-size:15px;flex:none}.mode-symbol.small{width:24px;height:24px;font-size:13px}.hero-line-badge,.line-badge{display:grid;place-items:center;color:#081014;font-weight:950;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);flex:none}.hero-line-badge{min-width:42px;height:31px;padding:0 9px;border-radius:8px;font-size:calc(12px * var(--clu-text-scale,1))}.line-badge{min-width:30px;height:25px;padding:0 7px;border-radius:7px;font-size:calc(9px * var(--clu-text-scale,1))}.journey-clockline{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:7px 14px;border-top:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.07);font-size:calc(8px * var(--clu-text-scale,1));opacity:.62}.journey-clockline b{color:#e9fcfd}.departure-tabs{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(100px,1fr);overflow-x:auto;border-bottom:1px solid rgba(255,255,255,.1);background:#0d151a;scrollbar-width:none}.departure-tabs::-webkit-scrollbar{display:none}.departure-tabs button{position:relative;border:0;background:transparent;color:inherit;padding:9px 8px;display:grid;gap:2px;cursor:pointer}.departure-tabs button:after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:#8de9ee;transform:scaleX(0);transition:transform .15s ease}.departure-tabs button.active:after{transform:scaleX(1)}.departure-tabs strong{font-size:calc(12px * var(--clu-text-scale,1));font-variant-numeric:tabular-nums}.departure-tabs small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.48}.journey-summary-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08)}.journey-summary-line strong{font-size:calc(19px * var(--clu-text-scale,1));color:#a6f2f6}.journey-summary-line span{font-size:calc(9px * var(--clu-text-scale,1));opacity:.56}.journey-summary-line b{margin-left:auto;font-size:calc(9px * var(--clu-text-scale,1));font-weight:800}.journey-service-list{display:grid;padding:0 14px}.ride-service{--service-color:#8ddde2;padding:13px 0 4px}.ride-service+*{border-top:1px solid rgba(255,255,255,.07)}.ride-service header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:2px}.ride-service header>div{display:flex;align-items:center;gap:7px;min-width:0}.ride-service header strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ride-service header time,.stop-row time,.walk-transfer time{font-variant-numeric:tabular-nums;white-space:nowrap}.boarding-wait{margin:5px 0 8px 31px;color:#f2cb73;font-size:calc(9px * var(--clu-text-scale,1));font-weight:700}.boarding-wait.good{color:#78dfa0}.stop-list{display:grid}.stop-row{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;min-height:42px;gap:7px}.stop-row .rail{align-self:stretch;position:relative;display:grid;place-items:center}.stop-row .rail:before{content:"";position:absolute;top:0;bottom:0;width:5px;border-radius:6px;background:color-mix(in srgb,var(--service-color) 78%,#ffffff 4%)}.stop-row.first .rail:before{top:50%}.stop-row.last .rail:before{bottom:50%}.stop-row .rail i{position:relative;z-index:1;width:10px;height:10px;border-radius:50%;background:#11191f;border:3px solid var(--service-color);box-shadow:0 0 0 2px #0d151a}.stop-row.first .rail i,.stop-row.last .rail i{width:14px;height:14px;background:var(--service-color);border-color:#0d151a;box-shadow:0 0 0 3px var(--service-color)}.stop-row strong{font-size:calc(11px * var(--clu-text-scale,1));font-weight:620}.stop-row time{font-size:calc(11px * var(--clu-text-scale,1));color:#86e3a4}.same-line-transfer{display:grid;grid-template-columns:28px minmax(0,1fr);gap:8px;align-items:center;margin:4px 0;padding:9px 6px;border-top:1px dashed rgba(141,233,238,.2);border-bottom:1px dashed rgba(141,233,238,.2);color:#c9f6f8}.same-line-transfer>span{display:grid;place-items:center;width:24px;height:24px;border-radius:999px;background:rgba(141,233,238,.1);font-size:13px}.same-line-transfer>div{display:grid;gap:1px}.same-line-transfer strong{font-size:calc(9px * var(--clu-text-scale,1))}.same-line-transfer small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.58}
-.walk-transfer{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:center;padding:12px 4px;border-top:1px dashed rgba(255,255,255,.14);border-bottom:1px dashed rgba(255,255,255,.14)}.walk-transfer>span{font-size:16px}.walk-transfer>div{display:grid;gap:2px}.walk-transfer strong{font-size:calc(10px * var(--clu-text-scale,1))}.walk-transfer small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.52}.walk-transfer time{font-size:calc(10px * var(--clu-text-scale,1));font-weight:800}.journey-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 14px 10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.07);font-size:calc(8px * var(--clu-text-scale,1));opacity:.68}.journey-foot strong{margin-left:auto;color:#dffcff}.journey-alternatives{margin:0 14px 14px;border:1px solid rgba(136,225,231,.15);border-radius:12px;overflow:hidden;background:rgba(76,174,181,.04)}.journey-alternatives>header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.07)}.journey-alternatives>header>div{display:grid;gap:1px}.journey-alternatives>header strong{font-size:calc(9px * var(--clu-text-scale,1))}.journey-alternatives>header small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.5}.journey-alternatives>header>span{min-width:22px;height:22px;border-radius:999px;background:rgba(141,233,238,.12);display:grid;place-items:center;font-size:8px}.journey-alternatives article{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.06)}.journey-alternatives article:last-child{border-bottom:0}.alt-line-badge{min-width:34px;height:27px;padding:0 6px;border-radius:7px;display:grid;place-items:center;color:#081014;font-weight:950;font-size:9px}.journey-alternatives article>div{display:grid;gap:1px;min-width:0}.journey-alternatives article>div strong{font-size:calc(9px * var(--clu-text-scale,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.journey-alternatives article>div small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.52}.alt-times{display:grid;justify-items:end;gap:1px;white-space:nowrap}.alt-times b{font-size:calc(10px * var(--clu-text-scale,1));color:#a6f2f6}.alt-times small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.5}.journey-empty{padding:10px;border-radius:9px;background:rgba(207,87,87,.09);font-size:calc(9px * var(--clu-text-scale,1));color:#ffb1b1}
+.walk-transfer{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:center;padding:12px 4px;border-top:1px dashed rgba(255,255,255,.14);border-bottom:1px dashed rgba(255,255,255,.14)}.walk-transfer>span{font-size:16px}.walk-transfer>div{display:grid;gap:2px}.walk-transfer strong{font-size:calc(10px * var(--clu-text-scale,1))}.walk-transfer small{font-size:calc(8px * var(--clu-text-scale,1));opacity:.52}.walk-transfer time{font-size:calc(10px * var(--clu-text-scale,1));font-weight:800}.journey-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 14px 10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.07);font-size:calc(8px * var(--clu-text-scale,1));opacity:.68}.journey-foot strong{margin-left:auto;color:#dffcff}.journey-alternatives{margin:0 14px 14px;border:1px solid rgba(136,225,231,.15);border-radius:12px;overflow:hidden;background:rgba(76,174,181,.04)}.journey-alternatives>header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.07)}.journey-alternatives>header>div{display:grid;gap:1px}.journey-alternatives>header strong{font-size:calc(9px * var(--clu-text-scale,1))}.journey-alternatives>header small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.5}.journey-alternatives>header>span{min-width:22px;height:22px;border-radius:999px;background:rgba(141,233,238,.12);display:grid;place-items:center;font-size:8px}.journey-alternatives article{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.06)}.journey-alternatives article:last-child{border-bottom:0}.alt-line-badge{min-width:34px;height:27px;padding:0 6px;border-radius:7px;display:grid;place-items:center;color:#081014;font-weight:950;font-size:9px}.journey-alternatives article>div{display:grid;gap:1px;min-width:0}.journey-alternatives article>div strong{font-size:calc(9px * var(--clu-text-scale,1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.journey-alternatives article>div small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.52}.alt-times{display:grid;justify-items:end;gap:1px;white-space:nowrap}.alt-times b{font-size:calc(10px * var(--clu-text-scale,1));color:#a6f2f6}.alt-times small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.5}.journey-empty{padding:10px;border-radius:9px;background:rgba(207,87,87,.09);font-size:calc(9px * var(--clu-text-scale,1));color:#ffb1b1}.accessible-route-toggle{display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:rgba(255,255,255,.025);cursor:pointer}.accessible-route-toggle.active{border-color:rgba(92,220,160,.38);background:rgba(92,220,160,.08)}.accessible-route-toggle input{accent-color:#6be0ab}.accessible-route-toggle>span{font-size:16px}.accessible-route-toggle>div{display:grid;gap:1px}.accessible-route-toggle strong{font-size:calc(9px * var(--clu-text-scale,1))}.accessible-route-toggle small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.55}
 @media(max-width:850px){.discovery-grid{grid-template-columns:1fr}.search-module{padding:9px}.module-results{position:relative;left:auto;right:auto;top:auto;max-height:150px}.search-hub{width:min(680px,100%);max-height:100%}}
 @media(max-width:620px){.quick-navigation{position:fixed;left:10px;bottom:139px}.search-launcher{width:44px;height:44px}.search-overlay-layer{padding:62px 8px 8px;align-items:stretch}.search-hub{width:100%;max-height:100%;border-radius:18px;padding:12px}.search-hub-head strong{font-size:calc(17px * var(--clu-text-scale,1))}.journey-fields{grid-template-columns:1fr}.swap-route{width:100%;height:28px}.journey-summary-line b{margin-left:0;width:100%}.network-departure-list article{grid-template-columns:38px minmax(0,1fr) 58px}.board-mission{display:none}.network-departures>footer>small{display:none}.journey-clockline{display:grid}.journey-alternatives article{grid-template-columns:auto minmax(0,1fr)}.alt-times{grid-column:2;justify-items:start}.map-route-button{font-size:0}.map-route-button:after{content:'◎';font-size:14px}}
 
@@ -1097,4 +1193,5 @@ function sameLineBranchTransfer(index: number) {
 .route-choice-tabs small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.55;white-space:nowrap}
 @media(max-width:760px){.search-overlay-layer.journey-mode{padding:62px 8px 8px;place-items:stretch}.search-overlay-layer.journey-mode .search-hub{width:100%;max-height:100%;border-radius:18px}.search-overlay-layer.journey-mode .journey-fields{grid-template-columns:1fr}.route-choice-tabs{grid-auto-columns:minmax(112px,72vw)}}
 
+.journey-disruption-list{display:grid;gap:6px;margin:7px 0 9px 31px}.journey-disruption{display:grid;gap:3px;padding:8px 9px;border:1px solid rgba(239,190,82,.28);border-radius:9px;background:rgba(239,190,82,.07)}.journey-disruption>div{display:flex;align-items:center;gap:6px}.journey-disruption>div strong{font-size:calc(9px * var(--clu-text-scale,1));color:#ffd989}.journey-disruption>b{font-size:calc(8px * var(--clu-text-scale,1));font-weight:720;line-height:1.3}.journey-disruption>small{font-size:calc(7px * var(--clu-text-scale,1));opacity:.62;line-height:1.3}.journey-disruption.severity-major,.journey-disruption.severity-critical{border-color:rgba(239,105,105,.36);background:rgba(239,105,105,.08)}.journey-disruption.severity-major>div strong,.journey-disruption.severity-critical>div strong{color:#ffaaaa}
 </style>

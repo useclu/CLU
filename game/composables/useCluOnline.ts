@@ -37,7 +37,7 @@ interface ApiErrorPayload {
 
 type OnlineConnectionState = 'IDLE' | 'CONNECTING' | 'WAITING' | 'CONNECTED' | 'RECONNECTING' | 'CLOSED'
 
-export const CLU_ONLINE_PROTOCOL_VERSION = 6
+export const CLU_ONLINE_PROTOCOL_VERSION = 7
 const MAX_LOCAL_CHAT_MESSAGES = 100
 
 const partie = ref<CluOnlineGame | null>(null)
@@ -814,8 +814,13 @@ export function useCluOnline() {
       const message = etaitAdmin
         ? 'La partie en ligne est fermée.'
         : 'L’administrateur a quitté la partie. La session en ligne est terminée.'
-      if (!etaitAdmin) notificationFinPartie.value = true
-      partieFermeeSignal.value += 1
+      if (!etaitAdmin) {
+        notificationFinPartie.value = true
+        // Ce signal déclenche la destruction de la copie locale dans GameRoot.
+        // Il doit donc rester strictement réservé aux participants : l'admin
+        // vient potentiellement de persister sa sauvegarde avant de fermer.
+        partieFermeeSignal.value += 1
+      }
       fermetureVolontaire = true
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
       arreterHeartbeat()

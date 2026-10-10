@@ -65,7 +65,7 @@ export const GAME_INFRASTRUCTURES: Record<
   RAIL: {
     value: 'RAIL',
     label: 'Ferroviaire',
-    description: 'Infrastructure lourde adaptée au RER et au Train.',
+    description: 'Infrastructure lourde adaptée au RER, Train, TER et TGV.',
     constructionCostMultiplier: 1.25,
     constructionTimeMultiplier: 1.25,
     operatingCostMultiplier: 1.02,
@@ -96,6 +96,9 @@ export const GAME_DEFAULT_INFRASTRUCTURE: Record<GameTransportMode, GameInfrastr
   TRAM: 'DEDICATED',
   RER: 'RAIL',
   TRAIN: 'RAIL',
+  TER: 'RAIL',
+  TGV: 'RAIL',
+  CAR: 'ROAD',
   BUS: 'ROAD',
   BRT: 'DEDICATED',
   CABLE: 'CABLE',

@@ -7,6 +7,7 @@ export interface GameTransportModeDefinition {
   accent: string
   mapLineWidth: number
   stationRadius: number
+  family?: 'URBAN' | 'INTERCITY'
 }
 
 export const GAME_TRANSPORT_MODES: GameTransportModeDefinition[] = [
@@ -14,6 +15,9 @@ export const GAME_TRANSPORT_MODES: GameTransportModeDefinition[] = [
   { value: 'TRAM', label: 'Tram', shortLabel: 'T', accent: '#68d7ad', mapLineWidth: 5.2, stationRadius: 5.2 },
   { value: 'RER', label: 'RER', shortLabel: 'R', accent: '#f06b76', mapLineWidth: 7.4, stationRadius: 6.2 },
   { value: 'TRAIN', label: 'Train', shortLabel: 'N', accent: '#b69cff', mapLineWidth: 7.6, stationRadius: 6.3 },
+  { value: 'TER', label: 'TER', shortLabel: 'TER', accent: '#6fa38f', mapLineWidth: 7.0, stationRadius: 6.0, family: 'INTERCITY' },
+  { value: 'TGV', label: 'TGV', shortLabel: 'TGV', accent: '#9389b8', mapLineWidth: 7.2, stationRadius: 6.2, family: 'INTERCITY' },
+  { value: 'CAR', label: 'Car', shortLabel: 'CAR', accent: '#b58a5a', mapLineWidth: 4.6, stationRadius: 5.0, family: 'INTERCITY' },
   { value: 'BUS', label: 'Bus', shortLabel: 'B', accent: '#f2b85d', mapLineWidth: 4.2, stationRadius: 4.8 },
   { value: 'BRT', label: 'Bus express', shortLabel: 'X', accent: '#ff8f68', mapLineWidth: 5.6, stationRadius: 5.4 },
   { value: 'CABLE', label: 'Téléphérique', shortLabel: 'C', accent: '#73d9e6', mapLineWidth: 4.8, stationRadius: 5.4 },
@@ -36,12 +40,16 @@ export function isGameTransportMode(value: unknown): value is GameTransportMode 
  * comme Rail auto pour les modes non ferroviaires afin de ne casser aucune
  * ancienne sauvegarde.
  */
+export function isNativeRailMode(mode: GameTransportMode) {
+  return mode === 'RER' || mode === 'TRAIN' || mode === 'TER' || mode === 'TGV'
+}
+
 export function railAutoRoutingMode(mode: GameTransportMode): GameLineRoutingMode {
-  return mode === 'RER' || mode === 'TRAIN' ? 'ASSISTED' : 'LIGHT'
+  return isNativeRailMode(mode) ? 'ASSISTED' : 'LIGHT'
 }
 
 export function lightAssistRoutingMode(mode: GameTransportMode): GameLineRoutingMode {
-  return mode === 'RER' || mode === 'TRAIN' ? 'LIGHT' : 'ASSISTED'
+  return isNativeRailMode(mode) ? 'LIGHT' : 'ASSISTED'
 }
 
 export function isRailAutoRouting(mode: GameTransportMode, routingMode: GameLineRoutingMode | undefined) {

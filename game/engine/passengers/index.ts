@@ -127,11 +127,6 @@ function hashUnit(value: string) {
   return (hash >>> 0) / 0xFFFFFFFF
 }
 
-function hashIndex(value: string, length: number) {
-  if (length <= 0) return 0
-  return Math.min(length - 1, Math.floor(hashUnit(value) * length))
-}
-
 function minuteOfDay(value: number) {
   const normalized = Math.max(0, value)
   return normalized % 1440
@@ -145,6 +140,18 @@ function addEdge(adjacency: Map<PlatformKey, PassengerGraphEdge[]>, edge: Passen
   const bucket = adjacency.get(edge.from) ?? []
   bucket.push(edge)
   adjacency.set(edge.from, bucket)
+}
+
+function interurbanBoardingAccessMinutes(mode: GameLine['mode']) {
+  // Un TGV/TER/Car suppose davantage de temps d'accès au quai, de contrôle ou
+  // d'embarquement qu'un métro. Cette friction empêche notamment un TGV de
+  // devenir le meilleur choix pour deux arrêts urbains très proches.
+  if (mode === 'TGV') return 6
+  if (mode === 'TER') return 2.5
+  if (mode === 'CAR') return 2
+  if (mode === 'TRAIN') return 1.5
+  if (mode === 'RER') return 0.5
+  return 0
 }
 
 function rideServiceKey(edge: RideEdge) {
@@ -431,6 +438,11 @@ class PassengerMinQueue {
 interface PassengerJourneyConstraints {
   directLineId?: string
   directServiceKey?: string
+  accessibleOnly?: boolean
+}
+
+export interface PassengerJourneyOptions {
+  accessibleOnly?: boolean
 }
 
 function emptyPlan(
@@ -570,6 +582,11 @@ function planPassengerJourneyInternal(
   const origin = platformKey(originLineId, originStationId)
   const destination = platformKey(destinationLineId, destinationStationId)
   if (!graph.platformStations.has(origin) || !graph.platformStations.has(destination)) return basePlan
+  if (constraints.accessibleOnly) {
+    const originPlatform = graph.platformStations.get(origin)
+    const destinationPlatform = graph.platformStations.get(destination)
+    if (originPlatform?.station.accessiblePmr !== true || destinationPlatform?.station.accessiblePmr !== true) return basePlan
+  }
   if (origin === destination) return { ...basePlan, found: true, arrivalMinute: departureMinute, totalMinutes: 0 }
 
   const reports = context.lineReportsById ?? reportMap(context.lineReports)
@@ -605,6 +622,11 @@ function planPassengerJourneyInternal(
       let edgeMinutes = 0
       let nextOnboard: string | null = current.onboardLineId
       if (edge.kind === 'WALK') {
+        if (constraints.accessibleOnly) {
+          const fromPlatform = graph.platformStations.get(edge.from)
+          const toPlatform = graph.platformStations.get(edge.to)
+          if (fromPlatform?.station.accessiblePmr !== true || toPlatform?.station.accessiblePmr !== true) continue
+        }
         edgeMinutes = edge.walkingMinutes
         nextOnboard = null
       }
@@ -616,9 +638,14 @@ function planPassengerJourneyInternal(
         // temporaire ou une course supprimée. Pour la fréquence historique,
         // l'attente n'est payée qu'à l'embarquement.
         const onboardKey = rideServiceKey(edge)
-        if (edge.departures || current.onboardLineId !== onboardKey) {
-          waitMinutes = nextBoardingWait(edge, departureMinute + current.minutes, context, reports)
-          if (!Number.isFinite(waitMinutes)) continue
+        const isBoarding = current.onboardLineId !== onboardKey
+        const lineMode = graph.platformStations.get(edge.from)?.line.mode
+        const accessMinutes = isBoarding && lineMode ? interurbanBoardingAccessMinutes(lineMode) : 0
+        if (edge.departures || isBoarding) {
+          if (constraints.accessibleOnly && graph.platformStations.get(current.platform)?.station.accessiblePmr !== true) continue
+          const platformWaitMinutes = nextBoardingWait(edge, departureMinute + current.minutes + accessMinutes, context, reports)
+          if (!Number.isFinite(platformWaitMinutes)) continue
+          waitMinutes = accessMinutes + platformWaitMinutes
         }
         edgeMinutes = waitMinutes + edge.rideMinutes
         nextOnboard = onboardKey
@@ -644,8 +671,9 @@ export function planPassengerJourney(
   destinationLineId: string,
   destinationStationId: string,
   departureMinute: number,
+  options: PassengerJourneyOptions = {},
 ): GamePassengerJourneyPlan {
-  return planPassengerJourneyInternal(context, originLineId, originStationId, destinationLineId, destinationStationId, departureMinute)
+  return planPassengerJourneyInternal(context, originLineId, originStationId, destinationLineId, destinationStationId, departureMinute, options)
 }
 
 export function createPassengerJourneyPlanner(context: JourneyPlanningContext) {
@@ -661,14 +689,16 @@ export function createPassengerJourneyPlanner(context: JourneyPlanningContext) {
       destinationLineId: string,
       destinationStationId: string,
       departureMinute: number,
+      options: PassengerJourneyOptions = {},
     ) {
-      return planPassengerJourneyInternal(preparedContext, originLineId, originStationId, destinationLineId, destinationStationId, departureMinute)
+      return planPassengerJourneyInternal(preparedContext, originLineId, originStationId, destinationLineId, destinationStationId, departureMinute, options)
     },
     planDirect(
       lineId: string,
       originStationId: string,
       destinationStationId: string,
       departureMinute: number,
+      options: PassengerJourneyOptions = {},
     ) {
       const origin = platformKey(lineId, originStationId)
       const serviceKeys = [...new Set((preparedContext.graph?.adjacency.get(origin) ?? [])
@@ -683,7 +713,7 @@ export function createPassengerJourneyPlanner(context: JourneyPlanningContext) {
           lineId,
           destinationStationId,
           departureMinute,
-          { directLineId: lineId, directServiceKey: serviceKey },
+          { directLineId: lineId, directServiceKey: serviceKey, accessibleOnly: options.accessibleOnly === true },
         )
         if (!candidate.found || candidate.totalMinutes === null || candidate.transfers > 0) continue
         if (!best.found || best.totalMinutes === null || candidate.totalMinutes < best.totalMinutes) best = candidate
@@ -749,6 +779,7 @@ interface PassengerPlace {
   id: string
   platforms: Array<{ line: GameLine; station: GameStation }>
   weight: number
+  urbanKinds: string[]
 }
 
 function buildPassengerPlaces(network: GameNetworkState, lineReports: GameLineDailySimulation[]) {
@@ -760,11 +791,16 @@ function buildPassengerPlaces(network: GameNetworkState, lineReports: GameLineDa
     const stations = getLineAllStations(line)
     for (const station of stations) {
       const placeId = station.sharedStationId ? `shared:${station.sharedStationId}` : `station:${line.id}:${station.id}`
-      const place = places.get(placeId) ?? { id: placeId, platforms: [], weight: 0 }
+      const place = places.get(placeId) ?? { id: placeId, platforms: [], weight: 0, urbanKinds: [] }
       place.platforms.push({ line, station })
+      for (const kind of station.urbanContext?.poiKinds ?? []) {
+        const normalizedKind = String(kind ?? '').trim().toLocaleLowerCase()
+        if (normalizedKind && !place.urbanKinds.includes(normalizedKind) && place.urbanKinds.length < 18) place.urbanKinds.push(normalizedKind)
+      }
       const stationReport = stationReports.get(station.id)
       const fallbackWeight = Math.max(80, Number(report?.newDemandPassengers ?? 0) / Math.max(1, stations.length))
-      place.weight = Math.max(place.weight, Math.max(20, Number(stationReport?.estimatedDailyFootfall ?? fallbackWeight)))
+      const urbanMultiplier = Math.max(.85, Math.min(1.42, Number(station.urbanContext?.demandMultiplier ?? 1)))
+      place.weight = Math.max(place.weight, Math.max(20, Number(stationReport?.estimatedDailyFootfall ?? fallbackWeight)) * urbanMultiplier)
       places.set(placeId, place)
     }
   }
@@ -772,6 +808,69 @@ function buildPassengerPlaces(network: GameNetworkState, lineReports: GameLineDa
     .filter(place => place.platforms.length > 0)
     .sort((a, b) => b.weight - a.weight)
     .slice(0, MAX_GENERATED_PLACES)
+}
+
+
+function placePurposeAffinity(place: PassengerPlace, purpose: GamePassengerTripPurpose) {
+  if (!place.urbanKinds.length) return 1
+  const kinds = place.urbanKinds.join(' ')
+  const has = (pattern: RegExp) => pattern.test(kinds)
+  if (purpose === 'EDUCATION') {
+    if (has(/university|college|school|kindergarten|campus|education/)) return 2.35
+    if (has(/library|student/)) return 1.55
+    return .86
+  }
+  if (purpose === 'COMMUTE') {
+    if (has(/business|office|commercial|mall|market|station|railway|administration|government/)) return 1.85
+    if (has(/airport|hospital|clinic|university/)) return 1.38
+    return .94
+  }
+  if (purpose === 'LEISURE') {
+    if (has(/stadium|museum|attraction|theatre|cinema|park|leisure|hotel|mall|shopping|restaurant|tourism/)) return 2.05
+    if (has(/water|beach|marina/)) return 1.5
+    return .9
+  }
+  if (has(/hospital|clinic|station|airport|administration|government|market|shopping/)) return 1.55
+  return 1
+}
+
+function placeRepresentativeStation(place: PassengerPlace) {
+  return place.platforms[0]?.station ?? null
+}
+
+function destinationForPurpose(
+  origin: PassengerPlace,
+  places: PassengerPlace[],
+  purpose: GamePassengerTripPurpose,
+  seed: string,
+  excludedIds: Set<string>,
+) {
+  const originStation = placeRepresentativeStation(origin)
+  let best: PassengerPlace | null = null
+  let bestScore = Number.NEGATIVE_INFINITY
+  for (const candidate of places) {
+    if (candidate.id === origin.id || excludedIds.has(candidate.id)) continue
+    const affinity = placePurposeAffinity(candidate, purpose)
+    const baseWeight = Math.pow(Math.max(1, candidate.weight), .68)
+    const destinationStation = placeRepresentativeStation(candidate)
+    const distanceKm = originStation && destinationStation ? stationDistanceMeters(originStation, destinationStation) / 1000 : 4
+    // Les petits déplacements intra-urbains restent importants, sans empêcher
+    // TER/TGV/Car de capter des OD plus longues quand le réseau les rend pertinentes.
+    const distanceFactor = purpose === 'EDUCATION'
+      ? (distanceKm < 1 ? .82 : distanceKm <= 18 ? 1.14 : distanceKm <= 45 ? .96 : .78)
+      : purpose === 'COMMUTE'
+        ? (distanceKm < 1 ? .8 : distanceKm <= 32 ? 1.16 : distanceKm <= 85 ? 1.02 : .86)
+        : purpose === 'LEISURE'
+          ? (distanceKm < 1 ? .88 : distanceKm <= 55 ? 1.1 : .96)
+          : (distanceKm < 1 ? .88 : distanceKm <= 40 ? 1.08 : .94)
+    const deterministicJitter = .86 + hashUnit(`${seed}:${candidate.id}`) * .28
+    const score = baseWeight * affinity * distanceFactor * deterministicJitter
+    if (score > bestScore) {
+      bestScore = score
+      best = candidate
+    }
+  }
+  return best
 }
 
 function bestPlatform(place: PassengerPlace, lineReports: GameLineDailySimulation[], seed: string) {
@@ -821,11 +920,13 @@ function generateDailyCohorts(
     const originJourneys = Math.max(1, Math.round(targetJourneys * origin.weight / Math.max(1, totalWeight)))
     const destinationCount = Math.min(3, places.length - 1)
     let remaining = originJourneys
+    const usedDestinationIds = new Set<string>()
     for (let slot = 0; slot < destinationCount; slot += 1) {
-      let destinationIndex = hashIndex(`${day}:${origin.id}:${slot}`, places.length)
-      if (destinationIndex === originIndex) destinationIndex = (destinationIndex + 1 + slot) % places.length
-      const destination = places[destinationIndex]!
-      if (destination.id === origin.id) continue
+      const timingSeed = `${day}:${origin.id}:${slot}`
+      const timing = purposeAndDeparture(day, calendarStartDate, timingSeed)
+      const destination = destinationForPurpose(origin, places, timing.purpose, timingSeed, usedDestinationIds)
+      if (!destination) continue
+      usedDestinationIds.add(destination.id)
       const passengers = slot === destinationCount - 1
         ? remaining
         : Math.max(1, Math.round(originJourneys * (slot === 0 ? 0.48 : 0.31)))
@@ -833,7 +934,6 @@ function generateDailyCohorts(
       if (passengers <= 0) continue
       const originPlatform = bestPlatform(origin, lineReports, `${day}:${origin.id}:origin:${slot}`)
       const destinationPlatform = bestPlatform(destination, lineReports, `${day}:${destination.id}:destination:${slot}`)
-      const timing = purposeAndDeparture(day, calendarStartDate, `${origin.id}:${destination.id}:${slot}`)
       cohorts.push({
         id: `od:${day}:${originIndex}:${slot}`,
         originLineId: originPlatform.line.id,

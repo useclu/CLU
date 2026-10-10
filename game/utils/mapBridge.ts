@@ -208,6 +208,7 @@ export interface GameMapBasemapCapture {
   width: number
   height: number
   bounds: GameMunicipalityBounds
+  provider?: string
 }
 
 let lastBasemapSnapshot: GameMapBasemapCapture | null = null
@@ -223,6 +224,126 @@ export async function captureGameMapBasemap(
   _preferredSize?: { width: number; height: number },
 ): Promise<GameMapBasemapCapture | null> {
   return lastBasemapSnapshot
+}
+
+/**
+ * Génère un fond cartographique à l'emprise EXACTE du réseau exporté.
+ *
+ * Le canvas WebGL du jeu n'est jamais lu, déplacé ni redimensionné. Une carte
+ * temporaire et isolée (résolution modeste) utilise les mêmes sources/style
+ * que la carte visible. Elle est détruite AVANT le grand rendu PNG en Canvas2D.
+ * Le retour null conserve le repli territorial en cas de WebGL indisponible.
+ */
+export async function renderGameMapExportBasemap(
+  bounds: GameMunicipalityBounds,
+  size: { width: number; height: number } = { width: 1120, height: 1120 },
+): Promise<GameMapBasemapCapture | null> {
+  if (typeof document === 'undefined' || !mapInstance || !mapReady()) return null
+  const currentStyle = mapInstance.getStyle?.()
+  if (!currentStyle || !Array.isArray(currentStyle.layers)) return null
+
+  // Une copie uniquement des sources du véritable fond. Les couches de jeu,
+  // lignes, stations, voyageurs, chantiers, etc. ne doivent pas être dupliquées.
+  const allowedSources = new Set(['openmaptiles', 'ne2_shaded', 'basemap'])
+  const baseLayers = currentStyle.layers.filter((layer: any) =>
+    layer.type === 'background' || (typeof layer.source === 'string' && allowedSources.has(layer.source)),
+  )
+  const sourceNames = new Set<string>(baseLayers.map((layer: any) => String(layer.source ?? '')).filter(Boolean))
+  if (!sourceNames.size) return null
+  const sources: Record<string, any> = {}
+  for (const name of sourceNames) {
+    if (currentStyle.sources?.[name]) sources[name] = currentStyle.sources[name]
+  }
+  if (!Object.keys(sources).length) return null
+
+  const style = {
+    version: 8 as const,
+    ...(currentStyle.glyphs ? { glyphs: currentStyle.glyphs } : {}),
+    ...(currentStyle.sprite ? { sprite: currentStyle.sprite } : {}),
+    sources,
+    layers: baseLayers,
+  }
+
+  const width = Math.round(Math.max(600, Math.min(1280, size.width)))
+  const height = Math.round(Math.max(600, Math.min(1280, size.height)))
+  const container = document.createElement('div')
+  container.setAttribute('aria-hidden', 'true')
+  container.style.cssText = `position:fixed;left:-20000px;top:0;width:${width}px;height:${height}px;overflow:hidden;pointer-events:none;z-index:-1;`
+  document.body.appendChild(container)
+
+  let exportMap: any = null
+  try {
+    const maplibre = await import('maplibre-gl')
+    exportMap = new maplibre.Map({
+      container,
+      style: style as any,
+      interactive: false,
+      attributionControl: false,
+      preserveDrawingBuffer: true,
+      antialias: false,
+      fadeDuration: 0,
+      renderWorldCopies: false,
+      center: [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2],
+      zoom: 7,
+    })
+    exportMap.fitBounds([[bounds.west, bounds.south], [bounds.east, bounds.north]], {
+      padding: 3,
+      duration: 0,
+      maxZoom: 13,
+    })
+
+    const completed = await new Promise<boolean>((resolve) => {
+      let done = false
+      const finish = (result: boolean) => {
+        if (done) return
+        done = true
+        clearTimeout(timeout)
+        resolve(result)
+      }
+      const timeout = setTimeout(() => finish(false), 12000)
+      exportMap.on('idle', () => finish(true))
+      // A la fin d'un chargement dégradé, ne surtout pas bloquer l'export.
+      exportMap.on('error', () => { /* Le délai fournit le repli. */ })
+    })
+    if (!completed || !exportMap.getCanvas?.()) return null
+    const sourceCanvas = exportMap.getCanvas() as HTMLCanvasElement
+    const probe = document.createElement('canvas')
+    probe.width = 48
+    probe.height = 48
+    const probeContext = probe.getContext('2d', { willReadFrequently: true })
+    if (!probeContext) return null
+    probeContext.drawImage(sourceCanvas, 0, 0, probe.width, probe.height)
+    const pixels = probeContext.getImageData(0, 0, probe.width, probe.height).data
+    let minimum = 255
+    let maximum = 0
+    for (let index = 0; index < pixels.length; index += 4) {
+      const luminance = (pixels[index]! + pixels[index + 1]! + pixels[index + 2]!) / 3
+      minimum = Math.min(minimum, luminance)
+      maximum = Math.max(maximum, luminance)
+    }
+    // Une toile quasi noire et uniforme indique un contexte perdu ou une
+    // capture vide, pas une véritable carte. Le repli 2D évite le PNG cassé.
+    if (maximum < 16 && maximum - minimum < 6) return null
+    const dataUrl = sourceCanvas.toDataURL('image/jpeg', .88)
+    if (!dataUrl || dataUrl.length < 2000) return null
+    const actualBounds = exportMap.getBounds()
+    const usedBounds = {
+      west: actualBounds.getWest(),
+      south: actualBounds.getSouth(),
+      east: actualBounds.getEast(),
+      north: actualBounds.getNorth(),
+    }
+    if (![usedBounds.west, usedBounds.south, usedBounds.east, usedBounds.north].every(Number.isFinite)) return null
+    return { dataUrl, width, height, bounds: usedBounds, provider: 'openmaptiles' in sources ? 'OpenFreeMap' : 'Protomaps' }
+  }
+  catch (error) {
+    console.warn('[CLU] Fond cartographique export indisponible, repli territorial', error)
+    return null
+  }
+  finally {
+    try { exportMap?.remove?.() } catch {}
+    container.remove()
+  }
 }
 
 export function focusGameMapBounds(bounds: GameMunicipalityBounds, options?: GameMapFocusOptions) {

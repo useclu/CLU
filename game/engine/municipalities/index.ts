@@ -125,7 +125,7 @@ function adjustRelation(relation: GameMunicipalityRelation, delta: number) {
 function typicalProjectCost(kind: GameMunicipalityRequestKind, mode: GameTransportMode) {
   if (kind === 'BOOST_SERVICE') {
     const rolling = getRollingStockDefinition(mode)
-    return rolling.purchaseCost * (mode === 'BUS' || mode === 'BRT' ? 4 : 2)
+    return rolling.purchaseCost * (mode === 'BUS' || mode === 'BRT' || mode === 'CAR' ? 4 : 2)
   }
   const economy = getModeEconomyDefinition(mode)
   const infrastructure = getInfrastructureDefinition(mode, 'AUTO')
@@ -457,7 +457,7 @@ function municipalityAccessibility(
     .map(id => network.lines.find(line => line.id === id))
     .filter((line): line is GameLine => Boolean(line))
 
-  const heavyModes = new Set<GameTransportMode>(['RER', 'TRAIN', 'METRO'])
+  const heavyModes = new Set<GameTransportMode>(['RER', 'TRAIN', 'TER', 'TGV', 'METRO'])
   const heavyCount = lines.filter(line => heavyModes.has(line.mode)).length
   const frequentCount = lines.filter(line => serviceLevelRank(line.serviceLevel) >= serviceLevelRank('FREQUENT')).length
 

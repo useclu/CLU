@@ -24,7 +24,7 @@ export interface GameTerritoryCatalogEntry {
 
 export interface GameTerritoryMapDefinition {
   id: GameTerritory
-  kind: 'STATIC' | 'LOCAL' | 'GENERATED'
+  kind: 'STATIC' | 'LOCAL' | 'GENERATED' | 'WORLD'
   label: string
   basemapPath: string | null
   municipalityGeoJsonPaths: string[]
@@ -38,6 +38,11 @@ export interface GameTerritoryMapDefinition {
 }
 
 export const GAME_TERRITORY_CATALOG: readonly GameTerritoryCatalogEntry[] = [
+  {
+    id: 'WORLD', label: 'Carte du monde', countryCode: 'UN', countryFlag: '🌍', shortCode: 'WLD', status: 'AVAILABLE',
+    description: 'Choisissez une ville partout dans le monde puis définissez un périmètre de jeu jusqu’à 100 km.',
+    traits: ['Monde', 'Ville au choix', '1–100 km'], previewKey: 'world',
+  },
   {
     id: 'ILE_DE_FRANCE', label: 'Paris / Île-de-France', countryCode: 'FR', countryFlag: '🇫🇷', shortCode: 'PAR', status: 'AVAILABLE',
     description: 'Région dense, radiale et polycentrique. La carte de référence de CLU Métropole.',
@@ -282,12 +287,13 @@ export function getAvailableGameTerritories() {
 
 export function isGameTerritoryAvailable(territory: GameTerritory | null | undefined) {
   if (!territory) return false
-  if (territory === 'GENERATED' || territory === 'ILE_DE_FRANCE') return true
+  if (territory === 'WORLD' || territory === 'GENERATED' || territory === 'ILE_DE_FRANCE') return true
   return Boolean(getRealMapSource(territory)) || hasRealTerritoryMunicipalityFallback(territory)
 }
 
 export function getGameTerritoryMapDefinition(territory: GameTerritory | null | undefined) {
   const id = territory ?? 'ILE_DE_FRANCE'
+  if (id === 'WORLD') throw new Error('La carte mondiale nécessite une ville, des coordonnées et un périmètre de jeu.')
   if (id === 'GENERATED') throw new Error('Une carte fictive nécessite sa seed et ses paramètres de génération.')
   if (id === 'ILE_DE_FRANCE') return ILE_DE_FRANCE
   const source = getRealMapSource(id)

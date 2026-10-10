@@ -1,5 +1,6 @@
 import type { GameEconomyProfile, GameEventFrequency } from './freePlay'
 import type { GameGeneratedTerritorySettings } from './generatedTerritory'
+import type { GameWorldTerritorySettings } from './worldTerritory'
 import type { GameTransportMode } from './network'
 import type { GameTerritory } from './game'
 
@@ -36,6 +37,7 @@ export interface GameChallengeDefinition {
   dateKey?: string
   territory: GameTerritory
   generatedTerritory?: GameGeneratedTerritorySettings | null
+  worldTerritory?: GameWorldTerritorySettings | null
   startingCapital: number
   economyProfile: GameEconomyProfile
   eventFrequency: GameEventFrequency

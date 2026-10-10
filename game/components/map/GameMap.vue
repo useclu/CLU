@@ -17,6 +17,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 
 import {
   getTransportModeDefinition,
+  isNativeRailMode,
   isRailAutoRouting,
 } from '../../config/transportModes'
 
@@ -26,12 +27,15 @@ import type {
   GameLine,
   GameLineRoutingMode,
   GameTransportMode,
+  GameStationUrbanContext,
 } from '../../types/network'
 import type { GameTerritory } from '../../types/game'
 import type { GameGeneratedTerritorySettings } from '../../types/generatedTerritory'
+import type { GameWorldPlaceAnchor, GameWorldTerritorySettings } from '../../types/worldTerritory'
 import type { GameVisualVehicle } from '../../engine/transitRuntime'
 import type { GameMapInsightMode, GameMapMunicipalityInsight } from '../../types/mapInsights'
 import type { GameLineDailySimulation } from '../../types/simulation'
+import type { GameMapTheme, GamePoiDisplayLevel } from '../../types/settings'
 import type { GameBusSubstitutionService, GameManualDisruption } from '../../types/operations'
 import {
   findLineStation,
@@ -50,6 +54,8 @@ import type { GameBundledLineRenderChunk, GameBundledPositionRenderHint, GameBun
 import { getGameTerritoryMapDefinition } from '../../config/territories'
 import { gameMapAssetUrl } from '../../config/mapAssets'
 import { generateGeneratedTerritory, normalizeGeneratedTerritorySettings } from '../../engine/territory/generator'
+import { generateWorldTerritory, normalizeWorldTerritorySettings } from '../../engine/territory/world'
+import { WORLD_MAP_STYLE_URLS } from '../../config/worldMap'
 import { getRealTerritoryMunicipalityFallback } from '../../engine/territory/realTerritories'
 import { buildSmartRoutingGraph, routeThroughWaypoints, snapPointToSmartGraph, type SmartRouteCoordinate, type SmartRoutingGraph } from '../../engine/network/smartRouting'
 import { getSegmentCoordinates } from '../../engine/network/pathGeometry'
@@ -66,7 +72,7 @@ interface GameJourneyHighlight {
   key: string
   segments: Array<{ lineId: string; color: string; coordinates: Array<[number, number]> }>
   walks: Array<{ coordinates: Array<[number, number]> }>
-  points: Array<{ longitude: number; latitude: number; kind: 'ORIGIN' | 'TRANSFER' | 'DESTINATION'; label: string; lineLabel?: string; lineColor?: string }>
+  points: Array<{ longitude: number; latitude: number; kind: 'ORIGIN' | 'STOP' | 'TRANSFER' | 'DESTINATION'; label: string; lineLabel?: string; lineColor?: string }>
 }
 
 const props = defineProps<{
@@ -77,6 +83,7 @@ const props = defineProps<{
   selectedStationId?: string | null
   territoryId?: GameTerritory
   generatedTerritory?: GameGeneratedTerritorySettings | null
+  worldTerritory?: GameWorldTerritorySettings | null
   draftAnchor?: GameMapDraftAnchor | null
   draftGuidePoints?: Array<[number, number]>
   routingMode?: GameLineRoutingMode
@@ -96,10 +103,13 @@ const props = defineProps<{
   operationsDisruptions?: GameManualDisruption[]
   substitutionServices?: GameBusSubstitutionService[]
   journeyHighlight?: GameJourneyHighlight | null
+  mapTheme?: GameMapTheme
+  poiDisplayLevel?: GamePoiDisplayLevel
 }>()
 
 const emit = defineEmits<{
-  mapClick: [longitude: number, latitude: number, routeCoordinates?: SmartRouteCoordinate[]]
+  mapClick: [longitude: number, latitude: number, routeCoordinates?: SmartRouteCoordinate[], urbanContext?: GameStationUrbanContext]
+  worldPlacesDiscovered: [places: GameWorldPlaceAnchor[]]
   draftPreview: [longitude: number | null, latitude: number | null, routeCoordinates?: SmartRouteCoordinate[]]
   lineClick: [lineId: string]
   stationClick: [lineId: string, stationId: string, routeCoordinates?: SmartRouteCoordinate[]]
@@ -166,15 +176,504 @@ function localTerritoryRuntime() {
   return generateGeneratedTerritory(settings)
 }
 
+function worldTerritoryRuntime() {
+  const territory = props.territoryId ?? 'ILE_DE_FRANCE'
+  if (territory !== 'WORLD') return null
+  const settings = normalizeWorldTerritorySettings(props.worldTerritory)
+  if (!settings) throw new Error('La zone mondiale ne contient pas de ville exploitable.')
+  return generateWorldTerritory(settings)
+}
+
+function simulationTerritoryRuntime() {
+  return localTerritoryRuntime() ?? worldTerritoryRuntime()
+}
+
 function realTerritoryMunicipalityFallback() {
   const territory = props.territoryId ?? 'ILE_DE_FRANCE'
-  if (territory === 'GENERATED' || territory === 'ILE_DE_FRANCE') return null
+  if (territory === 'GENERATED' || territory === 'WORLD' || territory === 'ILE_DE_FRANCE') return null
   return getRealTerritoryMunicipalityFallback(territory)
 }
 
 function territoryDefinition() {
-  const runtime = localTerritoryRuntime()
+  const runtime = simulationTerritoryRuntime()
   return runtime?.definition ?? getGameTerritoryMapDefinition(props.territoryId ?? 'ILE_DE_FRANCE')
+}
+
+function worldMapStyleUrl() {
+  return lightMapTheme() ? WORLD_MAP_STYLE_URLS.LIGHT : WORLD_MAP_STYLE_URLS.DARK
+}
+
+function safeAddWorldLayer(layer: any, beforeId?: string) {
+  if (!map || props.territoryId !== 'WORLD') return
+  try {
+    if (map.getLayer(layer.id)) return
+    map.addLayer(layer, beforeId)
+  }
+  catch (error) {
+    console.warn(`[CLU Métropole] Couche WORLD ignorée (${layer.id}) :`, error)
+  }
+}
+
+function worldPoiLevel() {
+  return props.poiDisplayLevel ?? 'FULL'
+}
+
+function worldPoiClasses(level = worldPoiLevel()) {
+  if (level === 'MINIMUM') return ['hospital', 'university', 'mall', 'airport', 'station', 'stadium']
+  if (level === 'MEDIUM') return ['hospital', 'school', 'college', 'university', 'stadium', 'park', 'museum', 'mall', 'supermarket', 'airport', 'station']
+  return [
+    'hospital', 'school', 'college', 'university', 'kindergarten',
+    'stadium', 'park', 'attraction', 'museum', 'library',
+    'shop', 'mall', 'supermarket', 'commercial', 'business', 'office', 'hotel', 'airport', 'station',
+  ]
+}
+
+function worldPoiFilter(level = worldPoiLevel()): any {
+  return ['all', ['has', 'name'], ['in', ['get', 'class'], ['literal', worldPoiClasses(level)]]]
+}
+
+function fallbackPoiFilter(level = worldPoiLevel()): any {
+  const kinds = level === 'MINIMUM'
+    ? ['hospital', 'university', 'mall', 'airport', 'station', 'stadium']
+    : level === 'MEDIUM'
+      ? ['hospital', 'school', 'university', 'stadium', 'park', 'museum', 'mall', 'airport', 'station']
+      : ['hospital', 'school', 'university', 'stadium', 'park', 'museum', 'mall', 'shopping', 'business', 'airport', 'station', 'commercial', 'leisure']
+  return ['all', ['==', ['get', 'layer'], 'poi'], ['in', ['get', 'kind'], ['literal', kinds]]]
+}
+
+function applyWorldPoiDisplay() {
+  if (!map || props.territoryId !== 'WORLD') return
+  const level = worldPoiLevel()
+  const hidden = level === 'OFF'
+  const pointMinZoom = level === 'MINIMUM' ? 13.6 : level === 'MEDIUM' ? 12.4 : 11.2
+  const labelMinZoom = level === 'MINIMUM' ? 14.2 : level === 'MEDIUM' ? 13.2 : 12.2
+  for (const [id, minZoom, filter] of [
+    ['clu-world-poi-points', pointMinZoom, worldPoiFilter(level)],
+    ['clu-world-poi-labels', labelMinZoom, worldPoiFilter(level)],
+    ['world-clu-fallback-poi-points', pointMinZoom, fallbackPoiFilter(level)],
+    ['world-clu-fallback-poi-labels', labelMinZoom, fallbackPoiFilter(level)],
+  ] as const) {
+    try {
+      if (!map.getLayer(id)) continue
+      map.setLayoutProperty(id, 'visibility', hidden ? 'none' : 'visible')
+      map.setLayerZoomRange(id, minZoom, 24)
+      if (!hidden) map.setFilter(id, filter)
+    }
+    catch {}
+  }
+}
+
+function installWorldVisualLayers() {
+  if (!map || props.territoryId !== 'WORLD' || !map.getSource('openmaptiles')) return
+  const light = lightMapTheme()
+
+  // Fiord fournit une excellente hiérarchie routière mais sa dominante bleu-gris
+  // est volontairement neutralisée pour retrouver le contraste du fond CLU/IDF.
+  if (!light) {
+    for (const layer of map.getStyle().layers ?? []) {
+      const item = layer as any
+      const sourceLayer = String(item['source-layer'] ?? '')
+      try {
+        if (item.type === 'background') map.setPaintProperty(item.id, 'background-color', '#0e171b')
+        else if (item.type === 'fill' && sourceLayer === 'landuse') map.setPaintProperty(item.id, 'fill-color', ['match', ['get', 'class'], 'park', '#173126', 'grass', '#182d23', 'cemetery', '#1a2b24', 'residential', '#151f24', 'commercial', '#211e25', 'industrial', '#24201e', '#151f23'])
+        else if (item.type === 'fill' && sourceLayer === 'landcover') map.setPaintProperty(item.id, 'fill-color', ['match', ['get', 'class'], 'wood', '#143123', 'grass', '#1a3124', 'wetland', '#17332d', '#14231e'])
+        else if (item.type === 'fill' && sourceLayer === 'building') map.setPaintProperty(item.id, 'fill-color', '#202a2f')
+        else if (item.type === 'symbol' && sourceLayer === 'place') {
+          map.setPaintProperty(item.id, 'text-color', '#aeb9bc')
+          map.setPaintProperty(item.id, 'text-halo-color', 'rgba(6,13,16,.92)')
+        }
+        else if (item.type === 'line' && sourceLayer === 'transportation') {
+          map.setPaintProperty(item.id, 'line-color', [
+            'match', ['get', 'class'],
+            'motorway', '#526068', 'trunk', '#4a5960', 'primary', '#424f56',
+            'secondary', '#39464c', 'rail', '#596268', '#303b41',
+          ])
+        }
+        else if (item.type === 'symbol' && sourceLayer === 'transportation_name') {
+          map.setPaintProperty(item.id, 'text-color', '#9aa7aa')
+          map.setPaintProperty(item.id, 'text-halo-color', 'rgba(7,14,17,.9)')
+        }
+        else if (item.type === 'symbol' && ['water_name', 'waterway'].includes(sourceLayer)) {
+          map.setPaintProperty(item.id, 'text-color', '#68a8b6')
+        }
+      }
+      catch { /* le style fournisseur peut varier : les overlays CLU restent suffisants */ }
+    }
+  }
+  const baseLayers = map.getStyle().layers ?? []
+  const firstTransportLayer = baseLayers.find(layer => (layer as any)['source-layer'] === 'transportation')?.id
+
+  // OpenFreeMap garde la géographie réelle. Ces couches CLU renforcent simplement
+  // eau et végétation pour retrouver la lisibilité du fond IDF sans masquer les rues.
+  safeAddWorldLayer({
+    id: 'clu-world-water',
+    type: 'fill',
+    source: 'openmaptiles',
+    'source-layer': 'water',
+    paint: {
+      'fill-color': light ? '#b8dfe9' : '#0d2b35',
+      'fill-opacity': light ? .62 : .78,
+    },
+  }, firstTransportLayer)
+
+  safeAddWorldLayer({
+    id: 'clu-world-green-landcover',
+    type: 'fill',
+    source: 'openmaptiles',
+    'source-layer': 'landcover',
+    filter: ['in', ['get', 'class'], ['literal', ['wood', 'grass', 'wetland', 'scrub']]],
+    paint: {
+      'fill-color': light
+        ? ['match', ['get', 'class'], 'wood', '#c9dfc7', 'wetland', '#cfdfd4', '#dbe8d3']
+        : ['match', ['get', 'class'], 'wood', '#123021', 'wetland', '#17342c', '#1a3022'],
+      'fill-opacity': light ? .46 : .54,
+    },
+  }, firstTransportLayer)
+
+  safeAddWorldLayer({
+    id: 'clu-world-green-landuse',
+    type: 'fill',
+    source: 'openmaptiles',
+    'source-layer': 'landuse',
+    filter: ['in', ['get', 'class'], ['literal', ['park', 'grass', 'cemetery', 'recreation_ground']]],
+    paint: {
+      'fill-color': light ? '#d5ead2' : '#173424',
+      'fill-opacity': light ? .5 : .52,
+    },
+  }, firstTransportLayer)
+
+  // Une couche d'analyse transparente conserve tous les POI disponibles pour la
+  // simulation et les suggestions de stations, même si le joueur réduit ou masque
+  // leur affichage dans les paramètres.
+  safeAddWorldLayer({
+    id: 'clu-world-poi-analysis',
+    type: 'circle',
+    source: 'openmaptiles',
+    'source-layer': 'poi',
+    minzoom: 0,
+    filter: worldPoiFilter('FULL'),
+    paint: {
+      'circle-radius': 1,
+      'circle-opacity': 0,
+      'circle-stroke-opacity': 0,
+    },
+  })
+
+  // À l'échelle d'un quartier, les pôles utiles rendent enfin une ville lisible
+  // pour la construction locale. Le fond reste sobre : MapLibre gère les collisions.
+  const poiFilter = worldPoiFilter()
+  safeAddWorldLayer({
+    id: 'clu-world-poi-points',
+    type: 'circle',
+    source: 'openmaptiles',
+    'source-layer': 'poi',
+    minzoom: worldPoiLevel() === 'MINIMUM' ? 13.6 : worldPoiLevel() === 'MEDIUM' ? 12.4 : 11.2,
+    filter: poiFilter,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.2, 14, 4.2, 17, 5.2],
+      'circle-color': [
+        'match', ['get', 'class'],
+        'hospital', light ? '#c75463' : '#ff8490',
+        'university', light ? '#6b5bb4' : '#a89af2',
+        'college', light ? '#6b5bb4' : '#a89af2',
+        'school', light ? '#7660b3' : '#aa9be6',
+        'park', light ? '#4e8a55' : '#82d68b',
+        'stadium', light ? '#a06b30' : '#e4ad65',
+        'mall', light ? '#a46c35' : '#e5aa6b',
+        'supermarket', light ? '#a46c35' : '#e5aa6b',
+        'airport', light ? '#2d728f' : '#77c9ed',
+        'station', light ? '#197886' : '#59dbe2',
+        light ? '#397886' : '#79cfd5',
+      ],
+      'circle-opacity': .9,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': light ? '#ffffff' : '#071116',
+    },
+  })
+  safeAddWorldLayer({
+    id: 'clu-world-poi-labels',
+    type: 'symbol',
+    source: 'openmaptiles',
+    'source-layer': 'poi',
+    minzoom: worldPoiLevel() === 'MINIMUM' ? 14.2 : worldPoiLevel() === 'MEDIUM' ? 13.2 : 12.2,
+    filter: poiFilter,
+    layout: {
+      'text-field': ['coalesce', ['get', `name:${currentGameLocale()}`], ['get', 'name']],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 12, 9, 15, 11],
+      'text-offset': [0, 1.1],
+      'text-anchor': 'top',
+      'text-max-width': 11,
+      'text-optional': true,
+    },
+    paint: {
+      'text-color': light ? '#24454b' : '#cce8e9',
+      'text-halo-color': light ? 'rgba(244,248,246,.9)' : 'rgba(5,12,16,.9)',
+      'text-halo-width': 1,
+    },
+  })
+  applyWorldPoiDisplay()
+}
+
+function haversineWorldKm(a: { longitude: number; latitude: number }, b: { longitude: number; latitude: number }) {
+  const toRad = (value: number) => value * Math.PI / 180
+  const dLat = toRad(b.latitude - a.latitude)
+  const dLon = toRad(b.longitude - a.longitude)
+  const lat1 = toRad(a.latitude)
+  const lat2 = toRad(b.latitude)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
+  return 6371.0088 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)))
+}
+
+function installWorldFallbackPoisIfNeeded() {
+  if (!map || props.territoryId !== 'WORLD' || map.getSource('world-clu-fallback-poi')) return
+  let realPoiCount = 0
+  try {
+    realPoiCount = (map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi' } as any) as any[])
+      .filter(feature => String(feature?.properties?.name ?? '').trim()).length
+  }
+  catch { /* provider change : fallback ci-dessous */ }
+  if (realPoiCount >= 12) return
+
+  const runtime = worldTerritoryRuntime()
+  if (!runtime) return
+  try {
+    map.addSource('world-clu-fallback-poi', {
+      type: 'geojson',
+      data: runtime.basemapGeoJson as any,
+    })
+    map.addLayer({
+      id: 'world-clu-fallback-poi-analysis',
+      type: 'circle',
+      source: 'world-clu-fallback-poi',
+      minzoom: 0,
+      filter: fallbackPoiFilter('FULL'),
+      paint: {
+        'circle-radius': 1,
+        'circle-opacity': 0,
+        'circle-stroke-opacity': 0,
+      },
+    })
+    map.addLayer({
+      id: 'world-clu-fallback-poi-points',
+      type: 'circle',
+      source: 'world-clu-fallback-poi',
+      minzoom: 10.8,
+      filter: fallbackPoiFilter(),
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.3, 14, 4],
+        'circle-color': lightMapTheme() ? '#5f7d49' : '#83c96f',
+        'circle-opacity': .82,
+        'circle-stroke-width': 1,
+        'circle-stroke-color': lightMapTheme() ? '#f6faf4' : '#091015',
+      },
+    })
+    map.addLayer({
+      id: 'world-clu-fallback-poi-labels',
+      type: 'symbol',
+      source: 'world-clu-fallback-poi',
+      minzoom: 12,
+      filter: fallbackPoiFilter(),
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 8.5, 15, 10.5],
+        'text-offset': [0, 1.0],
+        'text-anchor': 'top',
+        'text-max-width': 10,
+        'text-optional': true,
+      },
+      paint: {
+        'text-color': lightMapTheme() ? '#3f5638' : '#cbe9c4',
+        'text-halo-color': lightMapTheme() ? 'rgba(246,250,244,.9)' : 'rgba(5,12,16,.9)',
+        'text-halo-width': 1,
+      },
+    })
+  }
+  catch (error) {
+    console.warn('[CLU Métropole] POI WORLD de secours ignorés :', error)
+  }
+}
+
+function discoverWorldPlaces() {
+  if (!map || props.territoryId !== 'WORLD' || !props.worldTerritory || !map.getSource('openmaptiles')) return
+  let features: any[] = []
+  try {
+    features = map.querySourceFeatures('openmaptiles', { sourceLayer: 'place' } as any) as any[]
+  }
+  catch {
+    return
+  }
+  const center = { longitude: props.worldTerritory.longitude, latitude: props.worldTerritory.latitude }
+  const radius = props.worldTerritory.radiusKm
+  const dedupe = new Map<string, GameWorldPlaceAnchor>()
+  for (const feature of features) {
+    const coords = feature?.geometry?.type === 'Point' ? feature.geometry.coordinates : null
+    if (!Array.isArray(coords) || coords.length < 2) continue
+    const longitude = Number(coords[0])
+    const latitude = Number(coords[1])
+    const name = String(feature?.properties?.name ?? '').trim()
+    if (!name || !Number.isFinite(longitude) || !Number.isFinite(latitude)) continue
+    if (haversineWorldKm(center, { longitude, latitude }) > radius * 1.04 + 2) continue
+    const rawClass = String(feature?.properties?.class ?? feature?.properties?.place ?? '').toLowerCase()
+    const kind: GameWorldPlaceAnchor['kind'] =
+      rawClass === 'city' ? 'CITY'
+        : rawClass === 'town' ? 'TOWN'
+          : rawClass === 'village' ? 'VILLAGE'
+            : ['suburb', 'quarter', 'neighbourhood'].includes(rawClass) ? 'SUBURB'
+              : 'OTHER'
+    if (kind === 'OTHER' && Number(feature?.properties?.rank ?? 99) > 16) continue
+    const population = Number(feature?.properties?.population)
+    const key = `${name.toLocaleLowerCase()}|${longitude.toFixed(3)}|${latitude.toFixed(3)}`
+    if (!dedupe.has(key)) {
+      dedupe.set(key, {
+        name,
+        longitude,
+        latitude,
+        kind,
+        population: Number.isFinite(population) && population > 0 ? Math.round(population) : null,
+      })
+    }
+  }
+  const places = [...dedupe.values()]
+    .sort((a, b) => {
+      const rank = (kind?: GameWorldPlaceAnchor['kind']) => kind === 'CITY' ? 0 : kind === 'TOWN' ? 1 : kind === 'VILLAGE' ? 2 : kind === 'SUBURB' ? 3 : 4
+      return rank(a.kind) - rank(b.kind) || Number(b.population ?? 0) - Number(a.population ?? 0) || a.name.localeCompare(b.name)
+    })
+    .slice(0, 56)
+  if (places.length) emit('worldPlacesDiscovered', places)
+}
+
+function normalizeWorldPlaceName(value: unknown) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function worldAnchorHitCollection() {
+  const runtime = worldTerritoryRuntime()
+  const settings = normalizeWorldTerritorySettings(props.worldTerritory)
+  if (!runtime || !settings) return { type: 'FeatureCollection', features: [] }
+
+  const municipalitiesByName = new Map<string, typeof runtime.municipalities>()
+  for (const municipality of runtime.municipalities) {
+    const key = normalizeWorldPlaceName(municipality.name)
+    const bucket = municipalitiesByName.get(key) ?? []
+    bucket.push(municipality)
+    municipalitiesByName.set(key, bucket)
+  }
+  const anchors = [...(settings.placeAnchors ?? [])]
+  if (!anchors.some(item => normalizeWorldPlaceName(item.name) === normalizeWorldPlaceName(settings.cityName) && haversineWorldKm(item, settings) < 4)) {
+    anchors.unshift({
+      name: settings.cityName,
+      longitude: settings.longitude,
+      latitude: settings.latitude,
+      kind: 'CITY',
+      population: settings.estimatedPopulation ?? null,
+    })
+  }
+
+  const features = anchors.flatMap(anchor => {
+    const candidates = municipalitiesByName.get(normalizeWorldPlaceName(anchor.name)) ?? []
+    const municipality = candidates
+      .slice()
+      .sort((a, b) => {
+        const aCenter = { longitude: (a.bounds.west + a.bounds.east) / 2, latitude: (a.bounds.south + a.bounds.north) / 2 }
+        const bCenter = { longitude: (b.bounds.west + b.bounds.east) / 2, latitude: (b.bounds.south + b.bounds.north) / 2 }
+        return haversineWorldKm(anchor, aCenter) - haversineWorldKm(anchor, bCenter)
+      })[0]
+    if (!municipality) return []
+    return [{
+      type: 'Feature',
+      properties: {
+        code: municipality.code,
+        nom: municipality.name,
+        kind: anchor.kind ?? 'OTHER',
+        population: municipality.population,
+      },
+      geometry: { type: 'Point', coordinates: [anchor.longitude, anchor.latitude] },
+    }]
+  })
+  return { type: 'FeatureCollection', features }
+}
+
+function worldStationContext(point: { x: number; y: number }): GameStationUrbanContext | undefined {
+  if (!map || props.territoryId !== 'WORLD') return undefined
+  let features: any[] = []
+  try {
+    features = map.queryRenderedFeatures([
+      [point.x - 92, point.y - 92],
+      [point.x + 92, point.y + 92],
+    ]) as any[]
+  }
+  catch {
+    return undefined
+  }
+
+  const localityNames: string[] = []
+  const poiNames: string[] = []
+  const poiKinds: string[] = []
+  const roadNames: string[] = []
+  const waterNames: string[] = []
+  const parkNames: string[] = []
+  let demandMultiplier = 1
+
+  const pushUnique = (target: string[], value: unknown, max = 5) => {
+    const text = String(value ?? '').trim()
+    if (!text || target.includes(text) || target.length >= max) return
+    target.push(text)
+  }
+
+  for (const feature of features) {
+    const layer = String(feature?.sourceLayer ?? feature?.layer?.['source-layer'] ?? '')
+    const props = feature?.properties ?? {}
+    const name = props.name
+    const cls = String(props.class ?? props.subclass ?? props.kind ?? '').toLowerCase()
+    if (layer === 'place') {
+      const placeClass = String(props.class ?? props.place ?? '').toLowerCase()
+      if (['city', 'town', 'village', 'suburb', 'quarter', 'neighbourhood'].includes(placeClass)) pushUnique(localityNames, name, 3)
+    }
+    if (layer === 'poi' || props.layer === 'poi') {
+      pushUnique(poiNames, name, 6)
+      pushUnique(poiKinds, cls || 'poi', 6)
+      if (/university|college|school|kindergarten/.test(cls)) demandMultiplier += .08
+      else if (/hospital|clinic/.test(cls)) demandMultiplier += .08
+      else if (/mall|shop|shopping|supermarket|market|commercial|business|office/.test(cls)) demandMultiplier += .09
+      else if (/station|airport/.test(cls)) demandMultiplier += .10
+      else if (/stadium|museum|attraction|theatre|cinema|hotel/.test(cls)) demandMultiplier += .06
+    }
+    if (layer === 'transportation_name') pushUnique(roadNames, name, 5)
+    if (layer === 'water_name' || layer === 'waterway') pushUnique(waterNames, name, 3)
+    if (layer === 'park' || (layer === 'landuse' && ['park', 'grass', 'recreation_ground'].includes(cls))) pushUnique(parkNames, name, 3)
+  }
+
+  const clicked = map.unproject(point)
+  const nearestAnchor = (props.worldTerritory?.placeAnchors ?? [])
+    .slice()
+    .sort((a, b) => (
+      haversineWorldKm(a, { longitude: clicked.lng, latitude: clicked.lat })
+      - haversineWorldKm(b, { longitude: clicked.lng, latitude: clicked.lat })
+    ))[0]
+
+  return {
+    localityName: localityNames[0] || nearestAnchor?.name || props.worldTerritory?.cityName || undefined,
+    poiNames,
+    poiKinds,
+    roadNames,
+    waterNames,
+    parkNames,
+    demandMultiplier: Math.max(.85, Math.min(1.42, Math.round(demandMultiplier * 100) / 100)),
+  }
+}
+
+function lightMapTheme() {
+  return (props.mapTheme ?? 'DARK') === 'LIGHT'
+}
+
+function mapThemeColor(dark: string, light: string) {
+  return lightMapTheme() ? light : dark
 }
 
 
@@ -683,7 +1182,7 @@ async function loadCommunes():
 Promise<GeoJsonCollection> {
   const allFeatures: GeoJsonFeature[] = []
   const definition = territoryDefinition()
-  const runtime = localTerritoryRuntime()
+  const runtime = simulationTerritoryRuntime()
   if (runtime) {
     loadedCommunes.value = runtime.municipalities.length
     return runtime.municipalityGeoJson as GeoJsonCollection
@@ -984,7 +1483,7 @@ function activeDraftLine() {
 function routingCorridorKinds(mode: GameTransportMode, routingMode: GameLineRoutingMode) {
   if (isRailAutoRouting(mode, routingMode)) return ['rail']
   if (mode === 'TRAM') return ['rail', 'major_road', 'minor_road', 'street']
-  if (mode === 'BUS' || mode === 'BRT') return ['highway', 'major_road', 'minor_road', 'street']
+  if (mode === 'BUS' || mode === 'BRT' || mode === 'CAR') return ['highway', 'major_road', 'minor_road', 'street']
   return ['rail', 'major_road']
 }
 
@@ -999,6 +1498,31 @@ function routingCorridorFilter(local: boolean): any {
     : kindFilter
 }
 
+function worldRoutingCorridorFilter(): any {
+  const line = activeDraftLine()
+  const mode = line?.mode ?? 'METRO'
+  const routingMode = props.routingMode ?? line?.routingMode ?? 'ASSISTED'
+  if (isRailAutoRouting(mode, routingMode)) {
+    return ['in', ['get', 'class'], ['literal', ['rail', 'transit']]]
+  }
+  if (mode === 'TRAM') {
+    return ['in', ['get', 'class'], ['literal', ['rail', 'transit', 'primary', 'secondary', 'tertiary', 'minor', 'service']]]
+  }
+  if (mode === 'BUS' || mode === 'BRT' || mode === 'CAR') {
+    return ['in', ['get', 'class'], ['literal', ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service', 'track']]]
+  }
+  return ['in', ['get', 'class'], ['literal', ['rail', 'transit', 'primary', 'secondary', 'tertiary']]]
+}
+
+function openMapTilesTransportationKind(properties: Record<string, unknown>) {
+  const value = String(properties.class ?? properties.subclass ?? '').toLowerCase()
+  if (value === 'rail' || value === 'transit' || value === 'subway' || value === 'tram' || value === 'light_rail') return 'rail'
+  if (value === 'motorway' || value === 'trunk') return 'highway'
+  if (value === 'primary' || value === 'secondary' || value === 'tertiary') return 'major_road'
+  if (value === 'minor' || value === 'service' || value === 'track') return 'minor_road'
+  return 'street'
+}
+
 function refreshRoutingCorridors() {
   if (!map || !mapReady.value) return
   const line = activeDraftLine()
@@ -1006,7 +1530,7 @@ function refreshRoutingCorridors() {
   const layerId = localTerritoryRuntime() ? 'game-routing-corridors-local' : 'game-routing-corridors-static'
   try {
     if (!map.getLayer(layerId)) return
-    map.setFilter(layerId, routingCorridorFilter(Boolean(localTerritoryRuntime())))
+    map.setFilter(layerId, props.territoryId === 'WORLD' ? worldRoutingCorridorFilter() : routingCorridorFilter(Boolean(localTerritoryRuntime())))
     map.setLayoutProperty(layerId, 'visibility', assisted ? 'visible' : 'none')
   }
   catch {}
@@ -1024,15 +1548,21 @@ function staticRoadFeatureCollection(
 ) {
   if (!map || localTerritoryRuntime()) return null
   try {
-    const features = map.querySourceFeatures('basemap', { sourceLayer: 'roads' } as any)
+    const world = props.territoryId === 'WORLD'
+    const features = world
+      ? map.querySourceFeatures('openmaptiles', { sourceLayer: 'transportation' } as any)
+      : map.querySourceFeatures('basemap', { sourceLayer: 'roads' } as any)
     if (!features?.length && staticStrictRailFeatureCache.size === 0) return null
 
     const strictRail = mode !== undefined && isRailAutoRouting(mode, routingMode)
-    const normalized = (features ?? []).map((feature: any) => ({
-      type: 'Feature',
-      properties: { ...(feature.properties ?? {}), layer: 'road' },
-      geometry: feature.geometry,
-    }))
+    const normalized = (features ?? []).map((feature: any) => {
+      const properties = { ...(feature.properties ?? {}) } as Record<string, unknown>
+      return {
+        type: 'Feature',
+        properties: { ...properties, layer: 'road', kind: world ? openMapTilesTransportationKind(properties) : properties.kind },
+        geometry: feature.geometry,
+      }
+    })
 
     if (!strictRail) {
       return {
@@ -1067,16 +1597,18 @@ function smartRoutingGraph(mode: GameTransportMode, routingMode: GameLineRouting
   const runtime = localTerritoryRuntime()
   if (runtime) {
     const key = routingGraphKey(mode, routingMode)
-    const profile = isRailAutoRouting(mode, routingMode) ? 'RAIL' : mode === 'RER' || mode === 'TRAIN' ? 'LIGHT' : 'DEFAULT'
+    const profile = isRailAutoRouting(mode, routingMode) ? 'RAIL' : isNativeRailMode(mode) ? 'LIGHT' : 'DEFAULT'
     if (!routingGraphCache.has(key)) routingGraphCache.set(key, buildSmartRoutingGraph(runtime.basemapGeoJson as any, mode, profile))
     return routingGraphCache.get(key) ?? null
   }
-  const key = `STATIC:${props.territoryId ?? 'ILE_DE_FRANCE'}:${mode}:${routingMode}:${staticRoutingRevision}`
+  const world = normalizeWorldTerritorySettings(props.worldTerritory)
+  const worldKey = world ? `${world.countryCode}:${world.latitude.toFixed(4)}:${world.longitude.toFixed(4)}:${world.radiusKm}` : ''
+  const key = `STATIC:${props.territoryId ?? 'ILE_DE_FRANCE'}:${worldKey}:${mode}:${routingMode}:${staticRoutingRevision}`
   if (lastStaticGraphRevision !== staticRoutingRevision) {
     for (const cacheKey of [...routingGraphCache.keys()]) if (cacheKey.startsWith('STATIC:')) routingGraphCache.delete(cacheKey)
     lastStaticGraphRevision = staticRoutingRevision
   }
-  const profile = isRailAutoRouting(mode, routingMode) ? 'RAIL' : mode === 'RER' || mode === 'TRAIN' ? 'LIGHT' : 'DEFAULT'
+  const profile = isRailAutoRouting(mode, routingMode) ? 'RAIL' : isNativeRailMode(mode) ? 'LIGHT' : 'DEFAULT'
   if (!routingGraphCache.has(key)) routingGraphCache.set(key, buildSmartRoutingGraph(staticRoadFeatureCollection(mode, routingMode) as any, mode, profile))
   return routingGraphCache.get(key) ?? null
 }
@@ -1210,7 +1742,10 @@ function rejectInvalidRailAutoPlacement(kind: 'SNAP' | 'PATH') {
 }
 
 function projectCatchmentRadiusMeters(mode: GameTransportMode) {
+  if (mode === 'TGV') return 6_500
+  if (mode === 'TER') return 2_400
   if (mode === 'RER' || mode === 'TRAIN') return 1400
+  if (mode === 'CAR') return 900
   if (mode === 'METRO') return 900
   if (mode === 'TRAM') return 700
   if (mode === 'CABLE') return 850
@@ -1642,6 +2177,7 @@ function raiseNetworkPointLayers() {
     'game-network-stations-hit',
     'game-journey-points-halo',
     'game-journey-points-core',
+    'game-journey-stop-labels',
     'game-journey-transfer-line-labels',
     'game-journey-point-labels',
   ]) {
@@ -1685,6 +2221,7 @@ function refreshJourneyLayers() {
     'game-journey-walks',
     'game-journey-points-halo',
     'game-journey-points-core',
+    'game-journey-stop-labels',
     'game-journey-transfer-line-labels',
     'game-journey-point-labels',
   ]) {
@@ -1945,27 +2482,31 @@ function refreshWorldSignals() {
 
 function selectWorldSignal(code: string) {
   const insight = (props.municipalityInsights ?? []).find(item => item.code === code)
-  if (!insight) return
+  const runtimeMunicipality = worldTerritoryRuntime()?.municipalities.find(item => item.code === code)
+  if (!insight && !runtimeMunicipality) return
+  const world = props.territoryId === 'WORLD' ? normalizeWorldTerritorySettings(props.worldTerritory) : null
   selectedCommune.value = {
-    name: insight.name ?? 'Commune',
-    code: insight.code,
-    department: insight.departmentCode ?? '',
-    population: insight.population,
-    accessibility: insight.accessibility,
-    growthRate: insight.growthRate,
-    lineCount: insight.lineCount,
-    stationCount: insight.stationCount,
-    potential: insight.potential,
-    urbanProjectTitle: insight.urbanProjectTitle,
-    urbanProjectKind: insight.urbanProjectKind,
-    urbanProjectOpeningDay: insight.urbanProjectOpeningDay,
-    urbanProjectConstructionStartDay: insight.urbanProjectConstructionStartDay,
-    urbanProjectMaturityDay: insight.urbanProjectMaturityDay,
-    urbanProjectStatus: insight.urbanProjectStatus,
-    localEventTitle: insight.localEventTitle,
-    localEventKind: insight.localEventKind,
-    localEventStartsDay: insight.localEventStartsDay,
-    localEventVisitors: insight.localEventVisitors,
+    name: insight?.name ?? runtimeMunicipality?.name ?? 'Commune',
+    code: insight?.code ?? runtimeMunicipality?.code ?? code,
+    department: world
+      ? [world.adminName, world.countryName].filter(Boolean).join(' · ')
+      : insight?.departmentCode ?? runtimeMunicipality?.departmentCode ?? '',
+    population: insight?.population ?? runtimeMunicipality?.population ?? null,
+    accessibility: insight?.accessibility ?? null,
+    growthRate: insight?.growthRate ?? null,
+    lineCount: insight?.lineCount ?? 0,
+    stationCount: insight?.stationCount ?? 0,
+    potential: insight?.potential ?? null,
+    urbanProjectTitle: insight?.urbanProjectTitle,
+    urbanProjectKind: insight?.urbanProjectKind,
+    urbanProjectOpeningDay: insight?.urbanProjectOpeningDay,
+    urbanProjectConstructionStartDay: insight?.urbanProjectConstructionStartDay,
+    urbanProjectMaturityDay: insight?.urbanProjectMaturityDay,
+    urbanProjectStatus: insight?.urbanProjectStatus,
+    localEventTitle: insight?.localEventTitle,
+    localEventKind: insight?.localEventKind,
+    localEventStartsDay: insight?.localEventStartsDay,
+    localEventVisitors: insight?.localEventVisitors,
   }
 }
 
@@ -2018,8 +2559,8 @@ function refreshMunicipalityInsightStyle() {
       map.setPaintProperty('territory-communes-fill', 'fill-color', territoryDepartmentColorExpression())
       map.setPaintProperty('territory-communes-fill', 'fill-opacity', [
         'case', ['boolean', ['feature-state', 'hover'], false],
-        definition.kind === 'GENERATED' ? .12 : .16,
-        definition.kind === 'GENERATED' ? .018 : .055,
+        definition.kind === 'WORLD' ? 0 : definition.kind === 'GENERATED' ? .12 : .16,
+        definition.kind === 'WORLD' ? 0 : definition.kind === 'GENERATED' ? .018 : .055,
       ])
     }
   }
@@ -2222,6 +2763,28 @@ watch(
   },
 )
 
+
+watch(
+  () => props.poiDisplayLevel,
+  () => applyWorldPoiDisplay(),
+)
+
+watch(
+  () => {
+    const settings = props.worldTerritory
+    if (!settings) return ''
+    return [
+      settings.cityName, settings.countryCode, settings.radiusKm,
+      ...(settings.placeAnchors ?? []).map(item => `${item.name}:${item.longitude.toFixed(5)}:${item.latitude.toFixed(5)}:${item.population ?? ''}`),
+    ].join('|')
+  },
+  () => {
+    if (!map || props.territoryId !== 'WORLD') return
+    const source = map.getSource('world-place-anchors-hit') as any
+    if (source && typeof source.setData === 'function') source.setData(worldAnchorHitCollection() as any)
+  },
+)
+
 watch(
   [() => props.municipalityInsights, () => props.projectMunicipalityCodes],
   () => {
@@ -2248,32 +2811,54 @@ watch(
 )
 
 
+function worldPlayAreaGeoJson() {
+  const settings = normalizeWorldTerritorySettings(props.worldTerritory)
+  if (!settings) return null
+  const points: number[][] = []
+  const latitudeRadians = settings.latitude * Math.PI / 180
+  const longitudeScale = Math.max(.12, Math.cos(latitudeRadians))
+  for (let index = 0; index <= 96; index += 1) {
+    const angle = (index / 96) * Math.PI * 2
+    const latitude = settings.latitude + (Math.sin(angle) * settings.radiusKm / 111.32)
+    const longitude = settings.longitude + (Math.cos(angle) * settings.radiusKm / (111.32 * longitudeScale))
+    points.push([longitude, latitude])
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: { radiusKm: settings.radiusKm },
+      geometry: { type: 'Polygon', coordinates: [points] },
+    }],
+  }
+}
+
 function generatedBaseStyleLayers() {
   return [
     {
       id: 'generated-earth', type: 'fill', source: 'generated-basemap',
       filter: ['==', ['get', 'layer'], 'earth'],
-      paint: { 'fill-color': '#141a1f', 'fill-opacity': 1 },
+      paint: { 'fill-color': mapThemeColor('#141a1f', '#e9ece7'), 'fill-opacity': 1 },
     },
     {
       id: 'generated-relief', type: 'fill', source: 'generated-basemap',
       filter: ['==', ['get', 'layer'], 'relief'],
       paint: {
-        'fill-color': ['match', ['get', 'level'], 3, '#252921', 2, '#20261f', '#1b231d'],
+        'fill-color': ['match', ['get', 'level'], 3, mapThemeColor('#252921', '#d8ddcf'), 2, mapThemeColor('#20261f', '#e1e5d9'), mapThemeColor('#1b231d', '#e7eae2')],
         'fill-opacity': .52,
-        'fill-outline-color': 'rgba(107,125,101,.16)',
+        'fill-outline-color': mapThemeColor('rgba(107,125,101,.16)', 'rgba(92,112,91,.20)'),
       },
     },
     {
       id: 'generated-admin-fill', type: 'fill', source: 'generated-basemap',
       filter: ['==', ['get', 'layer'], 'admin'],
-      paint: { 'fill-color': '#b8c5d2', 'fill-opacity': .012 },
+      paint: { 'fill-color': mapThemeColor('#b8c5d2', '#6d7d88'), 'fill-opacity': .012 },
     },
     {
       id: 'generated-admin-boundaries', type: 'line', source: 'generated-basemap',
       filter: ['==', ['get', 'layer'], 'admin'],
       paint: {
-        'line-color': 'rgba(226,235,242,.46)',
+        'line-color': mapThemeColor('rgba(226,235,242,.46)', 'rgba(70,82,90,.40)'),
         'line-opacity': ['interpolate', ['linear'], ['zoom'], 5.5, .58, 9, .34, 12, .18],
         'line-width': ['interpolate', ['linear'], ['zoom'], 5.5, 1.35, 9, 1.05, 12, .7],
         'line-dasharray': [3, 2],
@@ -2283,7 +2868,7 @@ function generatedBaseStyleLayers() {
       id: 'generated-landuse', type: 'fill', source: 'generated-basemap',
       filter: ['==', ['get', 'layer'], 'landuse'],
       paint: {
-        'fill-color': ['match', ['get', 'kind'], 'park', '#173024', 'commercial', '#2e2631', 'industrial', '#2c2725', 'residential', '#1c252a', '#1b2026'],
+        'fill-color': ['match', ['get', 'kind'], 'park', mapThemeColor('#173024', '#dcebd9'), 'commercial', mapThemeColor('#2e2631', '#ebe3ed'), 'industrial', mapThemeColor('#2c2725', '#e7e1dc'), 'residential', mapThemeColor('#1c252a', '#e8e9e6'), mapThemeColor('#1b2026', '#eceeea')],
         'fill-opacity': ['match', ['get', 'kind'], 'park', .82, 'commercial', .83, 'industrial', .80, .70],
       },
     },
@@ -2291,39 +2876,39 @@ function generatedBaseStyleLayers() {
       id: 'generated-urban-blocks', type: 'fill', source: 'generated-basemap', minzoom: generatedDetailZoom('BLOCKS'),
       filter: ['==', ['get', 'layer'], 'urban_block'],
       paint: {
-        'fill-color': ['match', ['get', 'kind'], 'commercial', '#35303a', 'industrial', '#34302d', '#272f35'],
+        'fill-color': ['match', ['get', 'kind'], 'commercial', mapThemeColor('#35303a', '#ddd8df'), 'industrial', mapThemeColor('#34302d', '#dedbd5'), mapThemeColor('#272f35', '#e2e3df')],
         'fill-opacity': ['interpolate', ['linear'], ['zoom'], 7.2, .34, 9.5, .58, 12, .74],
-        'fill-outline-color': 'rgba(135,151,164,.16)',
+        'fill-outline-color': mapThemeColor('rgba(135,151,164,.16)', 'rgba(100,110,116,.16)'),
       },
     },
     {
       id: 'generated-water-polygons', type: 'fill', source: 'generated-basemap',
       filter: ['all', ['==', ['get', 'layer'], 'water'], ['==', ['geometry-type'], 'Polygon']],
-      paint: { 'fill-color': '#153243', 'fill-opacity': .96 },
+      paint: { 'fill-color': mapThemeColor('#153243', '#c8e2ef'), 'fill-opacity': .96 },
     },
     {
       id: 'generated-water-lines', type: 'line', source: 'generated-basemap',
       filter: ['all', ['==', ['get', 'layer'], 'water'], ['==', ['geometry-type'], 'LineString']],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#24546d', 'line-opacity': .94, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.2, 10, 4.5, 14, 8] },
+      paint: { 'line-color': mapThemeColor('#24546d', '#8fbfd6'), 'line-opacity': .94, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.2, 10, 4.5, 14, 8] },
     },
     {
       id: 'generated-rail', type: 'line', source: 'generated-basemap',
       filter: ['all', ['==', ['get', 'layer'], 'road'], ['==', ['get', 'kind'], 'rail']],
-      paint: { 'line-color': '#8a9099', 'line-opacity': .68, 'line-width': ['interpolate', ['linear'], ['zoom'], 7, .55, 13, 1.6], 'line-dasharray': [2, 1.5] },
+      paint: { 'line-color': mapThemeColor('#8a9099', '#777f86'), 'line-opacity': .68, 'line-width': ['interpolate', ['linear'], ['zoom'], 7, .55, 13, 1.6], 'line-dasharray': [2, 1.5] },
     },
     {
       id: 'generated-minor-roads', type: 'line', source: 'generated-basemap', minzoom: 5.85,
       filter: ['all', ['==', ['get', 'layer'], 'road'], ['==', ['get', 'kind'], 'minor_road']],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#424c57', 'line-opacity': ['interpolate', ['linear'], ['zoom'], 5.85, .25, 7.4, .54, 10, .76, 12, .88], 'line-width': ['interpolate', ['linear'], ['zoom'], 5.85, .28, 8.5, .60, 12, 1.2, 15, 2.6] },
+      paint: { 'line-color': mapThemeColor('#424c57', '#c1c5c6'), 'line-opacity': ['interpolate', ['linear'], ['zoom'], 5.85, .25, 7.4, .54, 10, .76, 12, .88], 'line-width': ['interpolate', ['linear'], ['zoom'], 5.85, .28, 8.5, .60, 12, 1.2, 15, 2.6] },
     },
     {
       id: 'generated-streets', type: 'line', source: 'generated-basemap', minzoom: generatedDetailZoom('STREETS'),
       filter: ['all', ['==', ['get', 'layer'], 'road'], ['==', ['get', 'kind'], 'street']],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#46515b',
+        'line-color': mapThemeColor('#46515b', '#c9cbc8'),
         'line-opacity': ['interpolate', ['linear'], ['zoom'], 9, .32, 11, .60, 14, .80],
         'line-width': ['interpolate', ['linear'], ['zoom'], 9, .28, 12, .62, 15, 1.25],
       },
@@ -2331,66 +2916,66 @@ function generatedBaseStyleLayers() {
     {
       id: 'generated-major-roads-casing', type: 'line', source: 'generated-basemap',
       filter: ['all', ['==', ['get', 'layer'], 'road'], ['any', ['==', ['get', 'kind'], 'highway'], ['==', ['get', 'kind'], 'major_road']]],
-      paint: { 'line-color': '#10161c', 'line-opacity': .96, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.6, 10, 3.5, 14, 6.5] },
+      paint: { 'line-color': mapThemeColor('#10161c', '#dedbd4'), 'line-opacity': .96, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.6, 10, 3.5, 14, 6.5] },
     },
     {
       id: 'generated-major-roads', type: 'line', source: 'generated-basemap',
       filter: ['all', ['==', ['get', 'layer'], 'road'], ['any', ['==', ['get', 'kind'], 'highway'], ['==', ['get', 'kind'], 'major_road']]],
-      paint: { 'line-color': ['case', ['==', ['get', 'kind'], 'highway'], '#725d43', '#59616a'], 'line-opacity': .95, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, .7, 10, 1.8, 14, 4.3] },
+      paint: { 'line-color': ['case', ['==', ['get', 'kind'], 'highway'], mapThemeColor('#725d43', '#d8b979'), mapThemeColor('#59616a', '#bdbfbc')], 'line-opacity': .95, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, .7, 10, 1.8, 14, 4.3] },
     },
     {
       id: 'generated-infrastructure-fill', type: 'fill', source: 'generated-basemap', minzoom: 7.2,
       filter: ['all', ['==', ['get', 'layer'], 'infrastructure'], ['==', ['geometry-type'], 'Polygon']],
       paint: {
-        'fill-color': ['match', ['get', 'kind'], 'airport', '#4b4a49', 'terminal', '#3d444b', '#353c43'],
+        'fill-color': ['match', ['get', 'kind'], 'airport', mapThemeColor('#4b4a49', '#d8d5cf'), 'terminal', mapThemeColor('#3d444b', '#d6d8d5'), mapThemeColor('#353c43', '#dfe0dc')],
         'fill-opacity': .88,
-        'fill-outline-color': '#777f87',
+        'fill-outline-color': mapThemeColor('#777f87', '#aeb3b2'),
       },
     },
     {
       id: 'generated-buildings', type: 'fill', source: 'generated-basemap', minzoom: generatedDetailZoom('BUILDINGS'),
       filter: ['==', ['get', 'layer'], 'building'],
       paint: {
-        'fill-color': ['interpolate', ['linear'], ['get', 'height'], 7, '#30363c', 16, '#373c43', 34, '#42464d'],
+        'fill-color': ['interpolate', ['linear'], ['get', 'height'], 7, mapThemeColor('#30363c', '#d9d6d0'), 16, mapThemeColor('#373c43', '#d3d0ca'), 34, mapThemeColor('#42464d', '#cbc8c2')],
         'fill-opacity': ['interpolate', ['linear'], ['zoom'], 9, .58, 12, .82],
-        'fill-outline-color': 'rgba(95,107,118,.58)',
+        'fill-outline-color': mapThemeColor('rgba(95,107,118,.58)', 'rgba(128,126,120,.45)'),
       },
     },
     {
       id: 'generated-buildings-3d', type: 'fill-extrusion', source: 'generated-basemap', minzoom: generatedDetailZoom('BUILDINGS_3D'),
       filter: ['==', ['get', 'layer'], 'building'],
       layout: { visibility: props.showBuildings2D5 === false || resolvedGraphicsQuality() === 'ECO' ? 'none' : 'visible' },
-      paint: { 'fill-extrusion-color': ['interpolate', ['linear'], ['get', 'height'], 7, '#363d43', 16, '#424850', 34, '#50555d'], 'fill-extrusion-height': ['coalesce', ['get', 'height'], 8], 'fill-extrusion-base': 0, 'fill-extrusion-opacity': .48 },
+      paint: { 'fill-extrusion-color': ['interpolate', ['linear'], ['get', 'height'], 7, mapThemeColor('#363d43', '#d2cfc9'), 16, mapThemeColor('#424850', '#cbc8c2'), 34, mapThemeColor('#50555d', '#c1beb8')], 'fill-extrusion-height': ['coalesce', ['get', 'height'], 8], 'fill-extrusion-base': 0, 'fill-extrusion-opacity': .48 },
     },
     {
       id: 'generated-poi-dots', type: 'circle', source: 'generated-basemap', minzoom: generatedDetailZoom('POI'),
-      filter: ['==', ['get', 'layer'], 'poi'],
+      filter: fallbackPoiFilter(),
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 3, 13, 4.6],
-        'circle-color': '#202a31',
-        'circle-stroke-color': '#a9bbc7',
+        'circle-color': mapThemeColor('#202a31', '#f1f2ee'),
+        'circle-stroke-color': mapThemeColor('#a9bbc7', '#7f8c93'),
         'circle-stroke-width': 1.2,
         'circle-opacity': .92,
       },
     },
     {
       id: 'generated-poi-symbols', type: 'symbol', source: 'generated-basemap', minzoom: generatedDetailZoom('POI'),
-      filter: ['==', ['get', 'layer'], 'poi'],
+      filter: fallbackPoiFilter(),
       layout: {
         'text-field': ['get', 'symbol'], 'text-font': ['Arial', 'Segoe UI'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 9, 7.5, 13, 9],
         'text-allow-overlap': true, 'text-ignore-placement': true,
       },
-      paint: { 'text-color': '#e7eff4', 'text-opacity': .92 },
+      paint: { 'text-color': mapThemeColor('#e7eff4', '#34434c'), 'text-opacity': .92 },
     },
     {
       id: 'generated-poi-labels', type: 'symbol', source: 'generated-basemap', minzoom: 11.1,
-      filter: ['==', ['get', 'layer'], 'poi'],
+      filter: fallbackPoiFilter(),
       layout: {
         'text-field': ['get', 'name'], 'text-font': ['Arial', 'Segoe UI'],
         'text-size': 9.4, 'text-offset': [0, 1.05], 'text-anchor': 'top', 'text-padding': 5, 'text-optional': true,
       },
-      paint: { 'text-color': '#cbd6de', 'text-halo-color': 'rgba(7,12,18,.94)', 'text-halo-width': 1.25, 'text-opacity': .82 },
+      paint: { 'text-color': mapThemeColor('#cbd6de', '#4f5e68'), 'text-halo-color': mapThemeColor('rgba(7,12,18,.94)', 'rgba(250,251,248,.94)'), 'text-halo-width': 1.25, 'text-opacity': .82 },
     },
     {
       id: 'generated-admin-labels', type: 'symbol', source: 'generated-basemap', minzoom: 5.6, maxzoom: 9.2,
@@ -2400,7 +2985,7 @@ function generatedBaseStyleLayers() {
         'text-size': ['interpolate', ['linear'], ['zoom'], 5.6, 10, 8.5, 12],
         'text-letter-spacing': .08, 'text-transform': 'uppercase', 'text-padding': 18,
       },
-      paint: { 'text-color': '#8e9ba8', 'text-halo-color': 'rgba(7,12,18,.92)', 'text-halo-width': 1.4, 'text-opacity': .58 },
+      paint: { 'text-color': mapThemeColor('#8e9ba8', '#6d7981'), 'text-halo-color': mapThemeColor('rgba(7,12,18,.92)', 'rgba(250,251,248,.94)'), 'text-halo-width': 1.4, 'text-opacity': .58 },
     },
     {
       id: 'generated-place-labels', type: 'symbol', source: 'generated-basemap', minzoom: 5.7,
@@ -2418,8 +3003,8 @@ function generatedBaseStyleLayers() {
         'text-optional': true,
       },
       paint: {
-        'text-color': ['case', ['==', ['get', 'rank'], 0], '#f0f5f8', '#d0d8df'],
-        'text-halo-color': 'rgba(7,12,18,.94)', 'text-halo-width': 1.5,
+        'text-color': ['case', ['==', ['get', 'rank'], 0], mapThemeColor('#f0f5f8', '#263640'), mapThemeColor('#d0d8df', '#46545e')],
+        'text-halo-color': mapThemeColor('rgba(7,12,18,.94)', 'rgba(250,251,248,.94)'), 'text-halo-width': 1.5,
         'text-opacity': ['case', ['>=', ['get', 'rank'], 3], ['interpolate', ['linear'], ['zoom'], 6, .15, 9, .62, 12, .86], .94],
       },
     },
@@ -2427,7 +3012,7 @@ function generatedBaseStyleLayers() {
       id: 'generated-road-labels', type: 'symbol', source: 'generated-basemap', minzoom: 11,
       filter: ['all', ['==', ['get', 'layer'], 'road'], ['any', ['==', ['get', 'kind'], 'highway'], ['==', ['get', 'kind'], 'major_road']]],
       layout: { 'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': ['Arial', 'Segoe UI'], 'text-size': 10, 'text-padding': 8 },
-      paint: { 'text-color': '#aeb6c0', 'text-halo-color': 'rgba(10,15,21,.9)', 'text-halo-width': 1, 'text-opacity': .72 },
+      paint: { 'text-color': mapThemeColor('#aeb6c0', '#66717b'), 'text-halo-color': mapThemeColor('rgba(10,15,21,.9)', 'rgba(250,251,248,.92)'), 'text-halo-width': 1, 'text-opacity': .72 },
     },
   ] as any[]
 }
@@ -2479,6 +3064,7 @@ onMounted(async () => {
 
     const definition = territoryDefinition()
     const generated = localTerritoryRuntime()
+    const world = worldTerritoryRuntime()
     const basemapUrl = resolvedBasemapUrl
 
     startupTimeout = window.setTimeout(() => {
@@ -2491,7 +3077,7 @@ onMounted(async () => {
         container:
           mapContainer.value,
 
-        style: {
+        style: world ? worldMapStyleUrl() : {
           version: 8,
 
           // Les territoires locaux/procéduraux démarrent avec un style minimal.
@@ -2513,7 +3099,7 @@ onMounted(async () => {
               type: 'background',
               paint: {
                 'background-color':
-                  '#0b1117',
+                  mapThemeColor('#0b1117', '#f3f5f2'),
               },
             },
 
@@ -2525,7 +3111,7 @@ onMounted(async () => {
               'source-layer': 'earth',
               paint: {
                 'fill-color':
-                  '#141a1f',
+                  mapThemeColor('#141a1f', '#e9ece7'),
               },
             },
 
@@ -2538,12 +3124,12 @@ onMounted(async () => {
                 'fill-color': [
                   'match',
                   ['get', 'kind'],
-                  'forest', '#16271f',
-                  'grassland', '#1a2820',
-                  'scrub', '#1b2520',
-                  'farmland', '#24261d',
-                  'urban_area', '#171c22',
-                  '#171c20',
+                  'forest', mapThemeColor('#16271f', '#d7ead9'),
+                  'grassland', mapThemeColor('#1a2820', '#dfead8'),
+                  'scrub', mapThemeColor('#1b2520', '#e4eadc'),
+                  'farmland', mapThemeColor('#24261d', '#ebe6d0'),
+                  'urban_area', mapThemeColor('#171c22', '#e8e9e5'),
+                  mapThemeColor('#171c20', '#edf0ea'),
                 ],
                 'fill-opacity': .9,
               },
@@ -2558,18 +3144,18 @@ onMounted(async () => {
                 'fill-color': [
                   'match',
                   ['get', 'kind'],
-                  'park', '#173024',
-                  'garden', '#173024',
-                  'forest', '#14291f',
-                  'wood', '#14291f',
-                  'cemetery', '#202a24',
-                  'industrial', '#242027',
-                  'commercial', '#252127',
-                  'residential', '#1d2228',
-                  'university', '#20252d',
-                  'school', '#20252d',
-                  'hospital', '#292126',
-                  '#1b2026',
+                  'park', mapThemeColor('#173024', '#dcebd9'),
+                  'garden', mapThemeColor('#173024', '#dcebd9'),
+                  'forest', mapThemeColor('#14291f', '#d8ead8'),
+                  'wood', mapThemeColor('#14291f', '#d8ead8'),
+                  'cemetery', mapThemeColor('#202a24', '#e4e7dd'),
+                  'industrial', mapThemeColor('#242027', '#e6e1e6'),
+                  'commercial', mapThemeColor('#252127', '#e9e3e8'),
+                  'residential', mapThemeColor('#1d2228', '#e9eae7'),
+                  'university', mapThemeColor('#20252d', '#e5e8e8'),
+                  'school', mapThemeColor('#20252d', '#e5e8e8'),
+                  'hospital', mapThemeColor('#292126', '#eee2e5'),
+                  mapThemeColor('#1b2026', '#eceeea'),
                 ],
                 'fill-opacity': .62,
               },
@@ -2587,7 +3173,7 @@ onMounted(async () => {
               ],
               paint: {
                 'fill-color':
-                  '#153243',
+                  mapThemeColor('#153243', '#c8e2ef'),
                 'fill-opacity':
                   .95,
               },
@@ -2605,7 +3191,7 @@ onMounted(async () => {
               ],
               paint: {
                 'line-color':
-                  '#27556e',
+                  mapThemeColor('#27556e', '#8fbfd6'),
                 'line-opacity':
                   .85,
                 'line-width': [
@@ -2630,7 +3216,7 @@ onMounted(async () => {
               ],
               paint: {
                 'line-color':
-                  '#8a9099',
+                  mapThemeColor('#8a9099', '#777f86'),
                 'line-opacity':
                   .72,
                 'line-width': [
@@ -2669,7 +3255,7 @@ onMounted(async () => {
               ],
               paint: {
                 'line-color':
-                  '#38404a',
+                  mapThemeColor('#38404a', '#c6c8c5'),
                 'line-opacity':
                   .75,
                 'line-width': [
@@ -2703,7 +3289,7 @@ onMounted(async () => {
               ],
               paint: {
                 'line-color':
-                  '#11171d',
+                  mapThemeColor('#11171d', '#ddd9d1'),
                 'line-opacity':
                   .95,
                 'line-width': [
@@ -2743,8 +3329,8 @@ onMounted(async () => {
                     ['get', 'kind'],
                     'highway',
                   ],
-                  '#725d43',
-                  '#59616a',
+                  mapThemeColor('#725d43', '#d8b979'),
+                  mapThemeColor('#59616a', '#bdbfbc'),
                 ],
                 'line-opacity':
                   .95,
@@ -2767,11 +3353,11 @@ onMounted(async () => {
               minzoom: detailZoom('BUILDINGS'),
               paint: {
                 'fill-color':
-                  '#31363d',
+                  mapThemeColor('#31363d', '#d8d5cf'),
                 'fill-opacity':
                   .72,
                 'fill-outline-color':
-                  '#3b4149',
+                  mapThemeColor('#3b4149', '#c3c0ba'),
               },
             },
 
@@ -2783,7 +3369,7 @@ onMounted(async () => {
               minzoom: detailZoom('BUILDINGS_3D'),
               layout: { visibility: props.showBuildings2D5 === false || resolvedGraphicsQuality() === 'ECO' ? 'none' : 'visible' },
               paint: {
-                'fill-extrusion-color': '#3b424a',
+                'fill-extrusion-color': mapThemeColor('#3b424a', '#c8c5bf'),
                 'fill-extrusion-height': [
                   'interpolate', ['linear'], ['zoom'],
                   13.2, 2,
@@ -2827,9 +3413,9 @@ onMounted(async () => {
               },
               paint: {
                 'text-color':
-                  '#d7dde5',
+                  mapThemeColor('#d7dde5', '#33414c'),
                 'text-halo-color':
-                  'rgba(7,12,18,.92)',
+                  mapThemeColor('rgba(7,12,18,.92)', 'rgba(250,251,248,.94)'),
                 'text-halo-width':
                   1.4,
                 'text-opacity':
@@ -2876,9 +3462,9 @@ onMounted(async () => {
               },
               paint: {
                 'text-color':
-                  '#aeb6c0',
+                  mapThemeColor('#aeb6c0', '#66717b'),
                 'text-halo-color':
-                  'rgba(10,15,21,.9)',
+                  mapThemeColor('rgba(10,15,21,.9)', 'rgba(250,251,248,.92)'),
                 'text-halo-width':
                   1,
                 'text-opacity':
@@ -2966,7 +3552,8 @@ onMounted(async () => {
             }
           }
           else {
-            setLoading('Lecture du fond de carte local…', 58)
+            setLoading(world ? 'Lecture de la carte mondiale…' : 'Lecture du fond de carte local…', 58)
+            if (world) installWorldVisualLayers()
           }
 
           setLoading('Préparation du réseau et des communes…', 72)
@@ -2974,6 +3561,33 @@ onMounted(async () => {
         /* ================================================
            COMMUNES : couche de gameplay légère
            ================================================ */
+
+        if (world) {
+          const playArea = worldPlayAreaGeoJson()
+          if (playArea) {
+            map.addSource('world-play-area', { type: 'geojson', data: playArea as any })
+            map.addLayer({
+              id: 'world-play-area-fill',
+              type: 'fill',
+              source: 'world-play-area',
+              paint: {
+                'fill-color': mapThemeColor('#6ee9f2', '#238d99'),
+                'fill-opacity': .015,
+              },
+            })
+            map.addLayer({
+              id: 'world-play-area-outline',
+              type: 'line',
+              source: 'world-play-area',
+              paint: {
+                'line-color': mapThemeColor('rgba(112,235,244,.58)', 'rgba(31,126,137,.52)'),
+                'line-width': ['interpolate', ['linear'], ['zoom'], 5, .8, 10, 1.4, 14, 2],
+                'line-opacity': .68,
+                'line-dasharray': [3, 2],
+              },
+            })
+          }
+        }
 
         map.addSource(
           'territory-communes',
@@ -2997,8 +3611,8 @@ onMounted(async () => {
                 ['feature-state', 'hover'],
                 false,
               ],
-              definition.kind === 'GENERATED' ? .12 : .16,
-              definition.kind === 'GENERATED' ? .018 : .055,
+              definition.kind === 'WORLD' ? 0 : definition.kind === 'GENERATED' ? .12 : .16,
+              definition.kind === 'WORLD' ? 0 : definition.kind === 'GENERATED' ? .018 : .055,
             ],
           },
         })
@@ -3030,13 +3644,17 @@ onMounted(async () => {
           source: 'territory-communes',
           paint: {
             'line-color':
-              'rgba(225,232,240,.52)',
-            'line-opacity': definition.kind === 'GENERATED'
-              ? ['interpolate', ['linear'], ['zoom'], 6, .22, 9, .34, 13, .48]
-              : .62,
-            'line-width': definition.kind === 'GENERATED'
-              ? ['interpolate', ['linear'], ['zoom'], 6, .18, 10, .38, 14, .70]
-              : [
+              mapThemeColor('rgba(225,232,240,.52)', 'rgba(70,82,90,.35)'),
+            'line-opacity': definition.kind === 'WORLD'
+              ? 0
+              : definition.kind === 'GENERATED'
+                ? ['interpolate', ['linear'], ['zoom'], 6, .22, 9, .34, 13, .48]
+                : .62,
+            'line-width': definition.kind === 'WORLD'
+              ? 0
+              : definition.kind === 'GENERATED'
+                ? ['interpolate', ['linear'], ['zoom'], 6, .18, 10, .38, 14, .70]
+                : [
                   'interpolate',
                   ['linear'],
                   ['zoom'],
@@ -3053,19 +3671,21 @@ onMounted(async () => {
           source: 'territory-communes',
           paint: {
             'line-color':
-              '#ffffff',
+              mapThemeColor('#ffffff', '#24333d'),
             'line-width':
               2,
-            'line-opacity': [
-              'case',
-              [
-                'boolean',
-                ['feature-state', 'hover'],
-                false,
-              ],
-              .9,
-              0,
-            ],
+            'line-opacity': definition.kind === 'WORLD'
+              ? 0
+              : [
+                  'case',
+                  [
+                    'boolean',
+                    ['feature-state', 'hover'],
+                    false,
+                  ],
+                  .9,
+                  0,
+                ],
           },
         })
 
@@ -3075,6 +3695,7 @@ onMounted(async () => {
           source: 'territory-communes',
           minzoom: 9,
           layout: {
+            visibility: definition.kind === 'WORLD' ? 'none' : 'visible',
             'text-field': [
               'get',
               'nom',
@@ -3096,15 +3717,37 @@ onMounted(async () => {
           },
           paint: {
             'text-color':
-              '#c8cfd8',
+              mapThemeColor('#c8cfd8', '#46535e'),
             'text-halo-color':
-              'rgba(8,13,19,.9)',
+              mapThemeColor('rgba(8,13,19,.9)', 'rgba(250,251,248,.94)'),
             'text-halo-width':
               1.1,
             'text-opacity':
               .78,
           },
         })
+
+        if (world) {
+          map.addSource('world-place-anchors-hit', {
+            type: 'geojson',
+            data: worldAnchorHitCollection() as any,
+          })
+          map.addLayer({
+            id: 'world-place-anchors-hit',
+            type: 'circle',
+            source: 'world-place-anchors-hit',
+            minzoom: 5.5,
+            paint: {
+              // Zone de clic volontairement invisible : les noms restent ceux du
+              // fond réel, mais chaque localité ancrée retrouve sa fiche CLU.
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 11, 10, 18, 14, 27],
+              'circle-color': '#72e5ea',
+              'circle-opacity': .001,
+              'circle-stroke-opacity': .001,
+              'circle-stroke-width': 1,
+            },
+          })
+        }
 
         /* ================================================
            SIGNAUX DU MONDE VIVANT
@@ -3165,6 +3808,21 @@ onMounted(async () => {
             paint: {
               'line-color': '#8deaf2',
               'line-opacity': ['interpolate', ['linear'], ['zoom'], 5, .08, 10, .14, 14, .18],
+              'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.0, 10, 2.0, 14, 3.4],
+            },
+          })
+        }
+        else if (props.territoryId === 'WORLD') {
+          map.addLayer({
+            id: 'game-routing-corridors-static',
+            type: 'line',
+            source: 'openmaptiles',
+            'source-layer': 'transportation',
+            filter: worldRoutingCorridorFilter(),
+            layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'none' },
+            paint: {
+              'line-color': '#8deaf2',
+              'line-opacity': ['interpolate', ['linear'], ['zoom'], 5, .07, 10, .13, 14, .17],
               'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.0, 10, 2.0, 14, 3.4],
             },
           })
@@ -3537,11 +4195,14 @@ onMounted(async () => {
           type: 'circle',
           source: 'game-journey-points',
           paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 6.5, 11, 9.5, 15, 12],
+            'circle-radius': ['case',
+              ['==', ['get', 'kind'], 'STOP'], ['interpolate', ['linear'], ['zoom'], 5, 3.3, 11, 4.6, 15, 6.3],
+              ['interpolate', ['linear'], ['zoom'], 5, 6.5, 11, 9.5, 15, 12],
+            ],
             'circle-color': '#ffffff',
             'circle-opacity': .98,
             'circle-stroke-color': '#071014',
-            'circle-stroke-width': ['case', ['==', ['get', 'kind'], 'TRANSFER'], 2.4, 3.2],
+            'circle-stroke-width': ['case', ['==', ['get', 'kind'], 'STOP'], 1.4, ['==', ['get', 'kind'], 'TRANSFER'], 2.4, 3.2],
           },
         })
         map.addLayer({
@@ -3549,9 +4210,37 @@ onMounted(async () => {
           type: 'circle',
           source: 'game-journey-points',
           paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 2.8, 11, 4, 15, 5.2],
-            'circle-color': ['case', ['==', ['get', 'kind'], 'ORIGIN'], '#69e0e7', ['==', ['get', 'kind'], 'DESTINATION'], '#f2c95d', '#ffffff'],
+            'circle-radius': ['case',
+              ['==', ['get', 'kind'], 'STOP'], ['interpolate', ['linear'], ['zoom'], 5, 1.3, 11, 2.1, 15, 3],
+              ['interpolate', ['linear'], ['zoom'], 5, 2.8, 11, 4, 15, 5.2],
+            ],
+            'circle-color': ['case', ['==', ['get', 'kind'], 'ORIGIN'], '#69e0e7', ['==', ['get', 'kind'], 'DESTINATION'], '#f2c95d', ['==', ['get', 'kind'], 'STOP'], '#12252d', '#ffffff'],
             'circle-opacity': 1,
+          },
+        })
+        // Les noms des arrêts parcourus s'affichent au zoom adapté ; leurs
+        // points restent visibles même si des étiquettes se chevauchent.
+        map.addLayer({
+          id: 'game-journey-stop-labels',
+          type: 'symbol',
+          source: 'game-journey-points',
+          minzoom: 9.2,
+          filter: ['==', ['get', 'kind'], 'STOP'],
+          layout: {
+            'text-field': ['get', 'label'],
+            'text-font': ['Arial', 'Segoe UI'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 9, 9, 12, 10.5, 15, 12],
+            'text-offset': [0, 1.1],
+            'text-anchor': 'top',
+            'text-max-width': 11,
+            'text-padding': 3,
+            'text-optional': true,
+          },
+          paint: {
+            'text-color': '#f2f7f8',
+            'text-halo-color': 'rgba(5,10,14,.96)',
+            'text-halo-width': 1.8,
+            'text-opacity': .94,
           },
         })
         map.addLayer({
@@ -3583,7 +4272,7 @@ onMounted(async () => {
           type: 'symbol',
           source: 'game-journey-points',
           minzoom: 8.8,
-          filter: ['!=', ['get', 'kind'], 'TRANSFER'],
+          filter: ['any', ['==', ['get', 'kind'], 'ORIGIN'], ['==', ['get', 'kind'], 'DESTINATION']],
           layout: {
             'text-field': ['get', 'label'],
             'text-font': ['Arial', 'Segoe UI'],
@@ -3949,6 +4638,21 @@ onMounted(async () => {
           },
         )
 
+        if (world && map.getLayer('world-place-anchors-hit')) {
+          map.on('mouseenter', 'world-place-anchors-hit', () => {
+            if (map && !props.building) map.getCanvas().style.cursor = 'pointer'
+          })
+          map.on('mouseleave', 'world-place-anchors-hit', () => {
+            if (map && !props.building) map.getCanvas().style.cursor = ''
+          })
+          map.on('click', 'world-place-anchors-hit', event => {
+            if (props.building) return
+            event.originalEvent?.preventDefault?.()
+            const code = String(event.features?.[0]?.properties?.code ?? '')
+            if (code) selectWorldSignal(code)
+          })
+        }
+
         map.on('mouseenter', 'game-world-signals-symbol', () => {
           if (map) map.getCanvas().style.cursor = 'pointer'
         })
@@ -4023,6 +4727,7 @@ onMounted(async () => {
               targetLongitude,
               targetLatitude,
               routeCoordinates,
+              worldStationContext(event.point),
             )
           },
         )
@@ -4065,6 +4770,21 @@ onMounted(async () => {
                 refreshMunicipalityInsights()
                 refreshRoutingCorridors()
                 updateCursor()
+                if (world) {
+                  // Les localités sont lues depuis les tuiles déjà chargées : aucune
+                  // requête géocodage supplémentaire et aucun watcher lourd.
+                  try {
+                    map?.once('idle', () => {
+                      discoverWorldPlaces()
+                      installWorldFallbackPoisIfNeeded()
+                    })
+                  }
+                  catch {}
+                  window.setTimeout(() => {
+                    discoverWorldPlaces()
+                    installWorldFallbackPoisIfNeeded()
+                  }, 900)
+                }
                 setLoading('Carte prête', 100)
                 emit('ready')
               },
@@ -4194,7 +4914,7 @@ onBeforeUnmount(() => {
         <div class="commune-card__content">
           <div>
             <span>
-              {{ 'Département' }}
+              {{ territoryId === 'WORLD' ? translateGameText('Région / pays', currentGameLocale()) : 'Département' }}
             </span>
 
             <strong>
@@ -4202,7 +4922,7 @@ onBeforeUnmount(() => {
             </strong>
           </div>
 
-          <div>
+          <div v-if="territoryId !== 'WORLD'">
             <span>
               Code
             </span>
@@ -4272,14 +4992,15 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="map-attribution">
+      <span>{{ territoryDefinition().attribution }}</span>
+      ·
       <a
         href="https://www.openstreetmap.org/copyright"
         target="_blank"
         rel="noopener noreferrer"
       >
-        © OpenStreetMap
+        ODbL
       </a>
-      · {{ territoryDefinition().attribution }}
     </div>
   </div>
 </template>

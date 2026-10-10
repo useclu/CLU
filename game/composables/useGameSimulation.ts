@@ -8,7 +8,7 @@ import {
 import { applyDailyFleetMaintenance } from '../engine/maintenance'
 import { processNetworkConstructionDay, isOperationalLine } from '../engine/network'
 import { absoluteGameMinute, closeExpiredSubstitutions, processNaturalOperationsDay, processStationWorksDay } from '../engine/operations'
-import { applyDailyDebtInterest, calculateCreditLimit, processDebtDay, processPublicDevelopmentFunding } from '../engine/economy'
+import { applyDailyDebtInterest, applyPmrAccessibilityGrant, calculateCreditLimit, processDebtDay, processPublicDevelopmentFunding } from '../engine/economy'
 import { gameCalendarHeaderLabel, gameDayLabel, isoDateForGameDay } from '../config/calendar'
 import { GAME_ECONOMY_PROFILE_MULTIPLIERS } from '../config/freePlay'
 import type { GameSimulationDayReport } from '../types/simulation'
@@ -311,7 +311,7 @@ function createGameSimulation() {
           save.data.economy.creditScore,
         ) * creditMultiplier,
       )
-      processPublicDevelopmentFunding(save.data.economy, nextDay, {
+      const publicFunding = processPublicDevelopmentFunding(save.data.economy, nextDay, {
         operationalLineCount: save.data.network.lines.filter(isOperationalLine).length,
         municipalitiesServed: territory.summary.value.municipalitiesServed,
         dailyPassengers: report.passengers,
@@ -321,6 +321,7 @@ function createGameSimulation() {
         creditLimit: fundingCreditLimit,
         profile: save.data.freePlaySettings.economyProfile,
       })
+      if (publicFunding.granted) applyPmrAccessibilityGrant(save.data.economy, save.data.network)
 
       if (!save.data.economy.unlimitedMoney) {
         processDebtDay(save.data.economy, nextDay, save.data.network.lines.length, creditMultiplier)

@@ -80,6 +80,45 @@ Record<GameTransportMode, GameModeSimulationDefinition> = {
     operatingCostPerStationPerDay: 4_000,
   },
 
+  TER: {
+    mode: 'TER',
+    averageSpeedKmH: 82,
+    vehicleCapacity: 720,
+    departuresPerHour: 3,
+    serviceHoursPerDay: 18,
+    passengersPerStationPerDay: 7_500,
+    passengersPerKmPerDay: 1_900,
+    fixedOperatingCostPerDay: 36_000,
+    operatingCostPerKmPerDay: 3_000,
+    operatingCostPerStationPerDay: 2_800,
+  },
+
+  TGV: {
+    mode: 'TGV',
+    averageSpeedKmH: 185,
+    vehicleCapacity: 610,
+    departuresPerHour: 2,
+    serviceHoursPerDay: 17,
+    passengersPerStationPerDay: 10_500,
+    passengersPerKmPerDay: 1_500,
+    fixedOperatingCostPerDay: 82_000,
+    operatingCostPerKmPerDay: 7_500,
+    operatingCostPerStationPerDay: 6_500,
+  },
+
+  CAR: {
+    mode: 'CAR',
+    averageSpeedKmH: 48,
+    vehicleCapacity: 55,
+    departuresPerHour: 2,
+    serviceHoursPerDay: 16,
+    passengersPerStationPerDay: 900,
+    passengersPerKmPerDay: 260,
+    fixedOperatingCostPerDay: 2_900,
+    operatingCostPerKmPerDay: 320,
+    operatingCostPerStationPerDay: 150,
+  },
+
   BUS: {
     mode: 'BUS',
     averageSpeedKmH: 18,

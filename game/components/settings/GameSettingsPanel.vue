@@ -16,9 +16,21 @@ const tutorialProgressLabel = computed(() => help.tutorial.value.completed
   : help.tutorial.value.startedAt
     ? `Étape ${help.tutorial.value.stepIndex + 1}`
     : 'Pas encore commencé')
+const mapThemeOptions = [
+  { id: 'DARK' as const, label: 'Carte sombre', description: 'Fond sombre, idéal pour faire ressortir les lignes colorées.' },
+  { id: 'LIGHT' as const, label: 'Carte claire', description: 'Fond clair, proche d’un plan de transport imprimé.' },
+]
+
 const themeOptions = [
   { id: 'DARK' as const, label: 'Sombre', description: 'Interface sombre, idéale sur la carte.' },
   { id: 'LIGHT' as const, label: 'Clair', description: 'Panneaux clairs et textes foncés.' },
+]
+
+const poiDisplayOptions = [
+  { id: 'FULL' as const, label: 'Activé', description: 'Tous les lieux utiles visibles aux niveaux de zoom adaptés.' },
+  { id: 'MEDIUM' as const, label: 'Moyen', description: 'Affiche surtout les pôles importants et réduit la densité des libellés.' },
+  { id: 'MINIMUM' as const, label: 'Minimum', description: 'Conserve uniquement les grands pôles utiles pour lire la ville.' },
+  { id: 'OFF' as const, label: 'Désactivé', description: 'Masque les lieux sur la carte sans désactiver leur effet dans la simulation.' },
 ]
 
 const textSizeOptions = [
@@ -91,6 +103,24 @@ async function resetSettings() {
           <strong>{{ option.label }}</strong>
           <small>{{ option.description }}</small>
         </button>
+      </div>
+      <div class="theme-setting map-theme-setting">
+        <span class="settings-kicker">Thème de la carte</span>
+        <div class="theme-switch" role="radiogroup" :aria-label="i18n.t('Thème de la carte')">
+          <button
+            v-for="option in mapThemeOptions"
+            :key="option.id"
+            type="button"
+            role="radio"
+            :aria-checked="settings.mapTheme === option.id"
+            :class="{ active: settings.mapTheme === option.id }"
+            @click="preferences.update({ mapTheme: option.id })"
+          >
+            <span>{{ option.id === 'DARK' ? '◐' : '☀' }}</span>
+            <strong>{{ option.label }}</strong>
+            <small>{{ option.description }}</small>
+          </button>
+        </div>
       </div>
       <div class="toggle-grid">
         <label>
@@ -219,6 +249,31 @@ async function resetSettings() {
 
     <section class="settings-section">
       <div class="section-copy">
+        <span class="settings-kicker">Accessibilité</span>
+        <h3>Lisibilité de la carte</h3>
+        <p>Réglez la quantité de lieux urbains affichés sans modifier leur influence sur les voyageurs ni les suggestions de stations.</p>
+      </div>
+      <div class="text-size-setting">
+        <span class="settings-kicker">Lieux & points d’intérêt</span>
+        <div class="option-grid option-grid--poi" role="radiogroup" aria-label="Lieux et points d’intérêt">
+          <button
+            v-for="option in poiDisplayOptions"
+            :key="option.id"
+            type="button"
+            role="radio"
+            :aria-checked="settings.poiDisplayLevel === option.id"
+            :class="{ active: settings.poiDisplayLevel === option.id }"
+            @click="preferences.update({ poiDisplayLevel: option.id })"
+          >
+            <strong>{{ option.label }}</strong>
+            <small>{{ option.description }}</small>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <div class="section-copy">
         <span class="settings-kicker">Aide</span>
         <h3>Tutoriel & Wiki</h3>
         <p>Le tutoriel reste toujours disponible depuis le menu pause, y compris pendant les défis. Le Wiki reste consultable à tout moment sans modifier la partie.</p>
@@ -244,11 +299,11 @@ async function resetSettings() {
 .settings-hero p{margin:0 0 3px;font-size:calc(8px * var(--clu-text-scale,1));font-weight:900;text-transform:uppercase;letter-spacing:.15em;color:#7ce0e6}.settings-hero h3{margin:0 0 4px;font-size:calc(20px * var(--clu-text-scale,1));letter-spacing:-.03em}.settings-hero small{display:block;max-width:700px;font-size:calc(9.5px * var(--clu-text-scale,1));line-height:1.5;color:rgba(229,243,250,.58)}
 .settings-section{padding:16px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.018));box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}
 .section-copy{margin-bottom:12px}.settings-kicker{font-size:calc(8px * var(--clu-text-scale,1));text-transform:uppercase;letter-spacing:.14em;color:#71dce3;font-weight:900}.section-copy h3{margin:3px 0 4px;font-size:calc(15px * var(--clu-text-scale,1));letter-spacing:-.02em}.section-copy p{margin:0;font-size:calc(9.5px * var(--clu-text-scale,1));line-height:1.45;color:rgba(230,242,250,.5)}
-.option-grid{display:grid;gap:8px}.option-grid--three{grid-template-columns:repeat(3,minmax(0,1fr))}.option-grid--graphics{grid-template-columns:repeat(4,minmax(0,1fr))}.option-grid button{min-height:76px;padding:11px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(7,16,23,.5);color:inherit;text-align:left;display:grid;align-content:start;gap:4px;cursor:pointer;transition:transform .15s ease,border-color .15s ease,background .15s ease}.option-grid button:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.045)}.option-grid button.active{border-color:rgba(83,218,227,.5);background:linear-gradient(145deg,rgba(59,188,199,.14),rgba(15,31,40,.52));box-shadow:inset 0 0 0 1px rgba(81,210,220,.06)}.option-grid strong{font-size:calc(10.5px * var(--clu-text-scale,1))}.option-grid small{font-size:calc(8.5px * var(--clu-text-scale,1));line-height:1.4;color:rgba(232,242,248,.48)}
+.option-grid{display:grid;gap:8px}.option-grid--three{grid-template-columns:repeat(3,minmax(0,1fr))}.option-grid--graphics,.option-grid--poi{grid-template-columns:repeat(4,minmax(0,1fr))}.option-grid button{min-height:76px;padding:11px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(7,16,23,.5);color:inherit;text-align:left;display:grid;align-content:start;gap:4px;cursor:pointer;transition:transform .15s ease,border-color .15s ease,background .15s ease}.option-grid button:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.045)}.option-grid button.active{border-color:rgba(83,218,227,.5);background:linear-gradient(145deg,rgba(59,188,199,.14),rgba(15,31,40,.52));box-shadow:inset 0 0 0 1px rgba(81,210,220,.06)}.option-grid strong{font-size:calc(10.5px * var(--clu-text-scale,1))}.option-grid small{font-size:calc(8.5px * var(--clu-text-scale,1));line-height:1.4;color:rgba(232,242,248,.48)}
 .toggle-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:9px}.toggle-grid label{display:flex;align-items:flex-start;gap:9px;padding:11px;border:1px solid rgba(255,255,255,.045);border-radius:12px;background:rgba(7,16,23,.38);cursor:pointer}.toggle-grid input{margin-top:2px;accent-color:#58d4dc}.toggle-grid span{display:grid;gap:2px}.toggle-grid strong{font-size:calc(10px * var(--clu-text-scale,1))}.toggle-grid small{font-size:calc(8.5px * var(--clu-text-scale,1));line-height:1.4;color:rgba(230,242,248,.46)}
 .audio-mixer{display:grid;gap:8px}.audio-row{display:grid;grid-template-columns:minmax(165px,1fr) auto minmax(150px,1.25fr) 44px;align-items:center;gap:10px;padding:11px 12px;border:1px solid rgba(255,255,255,.045);border-radius:12px;background:rgba(7,16,23,.38)}.audio-row>div{display:grid;gap:2px}.audio-row strong{font-size:calc(10px * var(--clu-text-scale,1))}.audio-row small{font-size:calc(8.5px * var(--clu-text-scale,1));line-height:1.35;color:rgba(230,242,248,.45)}.audio-row button{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:inherit;border-radius:9px;padding:7px 9px;cursor:pointer;font-size:calc(8.5px * var(--clu-text-scale,1))}.audio-row button.muted{border-color:rgba(255,174,91,.35);color:#f2c780;background:rgba(255,174,91,.08)}.audio-row input[type=range]{width:100%;accent-color:#58d2da}.audio-row>b{font-size:calc(8.5px * var(--clu-text-scale,1));text-align:right;color:rgba(240,249,252,.65)}
 .text-size-setting{display:grid;gap:7px;margin-bottom:9px}.help-settings-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid rgba(255,255,255,.045);border-radius:12px;background:rgba(7,16,23,.38)}.help-settings-row>div{display:grid;gap:2px}.help-settings-row strong{font-size:calc(10px * var(--clu-text-scale,1))}.help-settings-row small{font-size:calc(8.5px * var(--clu-text-scale,1));color:rgba(230,242,248,.46)}.help-settings-row button{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:inherit;border-radius:9px;padding:8px 10px;cursor:pointer;font-size:calc(8.5px * var(--clu-text-scale,1))}.settings-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 2px 0}.settings-footer span{font-size:calc(8.5px * var(--clu-text-scale,1));color:rgba(230,242,248,.42)}.settings-footer button{border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.025);color:inherit;border-radius:9px;padding:8px 10px;cursor:pointer;font-size:calc(9px * var(--clu-text-scale,1))}
-@media(max-width:680px){.settings-hero{padding:14px}.option-grid--three,.option-grid--graphics,.toggle-grid{grid-template-columns:1fr}.audio-row{grid-template-columns:1fr auto}.audio-row input[type=range]{grid-column:1/-1}.audio-row>b{display:none}.settings-footer{align-items:flex-start;flex-direction:column}}
+@media(max-width:680px){.settings-hero{padding:14px}.option-grid--three,.option-grid--graphics,.option-grid--poi,.toggle-grid{grid-template-columns:1fr}.audio-row{grid-template-columns:1fr auto}.audio-row input[type=range]{grid-column:1/-1}.audio-row>b{display:none}.settings-footer{align-items:flex-start;flex-direction:column}}
 
 /* Paramètres — grands modules horizontaux comme le menu principal */
 .settings-panel{gap:14px;perspective:1500px}
@@ -294,7 +349,7 @@ async function resetSettings() {
 .audio-mixer{gap:7px}.audio-row{min-height:62px;border-radius:13px;background:rgba(4,14,22,.40);border-color:rgba(255,255,255,.05)}
 .help-settings-row{min-height:66px;border-radius:13px;background:rgba(4,14,22,.38)}
 .settings-footer{padding:4px 5px 0 12px}.settings-footer button{min-height:38px;padding:0 12px;border-radius:11px}
-@media(max-width:760px){.settings-hero{transform:none;padding:16px}.settings-hero h3{font-size:calc(23px * var(--clu-text-scale,1))}.settings-section,.settings-section:nth-of-type(even){grid-template-columns:1fr;transform:none;padding:15px}.section-copy{grid-column:1;grid-row:auto}.settings-section>.option-grid,.settings-section>.toggle-grid,.settings-section>.audio-mixer,.settings-section>.text-size-setting,.settings-section>.help-settings-row{grid-column:1}}
+@media(max-width:760px){.settings-hero{transform:none;padding:16px}.settings-hero h3{font-size:calc(23px * var(--clu-text-scale,1))}.settings-section,.settings-section:nth-of-type(even){grid-template-columns:1fr;transform:none;padding:15px}.section-copy{grid-column:1;grid-row:auto}.settings-section>.option-grid,.settings-section>.toggle-grid,.settings-section>.audio-mixer,.settings-section>.text-size-setting,.settings-section>.help-settings-row{grid-column:1}.option-grid--poi{grid-template-columns:1fr 1fr}}
 
 
 /* Paramètres — interface de jeu simple, compacte, sans effet vitrine */
@@ -329,10 +384,10 @@ async function resetSettings() {
 .audio-row strong{font-size:calc(8.7px * var(--clu-text-scale,1))}.audio-row small{font-size:calc(7px * var(--clu-text-scale,1));line-height:1.25}.audio-row button{padding:5px 7px;border-radius:7px;font-size:calc(7.5px * var(--clu-text-scale,1))}.audio-row>b{font-size:calc(7.5px * var(--clu-text-scale,1))}
 .text-size-setting{gap:5px;margin-bottom:6px}.help-settings-row{min-height:0;padding:8px 9px;border-radius:8px;background:rgba(4,13,20,.34)}.help-settings-row strong{font-size:calc(8.7px * var(--clu-text-scale,1))}.help-settings-row small{font-size:calc(7.2px * var(--clu-text-scale,1))}.help-settings-row button{padding:6px 8px;border-radius:7px;font-size:calc(7.5px * var(--clu-text-scale,1))}
 .settings-footer{padding:3px 2px 0}.settings-footer span{font-size:calc(7.4px * var(--clu-text-scale,1))}.settings-footer button{min-height:32px;padding:0 9px;border-radius:8px;font-size:calc(8px * var(--clu-text-scale,1))}
-@media(max-width:760px){.settings-section,.settings-section:nth-of-type(even){grid-template-columns:1fr;padding:10px}.section-copy{grid-column:1;grid-row:auto;padding:0}.settings-section>.option-grid,.settings-section>.toggle-grid,.settings-section>.audio-mixer,.settings-section>.text-size-setting,.settings-section>.help-settings-row{grid-column:1}.option-grid--graphics,.option-grid--three{grid-template-columns:1fr 1fr}.audio-row{grid-template-columns:1fr auto}.audio-row input[type=range]{grid-column:1/-1}.audio-row>b{display:none}}
-@media(max-width:520px){.option-grid--graphics,.option-grid--three,.toggle-grid{grid-template-columns:1fr}}
+@media(max-width:760px){.settings-section,.settings-section:nth-of-type(even){grid-template-columns:1fr;padding:10px}.section-copy{grid-column:1;grid-row:auto;padding:0}.settings-section>.option-grid,.settings-section>.toggle-grid,.settings-section>.audio-mixer,.settings-section>.text-size-setting,.settings-section>.help-settings-row,.settings-section>.map-theme-setting{grid-column:1!important}.option-grid--graphics,.option-grid--three,.option-grid--poi{grid-template-columns:1fr 1fr}.audio-row{grid-template-columns:1fr auto}.audio-row input[type=range]{grid-column:1/-1}.audio-row>b{display:none}}
+@media(max-width:520px){.option-grid--graphics,.option-grid--three,.option-grid--poi,.toggle-grid{grid-template-columns:1fr}}
 
 
-.theme-setting{display:grid;gap:5px;margin-bottom:7px}.theme-switch{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.theme-switch button{min-height:46px;display:grid;grid-template-columns:24px minmax(0,1fr);grid-template-areas:'icon title' 'icon copy';align-items:center;column-gap:7px;padding:7px 8px;border:1px solid rgba(255,255,255,.07);border-radius:8px;background:rgba(4,13,20,.34);color:inherit;text-align:left;cursor:pointer}.theme-switch button>span{grid-area:icon;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:rgba(255,255,255,.05)}.theme-switch strong{grid-area:title;font-size:calc(8.7px * var(--clu-text-scale,1))}.theme-switch small{grid-area:copy;font-size:calc(7.1px * var(--clu-text-scale,1));line-height:1.25;opacity:.45}.theme-switch button.active{border-color:rgba(79,211,220,.34);background:rgba(79,211,220,.08)}
+.theme-setting{display:grid;gap:5px;margin-bottom:7px}.map-theme-setting{grid-column:2!important;margin-bottom:0}.map-theme-setting .theme-switch button{min-height:58px}.theme-switch{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.theme-switch button{min-height:46px;display:grid;grid-template-columns:24px minmax(0,1fr);grid-template-areas:'icon title' 'icon copy';align-items:center;column-gap:7px;padding:7px 8px;border:1px solid rgba(255,255,255,.07);border-radius:8px;background:rgba(4,13,20,.34);color:inherit;text-align:left;cursor:pointer}.theme-switch button>span{grid-area:icon;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:rgba(255,255,255,.05)}.theme-switch strong{grid-area:title;font-size:calc(8.7px * var(--clu-text-scale,1))}.theme-switch small{grid-area:copy;font-size:calc(7.1px * var(--clu-text-scale,1));line-height:1.25;opacity:.45}.theme-switch button.active{border-color:rgba(79,211,220,.34);background:rgba(79,211,220,.08)}
 
 </style>

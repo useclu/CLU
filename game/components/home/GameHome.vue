@@ -431,6 +431,10 @@ function saveExpiryLabel(save: GameSave) {
 
 function saveTerritoryLabel(save: GameSave) {
   if (save.territory === 'GENERATED') return save.data.generatedTerritory?.name || 'Carte fictive'
+  if (save.territory === 'WORLD') {
+    const world = save.data.worldTerritory
+    return world ? `${world.cityName} · ${world.radiusKm} km` : 'Carte du monde'
+  }
   return getGameTerritoryCatalogEntry(save.territory).label
 }
 

@@ -15,6 +15,8 @@ export function createDefaultGameUserSettings(): GameUserSettings {
   return {
     locale: GAME_DEFAULT_LOCALE,
     theme: 'DARK',
+    mapTheme: 'DARK',
+    poiDisplayLevel: 'FULL',
     graphicsQuality: 'AUTO',
     vehicleAnimations: true,
     buildings2D5: true,
@@ -44,6 +46,10 @@ export function normalizeGameUserSettings(value?: Partial<GameUserSettings> | nu
     : fallback.textSize
 
   const theme = value?.theme === 'LIGHT' ? 'LIGHT' : 'DARK'
+  const mapTheme = value?.mapTheme === 'LIGHT' ? 'LIGHT' : 'DARK'
+  const poiDisplayLevel = ['FULL', 'MEDIUM', 'MINIMUM', 'OFF'].includes(String(value?.poiDisplayLevel))
+    ? value?.poiDisplayLevel as GameUserSettings['poiDisplayLevel']
+    : fallback.poiDisplayLevel
 
   const volume = (raw: unknown, fallbackValue: number) => {
     const numeric = Number(raw)
@@ -53,6 +59,8 @@ export function normalizeGameUserSettings(value?: Partial<GameUserSettings> | nu
   return {
     locale: isGameLocale(value?.locale) ? value.locale : fallback.locale,
     theme,
+    mapTheme,
+    poiDisplayLevel,
     graphicsQuality,
     vehicleAnimations: value?.vehicleAnimations !== false,
     buildings2D5: value?.buildings2D5 !== false,

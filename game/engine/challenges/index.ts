@@ -1,10 +1,13 @@
 import { currentGameLocaleTag } from '../../config/i18n'
 import { getAvailableGameTerritories } from '../../config/territories'
 import { createDefaultFreePlaySettings } from '../../config/freePlay'
+import { WORLD_DEFAULT_RADIUS_KM } from '../../config/worldMap'
 import { getLineAllStations } from '../network/geometry'
 import type { GameSave, GameTerritory } from '../../types/game'
 import type { GameGeneratedTerritorySettings } from '../../types/generatedTerritory'
+import type { GameWorldTerritorySettings } from '../../types/worldTerritory'
 import type { GameTransportMode } from '../../types/network'
+import { normalizeWorldTerritorySettings, worldPreferredLocale } from '../territory/world'
 import type {
   GameChallengeDefinition,
   GameChallengeFinishReason,
@@ -15,8 +18,31 @@ import type {
   GameChallengeRuntime,
 } from '../../types/challenges'
 
-const ALL_MODES: GameTransportMode[] = ['METRO', 'TRAM', 'RER', 'TRAIN', 'BUS', 'BRT', 'CABLE', 'FERRY']
-const REAL_TERRITORIES = getAvailableGameTerritories().map(entry => entry.id).filter(id => id !== 'GENERATED') as GameTerritory[]
+const ALL_MODES: GameTransportMode[] = ['METRO', 'TRAM', 'RER', 'TRAIN', 'TER', 'TGV', 'CAR', 'BUS', 'BRT', 'CABLE', 'FERRY']
+const REAL_TERRITORIES = getAvailableGameTerritories().map(entry => entry.id).filter(id => id !== 'WORLD' && id !== 'GENERATED') as GameTerritory[]
+
+const DAILY_WORLD_CITIES: ReadonlyArray<Omit<GameWorldTerritorySettings, 'version' | 'radiusKm' | 'preferredLocale' | 'displayName'> & { adminName?: string | null }> = [
+  { cityName: 'Paris', countryName: 'France', countryCode: 'FR', adminName: 'Île-de-France', longitude: 2.3522, latitude: 48.8566, estimatedPopulation: 2_100_000, osmType: 'R', osmId: null },
+  { cityName: 'Rennes', countryName: 'France', countryCode: 'FR', adminName: 'Bretagne', longitude: -1.6778, latitude: 48.1173, estimatedPopulation: 225_000, osmType: 'R', osmId: null },
+  { cityName: 'Lyon', countryName: 'France', countryCode: 'FR', adminName: 'Auvergne-Rhône-Alpes', longitude: 4.8357, latitude: 45.7640, estimatedPopulation: 530_000, osmType: 'R', osmId: null },
+  { cityName: 'Rabat', countryName: 'Maroc', countryCode: 'MA', adminName: 'Rabat-Salé-Kénitra', longitude: -6.8498, latitude: 34.0209, estimatedPopulation: 580_000, osmType: 'R', osmId: null },
+  { cityName: 'Marrakech', countryName: 'Maroc', countryCode: 'MA', adminName: 'Marrakech-Safi', longitude: -7.9811, latitude: 31.6295, estimatedPopulation: 930_000, osmType: 'R', osmId: null },
+  { cityName: 'Lausanne', countryName: 'Suisse', countryCode: 'CH', adminName: 'Vaud', longitude: 6.6323, latitude: 46.5197, estimatedPopulation: 145_000, osmType: 'R', osmId: null },
+  { cityName: 'Zürich', countryName: 'Suisse', countryCode: 'CH', adminName: 'Zürich', longitude: 8.5417, latitude: 47.3769, estimatedPopulation: 440_000, osmType: 'R', osmId: null },
+  { cityName: 'London', countryName: 'United Kingdom', countryCode: 'GB', adminName: 'England', longitude: -0.1276, latitude: 51.5072, estimatedPopulation: 8_900_000, osmType: 'R', osmId: null },
+  { cityName: 'Manchester', countryName: 'United Kingdom', countryCode: 'GB', adminName: 'England', longitude: -2.2426, latitude: 53.4808, estimatedPopulation: 570_000, osmType: 'R', osmId: null },
+  { cityName: 'Budapest', countryName: 'Hongrie', countryCode: 'HU', adminName: null, longitude: 19.0402, latitude: 47.4979, estimatedPopulation: 1_680_000, osmType: 'R', osmId: null },
+  { cityName: 'Berlin', countryName: 'Allemagne', countryCode: 'DE', adminName: 'Berlin', longitude: 13.4050, latitude: 52.5200, estimatedPopulation: 3_800_000, osmType: 'R', osmId: null },
+  { cityName: 'Madrid', countryName: 'Espagne', countryCode: 'ES', adminName: 'Comunidad de Madrid', longitude: -3.7038, latitude: 40.4168, estimatedPopulation: 3_300_000, osmType: 'R', osmId: null },
+  { cityName: 'Lisboa', countryName: 'Portugal', countryCode: 'PT', adminName: 'Lisboa', longitude: -9.1393, latitude: 38.7223, estimatedPopulation: 550_000, osmType: 'R', osmId: null },
+  { cityName: 'Warszawa', countryName: 'Polska', countryCode: 'PL', adminName: 'Mazowieckie', longitude: 21.0122, latitude: 52.2297, estimatedPopulation: 1_860_000, osmType: 'R', osmId: null },
+  { cityName: 'New York', countryName: 'United States', countryCode: 'US', adminName: 'New York', longitude: -74.0060, latitude: 40.7128, estimatedPopulation: 8_300_000, osmType: 'R', osmId: null },
+  { cityName: 'Montréal', countryName: 'Canada', countryCode: 'CA', adminName: 'Québec', longitude: -73.5673, latitude: 45.5017, estimatedPopulation: 1_800_000, osmType: 'R', osmId: null },
+  { cityName: 'São Paulo', countryName: 'Brasil', countryCode: 'BR', adminName: 'São Paulo', longitude: -46.6333, latitude: -23.5505, estimatedPopulation: 11_500_000, osmType: 'R', osmId: null },
+  { cityName: 'Tokyo', countryName: '日本', countryCode: 'JP', adminName: 'Tokyo', longitude: 139.6917, latitude: 35.6895, estimatedPopulation: 14_000_000, osmType: 'R', osmId: null },
+  { cityName: 'Sydney', countryName: 'Australia', countryCode: 'AU', adminName: 'New South Wales', longitude: 151.2093, latitude: -33.8688, estimatedPopulation: 5_300_000, osmType: 'R', osmId: null },
+  { cityName: 'Auckland', countryName: 'New Zealand', countryCode: 'NZ', adminName: 'Auckland', longitude: 174.7633, latitude: -36.8485, estimatedPopulation: 1_700_000, osmType: 'R', osmId: null },
+]
 
 function fnv1a(value: string) {
   let hash = 0x811c9dc5
@@ -97,10 +123,12 @@ function normalizeGeneratedTerritory(value: GameGeneratedTerritorySettings | nul
 }
 
 export function normalizeChallengeDefinition(value: GameChallengeDefinition): GameChallengeDefinition {
-  const territory = value.territory === 'GENERATED' || REAL_TERRITORIES.includes(value.territory)
+  let territory = value.territory === 'WORLD' || value.territory === 'GENERATED' || REAL_TERRITORIES.includes(value.territory)
     ? value.territory
     : 'ILE_DE_FRANCE'
   const generatedTerritory = territory === 'GENERATED' ? normalizeGeneratedTerritory(value.generatedTerritory) : null
+  const worldTerritory = territory === 'WORLD' ? normalizeWorldTerritorySettings(value.worldTerritory) : null
+  if (territory === 'WORLD' && !worldTerritory) territory = 'ILE_DE_FRANCE'
   const definition: GameChallengeDefinition = {
     version: 1,
     id: typeof value.id === 'string' && value.id.trim() ? value.id.slice(0, 120) : `challenge-${Date.now()}`,
@@ -109,6 +137,7 @@ export function normalizeChallengeDefinition(value: GameChallengeDefinition): Ga
     dateKey: typeof value.dateKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.dateKey) ? value.dateKey : undefined,
     territory,
     generatedTerritory,
+    worldTerritory: territory === 'WORLD' ? worldTerritory : null,
     startingCapital: Number.isFinite(Number(value.startingCapital)) ? Math.min(50_000_000_000, Math.max(100_000_000, Math.round(Number(value.startingCapital)))) : 4_000_000_000,
     economyProfile: ['GENEROUS', 'STANDARD', 'HARD'].includes(value.economyProfile) ? value.economyProfile : 'HARD',
     eventFrequency: ['CALM', 'STANDARD', 'FREQUENT'].includes(value.eventFrequency) ? value.eventFrequency : 'STANDARD',
@@ -117,7 +146,7 @@ export function normalizeChallengeDefinition(value: GameChallengeDefinition): Ga
     allowedModes: normalizeModes(value.allowedModes),
     objectives: Array.isArray(value.objectives) && value.objectives.length
       ? value.objectives.slice(0, 6).map(normalizeObjective)
-      : [objective('TOTAL_PASSENGERS', 120_000, 'Transporter 120 k voyageurs', 'Cumulez au moins 120 000 voyageurs pendant le défi.')],
+      : [objective('TOTAL_PASSENGERS', 8_000_000, 'Transporter 8 M voyageurs', 'Cumulez au moins 8 millions de voyageurs pendant le défi.')],
     constraints: Array.isArray(value.constraints) ? value.constraints.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim().slice(0, 160)).slice(0, 10) : [],
   }
   if (definition.territory === 'GENERATED' && !definition.generatedTerritory) {
@@ -130,27 +159,60 @@ export function utcDateKey(date = new Date()) {
   return date.toISOString().slice(0, 10)
 }
 
+function dailyWorldTerritory(random: () => number): GameWorldTerritorySettings {
+  const base = pick(random, DAILY_WORLD_CITIES)
+  const radiusOptions = [20, 30, 40, 50, 60, 80, 100] as const
+  const radiusKm = pick(random, radiusOptions)
+  return normalizeWorldTerritorySettings({
+    ...base,
+    version: 1,
+    displayName: [base.cityName, base.adminName, base.countryName].filter(Boolean).join(', '),
+    radiusKm: radiusKm || WORLD_DEFAULT_RADIUS_KM,
+    preferredLocale: worldPreferredLocale(base.countryCode),
+    placeAnchors: [{
+      name: base.cityName, longitude: base.longitude, latitude: base.latitude, kind: 'CITY', population: base.estimatedPopulation ?? null,
+    }],
+  })!
+}
+
 function dailyAllowedModes(random: () => number) {
   const presets: GameTransportMode[][] = [
     ['BUS', 'TRAM'],
     ['BUS', 'BRT', 'TRAM'],
     ['TRAM', 'METRO'],
-    ['RER', 'TRAIN', 'BUS'],
+    ['RER', 'TRAIN', 'TER', 'CAR'],
     ['METRO', 'RER', 'TRAM'],
     [...ALL_MODES],
   ]
   return [...pick(random, presets)]
 }
 
+function dailyPassengerTarget(random: () => number, allowedModes: GameTransportMode[], radiusKm: number) {
+  // Voyageurs 2.0 produit désormais plusieurs centaines de milliers de voyages/jour
+  // sur une ligne structurante. La cible dépend aussi de l'étendue réellement
+  // jouable : un défi de 20 km ne doit pas demander le même cumul qu'un WORLD 100 km.
+  const hasHighCapacityMode = allowedModes.some(mode => mode === 'METRO' || mode === 'RER' || mode === 'TRAIN' || mode === 'TER' || mode === 'TGV')
+  const minimum = hasHighCapacityMode ? 9_000_000 : 6_000_000
+  const maximum = hasHighCapacityMode ? 22_000_000 : 14_000_000
+  const radiusFactor = Math.min(1.28, Math.max(0.7, 0.62 + radiusKm / 150))
+  const target = (minimum + random() * (maximum - minimum)) * radiusFactor
+  return Math.max(4_000_000, Math.round(target / 250_000) * 250_000)
+}
+
 export function createDailyChallengeDefinition(dateKey = utcDateKey()): GameChallengeDefinition {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) throw new Error('Date de Défi du jour invalide.')
-  const random = seeded(`CLU-DAILY-V1:${dateKey}`)
-  const dayNumber = Math.floor(Date.parse(`${dateKey}T00:00:00Z`) / 86_400_000)
-  const territory = REAL_TERRITORIES[Math.abs(dayNumber) % REAL_TERRITORIES.length] ?? 'ILE_DE_FRANCE'
+  const random = seeded(`CLU-DAILY-WORLD-V2:${dateKey}`)
+  const worldTerritory = dailyWorldTerritory(random)
+  const territory: GameTerritory = 'WORLD'
   const capitalOptions = [2_500_000_000, 3_000_000_000, 4_000_000_000, 5_000_000_000]
-  const allowedModes = dailyAllowedModes(random)
-  const passengerTarget = Math.round((80_000 + random() * 140_000) / 5_000) * 5_000
-  const municipalityTarget = Math.max(2, Math.round(2 + random() * 5))
+  const allowedModes = dailyAllowedModes(random).filter(mode => {
+    if (mode === 'TGV') return worldTerritory.radiusKm >= 60
+    if (mode === 'TER') return worldTerritory.radiusKm >= 30
+    if (mode === 'CAR') return worldTerritory.radiusKm >= 20
+    return true
+  })
+  const passengerTarget = dailyPassengerTarget(random, allowedModes, worldTerritory.radiusKm)
+  const municipalityTarget = Math.max(2, Math.min(10, Math.round(2 + worldTerritory.radiusKm / 18 + random() * 3)))
   const qualityTarget = Math.round(58 + random() * 18)
   const debtCap = Math.round((1_200_000_000 + random() * 1_800_000_000) / 100_000_000) * 100_000_000
   const objectives: GameChallengeObjective[] = [
@@ -172,6 +234,7 @@ export function createDailyChallengeDefinition(dateKey = utcDateKey()): GameChal
     title: `Défi du jour · ${dateKey.split('-').reverse().join('/')}`,
     dateKey,
     territory,
+    worldTerritory,
     startingCapital: pick(random, capitalOptions),
     economyProfile: random() > .7 ? 'STANDARD' : 'HARD',
     eventFrequency: pick(random, ['CALM', 'STANDARD', 'FREQUENT'] as const),

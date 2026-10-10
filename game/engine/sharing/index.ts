@@ -1,11 +1,12 @@
-import { getTransportModeDefinition } from '../../config/transportModes'
+import { getTransportModeDefinition, isNativeRailMode } from '../../config/transportModes'
 import { currentGameLocale, translateGameText } from '../../config/i18n'
 import { calculateLineLengthKm } from '../economy'
 import { getLineAllStations, getLineBranches, getLineTerminusStations } from '../network/geometry'
 import { getBundledLineRenderChunks } from '../network/renderGeometry'
 import type { GameLine, GameNetworkState, GameStation, GameTransportMode } from '../../types/network'
 import type { GameMunicipality } from '../../types/territory'
-import { captureGameMapBasemap } from '../../utils/mapBridge'
+import { renderGameMapExportBasemap } from '../../utils/mapBridge'
+import { spaceSchematicNodes } from './schematicSpacing'
 
 export type GameWorldExportLabelDensity = 'AUTO' | 'ALL' | 'NONE'
 export type GameWorldExportLayout = 'READABLE' | 'GEOGRAPHIC'
@@ -114,7 +115,10 @@ function stableId(prefix: string, raw: string) {
 }
 
 function editorMode(mode: GameTransportMode) {
-  return mode === 'FERRY' ? 'BOAT' : mode
+  if (mode === 'FERRY') return 'BOAT'
+  if (mode === 'TER' || mode === 'TGV') return 'TRAIN'
+  if (mode === 'CAR') return 'BUS'
+  return mode
 }
 
 const GENERATED_EDITOR_INDEX_PREFIX: Record<GameTransportMode, string> = {
@@ -122,6 +126,9 @@ const GENERATED_EDITOR_INDEX_PREFIX: Record<GameTransportMode, string> = {
   TRAM: 'T',
   RER: 'R',
   TRAIN: 'TR',
+  TER: 'TER',
+  TGV: 'TGV',
+  CAR: 'CAR',
   BUS: 'B',
   BRT: 'BHNS',
   CABLE: 'C',
@@ -556,12 +563,12 @@ export function buildCluEditorProject(line: GameLine, network: GameNetworkState)
         mode: primaryIdentity.mode,
         index: editorLineIndex(line, identities),
         color: primaryIdentity.color,
-        lineThickness: line.mode === 'RER' || line.mode === 'TRAIN' ? '1.5' : line.mode === 'METRO' ? '0.375' : '0.5',
+        lineThickness: isNativeRailMode(line.mode) ? '1.5' : line.mode === 'METRO' ? '0.375' : '0.5',
         lineStyle: 'PLAIN',
-        dotsColorPolicy: line.mode === 'RER' || line.mode === 'TRAIN' ? 'WHITE' : 'INHERIT',
-        fullyAccessible: false,
-        frameTerminusNames: line.mode !== 'RER' && line.mode !== 'TRAIN',
-        formatStyle: line.mode === 'RER' || line.mode === 'TRAIN' ? 'SNCF' : 'RATP',
+        dotsColorPolicy: isNativeRailMode(line.mode) ? 'WHITE' : 'INHERIT',
+        fullyAccessible: getLineAllStations(line).length > 0 && getLineAllStations(line).every(station => station.accessiblePmr === true),
+        frameTerminusNames: !isNativeRailMode(line.mode),
+        formatStyle: isNativeRailMode(line.mode) ? 'SNCF' : 'RATP',
         fontFamily: 'PARISINE',
         mapSize: Math.max(15, Math.min(48, 14 + Math.ceil(getLineAllStations(line).length * .45))),
         topology,
@@ -692,6 +699,7 @@ interface ExportStationTrackStop {
   point: ExportCanvasPoint
   lineId: string
   color: string
+  mode: GameTransportMode
   terminus: boolean
 }
 
@@ -849,6 +857,151 @@ function drawLineBadge(
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   return width
+}
+
+
+function exportModeWidthFactor(mode: GameTransportMode, layout: GameWorldExportLayout) {
+  if (layout !== 'READABLE') return .52
+  switch (mode) {
+    case 'METRO': return .94
+    case 'TRAM': return .53
+    case 'RER': return .93
+    case 'TRAIN': return .96
+    case 'TER': return .86
+    case 'TGV': return .98
+    case 'CAR': return .42
+    case 'BUS': return .39
+    case 'BRT': return .53
+    case 'CABLE': return .43
+    case 'FERRY': return .52
+    default: return .62
+  }
+}
+
+function exportLineHalo(mode: GameTransportMode, layout: GameWorldExportLayout) {
+  if (layout !== 'READABLE') return { outer: 4.4, inner: 2.0 }
+  if (isNativeRailMode(mode) || mode === 'RER') return { outer: 3.8, inner: 1.5 }
+  if (mode === 'TRAM') return { outer: 2.9, inner: 1.2 }
+  if (mode === 'BUS' || mode === 'CAR' || mode === 'BRT') return { outer: 2.8, inner: 1.0 }
+  return { outer: 3.8, inner: 1.5 }
+}
+
+function exportFramePalette(layout: GameWorldExportLayout) {
+  if (layout === 'READABLE') {
+    return {
+      frameFill: '#f9faf8',
+      veil: 'rgba(255,255,255,.0)',
+      grid: 'rgba(73,84,93,.055)',
+      labelStroke: 'rgba(251,253,253,.96)',
+      labelFill: '#132027',
+      gridLabel: 'rgba(31,43,51,.88)',
+      outerStroke: 'rgba(69,82,91,.88)',
+      innerStroke: '#ffffff',
+    }
+  }
+  return {
+    frameFill: '#0d171c',
+    veil: 'rgba(3,8,12,.16)',
+    grid: 'rgba(224,237,240,.075)',
+    labelStroke: 'rgba(1,6,9,.99)',
+    labelFill: '#f9fbfb',
+    gridLabel: 'rgba(246,250,250,.94)',
+    outerStroke: 'rgba(2,7,10,.98)',
+    innerStroke: 'rgba(248,251,251,.97)',
+  }
+}
+
+function traceDiamondPath(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
+  ctx.beginPath()
+  ctx.moveTo(x, y - radius)
+  ctx.lineTo(x + radius, y)
+  ctx.lineTo(x, y + radius)
+  ctx.lineTo(x - radius, y)
+  ctx.closePath()
+}
+
+function drawExportTrackStop(
+  ctx: CanvasRenderingContext2D,
+  stop: ExportStationTrackStop,
+  scale: number,
+  layout: GameWorldExportLayout,
+) {
+  const isReadable = layout === 'READABLE'
+  const darkOutline = isReadable ? 'rgba(70,82,91,.88)' : 'rgba(2,7,10,.96)'
+  const lightFill = '#f9fbfb'
+  const x = stop.point.x
+  const y = stop.point.y
+
+  if (!isReadable) {
+    // Le plan géographique conserve les symboles compacts d'avant la refonte.
+    const outerRadius = (stop.terminus ? 2.65 : 1.52) * scale
+    const innerRadius = (stop.terminus ? 1.82 : 1.02) * scale
+    ctx.beginPath(); ctx.arc(x, y, outerRadius, 0, Math.PI * 2)
+    ctx.fillStyle = lightFill; ctx.fill()
+    ctx.beginPath(); ctx.arc(x, y, innerRadius, 0, Math.PI * 2)
+    ctx.fillStyle = stop.color; ctx.fill()
+    return
+  }
+
+  if (isNativeRailMode(stop.mode)) {
+    // Transilien / TER / TGV : quai rectangulaire, distinct des ronds RER/métro.
+    const width = (stop.terminus ? 10 : 8.1) * scale
+    const height = (stop.terminus ? 7.5 : 6.2) * scale
+    roundRectPath(ctx, x - width / 2, y - height / 2, width, height, 1.25 * scale)
+    ctx.fillStyle = darkOutline; ctx.fill()
+    roundRectPath(ctx, x - width / 2 + .95 * scale, y - height / 2 + .95 * scale, width - 1.9 * scale, height - 1.9 * scale, .7 * scale)
+    ctx.fillStyle = lightFill; ctx.fill()
+    const railWidth = Math.max(1.8 * scale, width - 4.2 * scale)
+    roundRectPath(ctx, x - railWidth / 2, y - .65 * scale, railWidth, 1.3 * scale, .4 * scale)
+    ctx.fillStyle = stop.color; ctx.fill()
+    return
+  }
+
+  if (stop.mode === 'RER') {
+    const outerRadius = (stop.terminus ? 4.4 : 3.30) * scale
+    const ringRadius = (stop.terminus ? 3.45 : 2.58) * scale
+    const coreRadius = (stop.terminus ? 1.62 : 1.12) * scale
+    ctx.beginPath(); ctx.arc(x, y, outerRadius, 0, Math.PI * 2)
+    ctx.fillStyle = darkOutline; ctx.fill()
+    ctx.beginPath(); ctx.arc(x, y, ringRadius, 0, Math.PI * 2)
+    ctx.fillStyle = lightFill; ctx.fill()
+    ctx.beginPath(); ctx.arc(x, y, ringRadius, 0, Math.PI * 2)
+    ctx.strokeStyle = stop.color; ctx.lineWidth = Math.max(1.0, .95 * scale); ctx.stroke()
+    ctx.beginPath(); ctx.arc(x, y, coreRadius, 0, Math.PI * 2)
+    ctx.fillStyle = stop.color; ctx.fill()
+    return
+  }
+
+  if (stop.mode === 'TRAM') {
+    const outer = (stop.terminus ? 8.2 : 6.8) * scale
+    const inner = outer - Math.max(1.15, .95 * scale)
+    roundRectPath(ctx, x - outer / 2, y - outer / 2, outer, outer, outer * .28)
+    ctx.fillStyle = darkOutline; ctx.fill()
+    roundRectPath(ctx, x - inner / 2, y - inner / 2, inner, inner, inner * .28)
+    ctx.fillStyle = lightFill; ctx.fill()
+    roundRectPath(ctx, x - inner / 2 + .45 * scale, y - inner / 2 + .45 * scale, inner - .9 * scale, inner - .9 * scale, inner * .23)
+    ctx.fillStyle = stop.color; ctx.fill()
+    return
+  }
+
+  if (stop.mode === 'BUS' || stop.mode === 'CAR' || stop.mode === 'BRT' || stop.mode === 'CABLE') {
+    const outer = (stop.terminus ? 4.6 : 3.9) * scale
+    const inner = outer - Math.max(.95, .75 * scale)
+    traceDiamondPath(ctx, x, y, outer)
+    ctx.fillStyle = darkOutline; ctx.fill()
+    traceDiamondPath(ctx, x, y, inner)
+    ctx.fillStyle = lightFill; ctx.fill()
+    traceDiamondPath(ctx, x, y, Math.max(.8 * scale, inner - .7 * scale))
+    ctx.fillStyle = stop.color; ctx.fill()
+    return
+  }
+
+  const outerRadius = (stop.terminus ? 4.4 : 3.45) * scale
+  const innerRadius = (stop.terminus ? 2.8 : 2.14) * scale
+  ctx.beginPath(); ctx.arc(x, y, outerRadius, 0, Math.PI * 2)
+  ctx.fillStyle = lightFill; ctx.fill()
+  ctx.beginPath(); ctx.arc(x, y, innerRadius, 0, Math.PI * 2)
+  ctx.fillStyle = stop.color; ctx.fill()
 }
 
 /**
@@ -1615,6 +1768,7 @@ function buildSchematicNetwork(
   project: (longitude: number, latitude: number) => ExportCanvasPoint,
   scale: number,
   layout: GameWorldExportLayout,
+  frame: { left: number; top: number; right: number; bottom: number },
 ): ExportSchematicNetwork {
   const stationNodeIds = buildSchematicStationNodeIds(lines)
   const nodeIdFor = (line: GameLine, station: GameStation) =>
@@ -1983,13 +2137,24 @@ function buildSchematicNetwork(
     }
   }
 
-  const nodePoints = new Map(initialPoints)
+  let nodePoints = new Map(initialPoints)
   for (const [id, proposals] of nodeProposals) {
     if (!proposals.length || structuralNodeIds.has(id)) continue
     nodePoints.set(id, {
       x: proposals.reduce((sum, point) => sum + point.x, 0) / proposals.length,
       y: proposals.reduce((sum, point) => sum + point.y, 0) / proposals.length,
     })
+  }
+
+  // V2 du plan imprimé : les stations distinctes sont espacées EN FONCTION DU
+  // GRAPHE (jamais fusionnées au gré de la proximité). Les villes denses ont le
+  // droit de se dilater légèrement ; les terminus ruraux restent ancrés.
+  if (nodePoints.size > 1) {
+    const edgesForSpacing: Array<{ from: string; to: string }> = []
+    for (const [from, neighbors] of adjacency) {
+      for (const to of neighbors) if (from < to) edgesForSpacing.push({ from, to })
+    }
+    nodePoints = spaceSchematicNodes(nodePoints, edgesForSpacing, realStopNodeIds, frame, scale, structuralNodeIds)
   }
 
   const reanchorPolyline = (
@@ -2058,6 +2223,18 @@ function buildSchematicNetwork(
         )
       }
 
+      // Une géométrie rail réelle peut contenir des dizaines de micro-coudes :
+      // l'export n'en conserve que le geste principal. Les grandes courbes
+      // structurant une bifurcation restent guidées par le trajet d'origine.
+      if (points.length >= 2 && exportDistance(startPoint, endPoint) >= 9 * scale) {
+        const guideLengths = polylineLengths(points)
+        const guideMiddle = pointAtPolylineDistance(points, guideLengths, (guideLengths[guideLengths.length - 1] ?? 0) / 2)
+        const chord = exportDistance(startPoint, endPoint)
+        const detour = Math.max(...points.map(point => canvasPointSegmentDistance(point, startPoint, endPoint)))
+        if (detour < Math.max(30 * scale, chord * .22)) {
+          points = cleanEditorialPolyline(octilinearConnector(startPoint, endPoint, guideMiddle), 1.1 * scale)
+        }
+      }
       edgeGeometry.set(key, {
         fromPhysicalId: firstId,
         toPhysicalId: secondId,
@@ -2457,7 +2634,9 @@ function buildSchematicLanePlan(
       if (!line) return 2.05 * scale
       return Math.max(2.05 * scale, getTransportModeDefinition(line.mode).mapLineWidth * .52 * scale)
     }))
-    const lanePitch = Math.max(14.2 * scale, maxLineWidth + 7.4 * scale)
+    // La réserve doit englober la voie + son liséré : deux lignes réellement
+    // parallèles restent séparées même au coude du faisceau.
+    const lanePitch = Math.max(17.8 * scale, maxLineWidth + 8.2 * scale)
     const center = (orderedLineIds.length - 1) / 2
     const componentOffsets = new Map(orderedLineIds.map((lineId, index) => [lineId, (index - center) * lanePitch] as const))
 
@@ -2502,6 +2681,39 @@ function closestSignedOffset(
 }
 
 
+/**
+ * En mode géographique, un seul recadrage conserve les proportions de la carte
+ * et évite les joints / rééchantillonnages du maillage schématique.
+ * Les bounds de la capture sont projetées en Mercator comme celles du réseau.
+ */
+function drawGeographicBasemap(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  sourceWindow: { u0: number; v0: number; u1: number; v1: number },
+) {
+  const spanU = sourceWindow.u1 - sourceWindow.u0
+  const spanV = sourceWindow.v1 - sourceWindow.v0
+  if (!(spanU > 0 && spanV > 0)) return
+
+  const sx = -sourceWindow.u0 / spanU * image.width
+  const sy = -sourceWindow.v0 / spanV * image.height
+  const sw = image.width / spanU
+  const sh = image.height / spanV
+  if (![sx, sy, sw, sh].every(Number.isFinite) || sw <= 0 || sh <= 0) return
+  // Les limites de la carte temporaire englobent normalement tout le réseau.
+  // Le Canvas peut aussi rogner un écart de moins d'un pixel si nécessaire.
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(x, y, width, height)
+  ctx.clip()
+  ctx.drawImage(image, sx, sy, sw, sh, x, y, width, height)
+  ctx.restore()
+}
+
 function drawWarpedBasemap(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
@@ -2511,46 +2723,44 @@ function drawWarpedBasemap(
   height: number,
   warpX: (value: number) => number,
   warpY: (value: number) => number,
-  sourceWindow: { u0: number; v0: number; u1: number; v1: number } = { u0: 0, v0: 0, u1: 1, v1: 1 },
+  sourceWindow: { u0: number; v0: number; u1: number; v1: number },
 ) {
-  // Maillage volontairement léger : 896 drawImage filtrés sur un grand canvas
-  // pouvaient saturer le compositeur de certains navigateurs. 12×10 suffit pour
-  // un fond discret derrière un plan schématique.
-  const columns = 12
-  const rows = 10
+  // Le modèle et la capture ont des emprises différentes : on échantillonne
+  // le RENDU source pour chaque cellule du territoire à exporter. La version
+  // précédente dessinait toute la capture puis étirait ses bordures, produisant
+  // des villes géantes derrière le schéma.
+  const columns = 18
+  const rows = 18
+  const sourceSpanU = sourceWindow.u1 - sourceWindow.u0
+  const sourceSpanV = sourceWindow.v1 - sourceWindow.v0
+  if (sourceSpanU <= 0 || sourceSpanV <= 0) return
+
   for (let row = 0; row < rows; row += 1) {
-    const sourceV0 = row / rows
-    const sourceV1 = (row + 1) / rows
-    const worldV0 = sourceWindow.v0 + sourceV0 * (sourceWindow.v1 - sourceWindow.v0)
-    const worldV1 = sourceWindow.v0 + sourceV1 * (sourceWindow.v1 - sourceWindow.v0)
-    const destinationV0 = warpY(worldV0)
-    const destinationV1 = warpY(worldV1)
+    const v0 = row / rows
+    const v1 = (row + 1) / rows
+    const sourceY0 = ((v0 - sourceWindow.v0) / sourceSpanV) * image.height
+    const sourceY1 = ((v1 - sourceWindow.v0) / sourceSpanV) * image.height
+    const destinationY0 = y + warpY(v0) * height
+    const destinationY1 = y + warpY(v1) * height
     for (let column = 0; column < columns; column += 1) {
-      const sourceU0 = column / columns
-      const sourceU1 = (column + 1) / columns
-      const worldU0 = sourceWindow.u0 + sourceU0 * (sourceWindow.u1 - sourceWindow.u0)
-      const worldU1 = sourceWindow.u0 + sourceU1 * (sourceWindow.u1 - sourceWindow.u0)
-      const destinationU0 = warpX(worldU0)
-      const destinationU1 = warpX(worldU1)
-      const sourceX = sourceU0 * image.width
-      const sourceY = sourceV0 * image.height
-      const sourceWidth = (sourceU1 - sourceU0) * image.width
-      const sourceHeight = (sourceV1 - sourceV0) * image.height
-      const destinationX = x + destinationU0 * width
-      const destinationY = y + destinationV0 * height
-      const destinationWidth = (destinationU1 - destinationU0) * width
-      const destinationHeight = (destinationV1 - destinationV0) * height
-      if (destinationWidth <= .1 || destinationHeight <= .1) continue
+      const u0 = column / columns
+      const u1 = (column + 1) / columns
+      const sourceX0 = ((u0 - sourceWindow.u0) / sourceSpanU) * image.width
+      const sourceX1 = ((u1 - sourceWindow.u0) / sourceSpanU) * image.width
+      const destinationX0 = x + warpX(u0) * width
+      const destinationX1 = x + warpX(u1) * width
+      if (sourceX0 < 0 || sourceY0 < 0 || sourceX1 > image.width || sourceY1 > image.height) continue
+      // Recouvrement sous-pixel pour supprimer les joints du maillage.
       ctx.drawImage(
         image,
-        sourceX,
-        sourceY,
-        sourceWidth + .5,
-        sourceHeight + .5,
-        destinationX,
-        destinationY,
-        destinationWidth + 1,
-        destinationHeight + 1,
+        sourceX0,
+        sourceY0,
+        sourceX1 - sourceX0,
+        sourceY1 - sourceY0,
+        destinationX0,
+        destinationY0,
+        destinationX1 - destinationX0 + .35,
+        destinationY1 - destinationY0 + .35,
       )
     }
   }
@@ -2633,6 +2843,11 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
   // pseudo-QHD 3072×2370 tout en restant nettement supérieur au Full HD.
   const width = 2560
   const height = 1975
+  // Le petit rendu MapLibre indépendant se termine AVANT l'allocation du QHD
+  // 2D ; on n'empile pas deux grands contextes graphiques en mémoire.
+  const basemapCapture = options.showBasemap
+    ? await renderGameMapExportBasemap(model.bounds, { width: 1120, height: 1120 })
+    : null
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -2642,6 +2857,8 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
   const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true })
   if (!ctx) throw new Error('Canvas 2D indisponible.')
 
+  const effectiveLayout: GameWorldExportLayout = options.layout ?? 'READABLE'
+  const palette = exportFramePalette(effectiveLayout)
   const scale = Math.min(width / 2048, height / 1580)
   const outer = Math.max(22 * scale, 16)
   const showStationIndex = options.showStationIndex !== false
@@ -2667,7 +2884,7 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
   ctx.fillRect(0, 0, width, height)
 
   roundRectPath(ctx, frameLeft, frameTop, frameWidth, frameHeight, frameRadius)
-  ctx.fillStyle = '#0a1116'
+  ctx.fillStyle = palette.frameFill
   ctx.fill()
   ctx.strokeStyle = 'rgba(255,255,255,.32)'
   ctx.lineWidth = Math.max(1, 1.2 * scale)
@@ -2697,7 +2914,9 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
   const stationNormalized = model.stations.map(station => normalizedGeographic(station.longitude, station.latitude))
   const focusU = medianNumber(stationNormalized.map(point => point.u))
   const focusV = medianNumber(stationNormalized.map(point => point.v))
-  const densityExponent = model.stations.length >= 300 ? .44 : model.stations.length >= 180 ? .50 : .58
+  // Un vrai plan de transport agrandit volontairement la ville-centre : les
+  // espaces interurbains perdent un peu de place, mais les métros ressortent.
+  const densityExponent = model.stations.length >= 300 ? .31 : model.stations.length >= 180 ? .34 : model.stations.length >= 90 ? .41 : .51
   const warpX = (value: number) => options.layout === 'READABLE' ? warpExportAxis(value, focusU, densityExponent) : value
   const warpY = (value: number) => options.layout === 'READABLE' ? warpExportAxis(value, focusV, densityExponent) : value
 
@@ -2736,10 +2955,6 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
     drawMunicipalityBackground(ctx, model.municipalities, project, scale)
     await yieldExportFrame()
 
-    const basemapCapture = await captureGameMapBasemap(model.bounds, {
-      width: Math.round(contentWidth),
-      height: Math.round(contentHeight),
-    })
     if (basemapCapture?.dataUrl) {
       const background = await new Promise<HTMLImageElement | null>(resolve => {
         const image = new Image()
@@ -2762,18 +2977,31 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
         // Pas de `ctx.filter` ici : sur certains pilotes ce filtre basculait le
         // grand Canvas2D vers une surface accélérée et provoquait le flash blanc /
         // l'encodage noir. L'assombrissement est obtenu uniquement par alpha + voile.
-        ctx.globalAlpha = .24
-        drawWarpedBasemap(
-          ctx,
-          background,
-          contentLeft,
-          contentTop,
-          contentWidth,
-          contentHeight,
-          warpX,
-          warpY,
-          sourceWindow,
-        )
+        ctx.globalAlpha = .70
+        if (options.layout === 'GEOGRAPHIC') {
+          drawGeographicBasemap(
+            ctx,
+            background,
+            contentLeft,
+            contentTop,
+            contentWidth,
+            contentHeight,
+            sourceWindow,
+          )
+        }
+        else {
+          drawWarpedBasemap(
+            ctx,
+            background,
+            contentLeft,
+            contentTop,
+            contentWidth,
+            contentHeight,
+            warpX,
+            warpY,
+            sourceWindow,
+          )
+        }
         ctx.globalAlpha = 1
         ctx.restore()
       }
@@ -2782,14 +3010,14 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
 
   // Voile léger : le fond cartographique reste visible mais ne concurrence jamais
   // le réseau, exactement comme sur un plan imprimé professionnel.
-  ctx.fillStyle = options.showBasemap ? 'rgba(3,8,12,.16)' : '#0d171c'
+  ctx.fillStyle = options.showBasemap ? 'rgba(3,8,12,.12)' : palette.frameFill
   ctx.fillRect(frameLeft, frameTop, frameWidth, frameHeight)
 
   // Même grille 1–11 / A–K que les grands plans régionaux : elle sert également
   // de référence à l'index alphabétique des stations.
   const gridColumns = 11
   const gridRows = 11
-  ctx.strokeStyle = 'rgba(224,237,240,.075)'
+  ctx.strokeStyle = palette.grid
   ctx.lineWidth = Math.max(.7, scale * .72)
   for (let column = 1; column < gridColumns; column += 1) {
     const x = frameLeft + frameWidth * column / gridColumns
@@ -2802,8 +3030,12 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
 
   await yieldExportFrame()
 
-  const effectiveLayout: GameWorldExportLayout = options.layout ?? 'READABLE'
-  const schematic = buildSchematicNetwork(model.lines, project, scale, effectiveLayout)
+  const schematic = buildSchematicNetwork(model.lines, project, scale, effectiveLayout, {
+    left: contentLeft,
+    top: contentTop,
+    right: contentLeft + contentWidth,
+    bottom: contentTop + contentHeight,
+  })
   const occurrences = stationOccurrenceMap(model.lines)
   const lanePlan = buildSchematicLanePlan(schematic, model.lines, scale)
 
@@ -3059,7 +3291,7 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
     renderedPaths.push({
       line,
       points: pathPoints,
-      width: Math.max(2.05 * scale, modeWidth * .52 * scale),
+      width: Math.max(1.9 * scale, modeWidth * exportModeWidthFactor(line.mode, effectiveLayout) * scale),
       corridorCount: maxCorridorCount,
     })
   }
@@ -3075,16 +3307,48 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
     pathsByLine.set(path.line.id, list)
   }
 
+  const modePaintingOrder = (mode: GameTransportMode) => {
+    switch (mode) {
+      case 'BUS': case 'CAR': case 'BRT': case 'CABLE': case 'FERRY': return 0
+      case 'TRAIN': case 'TER': case 'TGV': return 1
+      case 'RER': return 2
+      case 'TRAM': return 3
+      case 'METRO': return 4
+      default: return 1
+    }
+  }
+  // Les réseaux de proximité arrivent au-dessus du rail interurbain. Les
+  // passages sans correspondance conservent un liséré qui empêche une fausse
+  // jonction au croisement des câbles.
   const lineRenderOrder = [...pathsByLine.entries()].sort((first, second) => {
+    const firstMode = modePaintingOrder(first[1][0]!.line.mode)
+    const secondMode = modePaintingOrder(second[1][0]!.line.mode)
     const firstCount = Math.max(...first[1].map(path => path.corridorCount))
     const secondCount = Math.max(...second[1].map(path => path.corridorCount))
-    return secondCount - firstCount || first[0].localeCompare(second[0])
+    if (effectiveLayout !== 'READABLE') return secondCount - firstCount || first[0].localeCompare(second[0])
+    return firstMode - secondMode || secondCount - firstCount || first[0].localeCompare(second[0])
   })
   const cornerRadius = effectiveLayout === 'READABLE' ? 12.5 * scale : 4 * scale
   for (const [, paths] of lineRenderOrder) {
-    for (const item of paths) drawRoundedCanvasPolyline(ctx, item.points, item.width + 4.4 * scale, 'rgba(2,7,10,.98)', cornerRadius)
-    for (const item of paths) drawRoundedCanvasPolyline(ctx, item.points, item.width + 2.0 * scale, 'rgba(248,251,251,.97)', cornerRadius)
+    for (const item of paths) {
+      const halo = exportLineHalo(item.line.mode, effectiveLayout)
+      drawRoundedCanvasPolyline(ctx, item.points, item.width + halo.outer * scale, palette.outerStroke, cornerRadius)
+    }
+    for (const item of paths) {
+      const halo = exportLineHalo(item.line.mode, effectiveLayout)
+      drawRoundedCanvasPolyline(ctx, item.points, item.width + halo.inner * scale, palette.innerStroke, cornerRadius)
+    }
     for (const item of paths) drawRoundedCanvasPolyline(ctx, item.points, item.width, item.line.color || getTransportModeDefinition(item.line.mode).accent, cornerRadius)
+    if (effectiveLayout === 'READABLE') {
+      // Une voie ferroviaire a un double ruban fin, le métro reste plein, le tram
+      // possède des arrêts carrés et les modes routiers un trait plus discret.
+      // Le fin filet longitudinal distingue Transilien/TER/TGV du RER/métro.
+      for (const item of paths) {
+        if (item.line.mode === 'TRAIN' || item.line.mode === 'TER' || item.line.mode === 'TGV') {
+          drawRoundedCanvasPolyline(ctx, item.points, Math.max(.75 * scale, item.width * .19), 'rgba(255,255,255,.86)', cornerRadius)
+        }
+      }
+    }
   }
 
   await yieldExportFrame()
@@ -3122,6 +3386,7 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
         point,
         lineId: candidate.line.id,
         color: candidate.line.color || getTransportModeDefinition(candidate.line.mode).accent,
+        mode: candidate.line.mode,
         terminus: candidate.terminus,
       })
       lineIds.push(candidate.line.id)
@@ -3184,7 +3449,7 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
     ctx.beginPath()
     ctx.moveTo(first.point.x, first.point.y)
     ctx.lineTo(second.point.x, second.point.y)
-    ctx.strokeStyle = 'rgba(2,7,10,.98)'
+    ctx.strokeStyle = palette.outerStroke
     ctx.lineWidth = 8.2 * scale
     ctx.lineCap = 'round'
     ctx.stroke()
@@ -3192,28 +3457,17 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
     ctx.beginPath()
     ctx.moveTo(first.point.x, first.point.y)
     ctx.lineTo(second.point.x, second.point.y)
-    ctx.strokeStyle = '#f8fbfb'
+    ctx.strokeStyle = palette.innerStroke
     ctx.lineWidth = 5.2 * scale
     ctx.lineCap = 'round'
     ctx.stroke()
   }
 
-  // Les arrêts sont des anneaux posés SUR le câble, pas des trous découpés dans
-  // la ligne. Le centre reprend donc la couleur de la voie concernée : le ruban
-  // reste visuellement continu même avec beaucoup de stations rapprochées.
+  // Les arrêts portent maintenant un symbole par mode : métro en rond,
+  // tram en carré arrondi, rail en cercle renforcé, modes routiers / câble en
+  // losange. Le lecteur distingue enfin la nature des lignes sans zoomer.
   for (const visual of stationVisuals) {
-    for (const stop of visual.trackStops) {
-      const outerRadius = (stop.terminus ? 2.65 : 1.52) * scale
-      const innerRadius = (stop.terminus ? 1.82 : 1.02) * scale
-      ctx.beginPath()
-      ctx.arc(stop.point.x, stop.point.y, outerRadius, 0, Math.PI * 2)
-      ctx.fillStyle = '#f8fbfb'
-      ctx.fill()
-      ctx.beginPath()
-      ctx.arc(stop.point.x, stop.point.y, innerRadius, 0, Math.PI * 2)
-      ctx.fillStyle = stop.color
-      ctx.fill()
-    }
+    for (const stop of visual.trackStops) drawExportTrackStop(ctx, stop, scale, effectiveLayout)
   }
 
 
@@ -3257,22 +3511,71 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
     return true
   }
 
-  const foreignLineCrossingCount = (rect: LabelRect, servedLineIds: ReadonlySet<string>) => {
-    let crossings = 0
-    const padding = 1.8 * scale
-    for (const path of renderedPaths) {
-      if (servedLineIds.has(path.line.id)) continue
-      for (let index = 1; index < path.points.length; index += 1) {
-        const start = path.points[index - 1]!
-        const end = path.points[index]!
-        const segmentLeft = Math.min(start.x, end.x)
-        const segmentRight = Math.max(start.x, end.x)
-        const segmentTop = Math.min(start.y, end.y)
-        const segmentBottom = Math.max(start.y, end.y)
-        if (segmentRight < rect.left - padding || segmentLeft > rect.right + padding
-          || segmentBottom < rect.top - padding || segmentTop > rect.bottom + padding) continue
-        if (segmentIntersectsLabelRect(start, end, rect, padding)) crossings += 1
+  // Index spatial partagé : avec 200–1000 stations, vérifier TOUS les segments
+  // pour chaque candidat de texte coûte beaucoup plus cher que le dessin du plan.
+  // Une grille de 90 px réduit les tests aux seules voies proches du libellé.
+  type LabelTrackSegment = {
+    lineId: string
+    start: ExportCanvasPoint
+    end: ExportCanvasPoint
+    left: number
+    right: number
+    top: number
+    bottom: number
+  }
+  const labelCellSize = 90 * scale
+  const labelCells = new Map<string, number[]>()
+  const labelTrackSegments: LabelTrackSegment[] = []
+  const labelCellKey = (column: number, row: number) => `${column}:${row}`
+  for (const path of renderedPaths) {
+    for (let index = 1; index < path.points.length; index += 1) {
+      const start = path.points[index - 1]!
+      const end = path.points[index]!
+      const segment = {
+        lineId: path.line.id,
+        start,
+        end,
+        left: Math.min(start.x, end.x),
+        right: Math.max(start.x, end.x),
+        top: Math.min(start.y, end.y),
+        bottom: Math.max(start.y, end.y),
       }
+      const segmentIndex = labelTrackSegments.push(segment) - 1
+      const leftCell = Math.floor(segment.left / labelCellSize)
+      const rightCell = Math.floor(segment.right / labelCellSize)
+      const topCell = Math.floor(segment.top / labelCellSize)
+      const bottomCell = Math.floor(segment.bottom / labelCellSize)
+      // Les longs axes traversent plus de cellules, mais gardent un seul index.
+      for (let column = leftCell; column <= rightCell; column += 1) {
+        for (let row = topCell; row <= bottomCell; row += 1) {
+          const key = labelCellKey(column, row)
+          const bucket = labelCells.get(key) ?? []
+          bucket.push(segmentIndex)
+          labelCells.set(key, bucket)
+        }
+      }
+    }
+  }
+
+  const foreignLineCrossingCount = (rect: LabelRect, servedLineIds: ReadonlySet<string>) => {
+    const padding = 1.8 * scale
+    const firstColumn = Math.floor((rect.left - padding) / labelCellSize)
+    const lastColumn = Math.floor((rect.right + padding) / labelCellSize)
+    const firstRow = Math.floor((rect.top - padding) / labelCellSize)
+    const lastRow = Math.floor((rect.bottom + padding) / labelCellSize)
+    const candidates = new Set<number>()
+    for (let column = firstColumn; column <= lastColumn; column += 1) {
+      for (let row = firstRow; row <= lastRow; row += 1) {
+        for (const index of labelCells.get(labelCellKey(column, row)) ?? []) candidates.add(index)
+      }
+    }
+    let crossings = 0
+    for (const index of candidates) {
+      const segment = labelTrackSegments[index]!
+      if (servedLineIds.has(segment.lineId)) continue
+      if (segment.right < rect.left - padding || segment.left > rect.right + padding
+        || segment.bottom < rect.top - padding || segment.top > rect.bottom + padding) continue
+      if (segmentIntersectsLabelRect(segment.start, segment.end, rect, padding)) crossings += 1
     }
     return crossings
   }
@@ -3311,12 +3614,15 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
       // Terminus, bifurcations, gares multi-lignes ET arrêts périphériques peu
       // denses sont garantis. Cela évite de perdre Malesherbes, Beynes,
       // Aulnay-sur-Mauldre, Chantilly, etc. simplement à cause du moteur anti-collision.
-      priority: visual.terminus
-        || branchLabelNodeIds.has(visual.station.physicalId)
-        || visual.lineIds.length > 1
-        || localStationDensity(visual) <= 5
-        ? 0
-        : 1,
+      priority: effectiveLayout === 'READABLE'
+        ? visual.terminus || visual.lineIds.length > 1
+          ? 0
+          : branchLabelNodeIds.has(visual.station.physicalId)
+            ? 1
+            : localStationDensity(visual) <= 3 ? 2 : 3
+        : visual.terminus || visual.lineIds.length > 1
+          || branchLabelNodeIds.has(visual.station.physicalId)
+          || localStationDensity(visual) <= 5 ? 0 : 1,
     }))
     .filter(() => options.labels !== 'NONE')
     .sort((a, b) => a.priority - b.priority || a.visual.station.name.localeCompare(b.visual.station.name, 'fr-FR'))
@@ -3328,15 +3634,18 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
     ctx.textBaseline = 'middle'
     const rawText = visual.station.name
     const text = rawText.length > 38 ? `${rawText.slice(0, 36)}…` : rawText
-    const labelFontPx = (priority === 0 ? 7.85 : options.labels === 'ALL' ? 6.35 : 6.55) * scale
-    ctx.font = `${priority === 0 ? 700 : 600} ${labelFontPx}px Arial, sans-serif`
+    const labelFontPx = (effectiveLayout === 'READABLE'
+      ? priority === 0 ? 9.5 : priority === 1 ? 8.8 : options.labels === 'ALL' ? 7.35 : 7.55
+      : priority === 0 ? 7.85 : options.labels === 'ALL' ? 6.35 : 6.55) * scale
+    ctx.font = `${priority <= 1 ? 700 : 600} ${labelFontPx}px Arial, sans-serif`
     const textWidth = ctx.measureText(text).width
     const boxWidth = textWidth
     const boxHeight = labelFontPx * 1.24
-    const baseGap = (priority === 0 ? 8.2 : 5.8) * scale
+    const baseGap = (effectiveLayout === 'READABLE'
+      ? priority <= 1 ? 10 : 7.4 : priority === 0 ? 8.2 : 5.8) * scale
     const servedLineIds = new Set(visual.lineIds)
     const placements: Array<{ x: number; y: number; anchor: CanvasTextAlign }> = []
-    for (const factor of [1, 1.55, 2.2]) {
+    for (const factor of effectiveLayout === 'READABLE' ? [1, 1.65, 2.5, 3.6, 5.1, 7.0] : [1, 1.55, 2.2]) {
       const gap = baseGap * factor
       placements.push(
         { x: visual.point.x + gap, y: visual.point.y - gap * .55, anchor: 'left' },
@@ -3384,25 +3693,39 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
       if (overlap <= .01 && foreignCrossings === 0) { placed = candidatePlaced; break }
       if (!bestFallback || score < bestFallback.score) bestFallback = candidatePlaced
     }
-    // Les gares structurantes sont garanties. Pour les autres, on accepte un très
-    // léger chevauchement plutôt que de supprimer arbitrairement un nom rural
-    // (Beynes, Malesherbes, etc.).
+    // Un vrai plan ne recouvre pas ses propres noms : même les correspondances
+    // majeures doivent respecter la réserve de texte. Les noms sans place restent
+    // toujours présents dans l'index alphabétique avec leur repère de grille.
     if (!placed && bestFallback) {
       const area = Math.max(1, boxWidth * boxHeight)
-      const acceptableTextOverlap = priority === 0 || bestFallback.overlap / area <= .16
-      // Une gare prioritaire reste nommée même dans une zone très dense, mais on
-      // ne choisit une traversée de câble étranger qu'en dernier recours.
-      if (acceptableTextOverlap && (bestFallback.foreignCrossings === 0 || priority === 0)) placed = bestFallback
+      if (bestFallback.overlap / area <= .025 && bestFallback.foreignCrossings === 0) placed = bestFallback
     }
     if (!placed) continue
     occupied.push(placed.rect)
 
+    // Quand le nom est déporté pour libérer un faisceau dense, une amorce fine
+    // indique la gare visée sans s'ajouter à la topologie du réseau.
+    const labelDistance = exportDistance(visual.point, { x: placed.x, y: placed.y })
+    if (labelDistance > 30 * scale) {
+      const textTarget = {
+        x: placed.anchor === 'right' ? placed.rect.right : placed.anchor === 'left' ? placed.rect.left : placed.x,
+        y: placed.y,
+      }
+      const toward = normalizedCanvasVector(textTarget.x - visual.point.x, textTarget.y - visual.point.y)
+      ctx.beginPath()
+      ctx.moveTo(visual.point.x + toward.x * 5.2 * scale, visual.point.y + toward.y * 5.2 * scale)
+      ctx.lineTo(textTarget.x - toward.x * 3 * scale, textTarget.y - toward.y * 3 * scale)
+      ctx.lineWidth = Math.max(.55, .65 * scale)
+      ctx.strokeStyle = effectiveLayout === 'READABLE' ? 'rgba(84,103,116,.46)' : 'rgba(239,247,250,.42)'
+      ctx.stroke()
+    }
+
     ctx.textAlign = placed.anchor
-    ctx.font = `${priority === 0 ? 700 : 600} ${labelFontPx}px Arial, sans-serif`
+    ctx.font = `${priority <= 1 ? 700 : 600} ${labelFontPx}px Arial, sans-serif`
     ctx.lineWidth = Math.max(2.45 * scale, 1.6)
-    ctx.strokeStyle = 'rgba(1,6,9,.99)'
+    ctx.strokeStyle = palette.labelStroke
     ctx.strokeText(text, placed.x, placed.y)
-    ctx.fillStyle = '#f9fbfb'
+    ctx.fillStyle = palette.labelFill
     ctx.fillText(text, placed.x, placed.y)
   }
   ctx.textAlign = 'left'
@@ -3410,7 +3733,7 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
   ctx.restore()
 
   // Repères de grille, utilisés aussi par l'index.
-  ctx.fillStyle = 'rgba(246,250,250,.94)'
+  ctx.fillStyle = palette.gridLabel
   ctx.font = `700 ${9.6 * scale}px Arial, sans-serif`
   ctx.textAlign = 'center'
   for (let column = 0; column < gridColumns; column += 1) {
@@ -3469,7 +3792,7 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
       ctx.fillText(translatedExportText('Lignes').toUpperCase(), sidebarX, y)
       y += 18 * scale
 
-      const modeOrder: GameTransportMode[] = ['RER', 'TRAIN', 'METRO', 'TRAM', 'BRT', 'BUS', 'CABLE', 'FERRY']
+      const modeOrder: GameTransportMode[] = ['TGV', 'TER', 'RER', 'TRAIN', 'METRO', 'TRAM', 'CAR', 'BRT', 'BUS', 'CABLE', 'FERRY']
       const order = new Map(modeOrder.map((mode, index) => [mode, index]))
       const legendLines = [...model.lines].sort((a, b) => (order.get(a.mode) ?? 99) - (order.get(b.mode) ?? 99) || String(a.shortCode).localeCompare(String(b.shortCode), 'fr-FR'))
       const legendColumns = contentWidth >= 440 * scale ? 2 : 1
@@ -3576,6 +3899,14 @@ export async function renderWorldExportPng(model: GameWorldExportModel, options:
   ctx.textAlign = 'right'
   ctx.textBaseline = 'bottom'
   ctx.fillStyle = 'rgba(245,250,250,.66)'
+  if (options.showBasemap && basemapCapture) {
+    ctx.fillStyle = 'rgba(225,238,242,.8)'
+    ctx.font = `500 ${9 * scale}px Arial, sans-serif`
+    ctx.textAlign = 'left'
+    ctx.fillText(`© OpenStreetMap contributors · ${basemapCapture.provider}`, outer, height - 11 * scale)
+    ctx.textAlign = 'right'
+    ctx.fillStyle = 'rgba(245,250,250,.66)'
+  }
   ctx.font = `700 ${11 * scale}px Arial, sans-serif`
   ctx.fillText('CLU Métropole', width - outer, height - 11 * scale)
   ctx.textAlign = 'left'

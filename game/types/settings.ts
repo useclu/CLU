@@ -3,10 +3,14 @@ import type { GameGraphicsQuality } from './freePlay'
 
 export type GameTextSize = 'SMALL' | 'MEDIUM' | 'LARGE'
 export type GameTheme = 'DARK' | 'LIGHT'
+export type GameMapTheme = 'DARK' | 'LIGHT'
+export type GamePoiDisplayLevel = 'FULL' | 'MEDIUM' | 'MINIMUM' | 'OFF'
 
 export interface GameUserSettings {
   locale: GameLocale
   theme: GameTheme
+  mapTheme: GameMapTheme
+  poiDisplayLevel: GamePoiDisplayLevel
   graphicsQuality: GameGraphicsQuality
   vehicleAnimations: boolean
   buildings2D5: boolean

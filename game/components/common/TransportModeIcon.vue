@@ -16,10 +16,25 @@ defineProps<{ mode: GameTransportMode }>()
       <path d="M12 7l-2-3M20 7l2-3M9 13h14M10 22l-2 4M22 22l2 4" />
       <circle cx="12" cy="18" r="1.2" /><circle cx="20" cy="18" r="1.2" />
     </g>
+    <g v-else-if="mode === 'TGV'">
+      <path d="M6 22c2-8 5-15 12-17 4 2 6 6 7 12l-3 6H9l-3-1Z" />
+      <path d="M12 11h8M10 16h12M11 25l-2 3M21 25l2 3" />
+      <circle cx="13" cy="20" r="1.1" /><circle cx="20" cy="20" r="1.1" />
+    </g>
+    <g v-else-if="mode === 'TER'">
+      <path d="M8 6c0-2 2-3 8-3s8 1 8 3v16c0 2-2 4-4 4h-8c-2 0-4-2-4-4V6Z" />
+      <path d="M10 10h12M10 14h12M12 26l-3 3M20 26l3 3M16 3v23" />
+      <circle cx="12" cy="20" r="1.2" /><circle cx="20" cy="20" r="1.2" />
+    </g>
     <g v-else-if="mode === 'RER' || mode === 'TRAIN'">
       <path d="M8 6c0-2 2-3 8-3s8 1 8 3v16c0 2-2 4-4 4h-8c-2 0-4-2-4-4V6Z" />
       <path d="M10 10h12M10 14h12M12 26l-3 3M20 26l3 3" />
       <circle cx="12" cy="20" r="1.2" /><circle cx="20" cy="20" r="1.2" />
+    </g>
+    <g v-else-if="mode === 'CAR'">
+      <rect x="5" y="7" width="22" height="17" rx="4" />
+      <path d="M8 11h16M8 16h16M9 24v3M23 24v3" />
+      <circle cx="11" cy="20" r="1.2" /><circle cx="21" cy="20" r="1.2" />
     </g>
     <g v-else-if="mode === 'BUS' || mode === 'BRT'">
       <rect x="6" y="5" width="20" height="20" rx="4" />

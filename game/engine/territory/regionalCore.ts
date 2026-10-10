@@ -8,6 +8,8 @@ export interface RegionalAnchorPlace {
   longitude: number
   latitude: number
   weight?: number
+  /** Population réelle lorsque la source WORLD la connaît. */
+  population?: number | null
 }
 
 export interface RegionalGenerationProfile {
@@ -535,9 +537,14 @@ export function generateRegionalTerritory(profile: RegionalGenerationProfile): R
   const cells = voronoiCells(sites, bounds)
   const usedNames = new Set<string>()
   const anchorNames = new Map<number, string>()
+  const anchorPopulations = new Map<number, number>()
   centers.forEach((center) => {
     const siteIndex = nearestIndex([center.longitude, center.latitude], sites)
     if (!anchorNames.has(siteIndex)) anchorNames.set(siteIndex, center.name)
+    const population = Number(center.population)
+    if (Number.isFinite(population) && population > 0 && !anchorPopulations.has(siteIndex)) {
+      anchorPopulations.set(siteIndex, Math.max(900, Math.round(population)))
+    }
   })
 
   const sigma = profile.structure === 'MONOCENTRIC' ? .16 : profile.structure === 'POLYCENTRIC' ? .12 : .18
@@ -551,7 +558,16 @@ export function generateRegionalTerritory(profile: RegionalGenerationProfile): R
     }
     return Math.max(.02, weight * (.68 + random() * .72))
   })
-  const totalWeight = rawWeights.reduce((sum, weight) => sum + weight, 0)
+  const anchoredPopulationTotal = [...anchorPopulations.values()].reduce((sum, value) => sum + value, 0)
+  const freeSiteIndexes = rawWeights.map((_, index) => index).filter(index => !anchorPopulations.has(index))
+  const freeWeightTotal = freeSiteIndexes.reduce((sum, index) => sum + rawWeights[index]!, 0)
+  // Une vraie ville connue ne doit pas perdre sa population parce que le maillage
+  // de simulation découpe son environnement. Si les ancres dépassent la cible
+  // estimée, elles restent prioritaires et seules les cellules artificielles
+  // reçoivent le reliquat minimal.
+  const minimumFreePopulation = freeSiteIndexes.length * 900
+  const effectiveTargetPopulation = Math.max(profile.targetPopulation, anchoredPopulationTotal + minimumFreePopulation)
+  const distributablePopulation = Math.max(0, effectiveTargetPopulation - anchoredPopulationTotal)
 
   const municipalities: GameMunicipality[] = []
   const municipalityFeatures: GeneratedFeature[] = []
@@ -565,10 +581,17 @@ export function generateRegionalTerritory(profile: RegionalGenerationProfile): R
     const department = departmentStyles[departmentIndex]!
     const code = `${profile.id.slice(0, 3)}-${String(index + 1).padStart(3, '0')}`
     const anchorName = anchorNames.get(index)
-    const name = anchorName && !usedNames.has(anchorName)
+    // Les localités réelles peuvent avoir des homonymes. Leur code et leur
+    // géométrie restent uniques : on conserve donc le vrai nom au lieu de
+    // renommer artificiellement le second homonyme.
+    const name = anchorName
       ? (usedNames.add(anchorName), anchorName)
       : proceduralMunicipalityName(random, usedNames, profile.municipalityNamePrefix ?? '', profile.preferredLocale)
-    const population = Math.max(900, Math.round(profile.targetPopulation * rawWeights[index]! / totalWeight))
+    const anchoredPopulation = anchorPopulations.get(index)
+    const population = anchoredPopulation ?? Math.max(
+      900,
+      Math.round(distributablePopulation * rawWeights[index]! / Math.max(1e-9, freeWeightTotal)),
+    )
     const geometry = { type: 'Polygon' as const, coordinates: [polygon] }
     const municipality: GameMunicipality = {
       code,
@@ -915,7 +938,7 @@ export function generateRegionalTerritory(profile: RegionalGenerationProfile): R
   }
   const definition: GameTerritoryMapDefinition = {
     id: profile.id,
-    kind: profile.id === 'GENERATED' ? 'GENERATED' : 'LOCAL',
+    kind: profile.id === 'GENERATED' ? 'GENERATED' : profile.id === 'WORLD' ? 'WORLD' : 'LOCAL',
     label: profile.label,
     basemapPath: null,
     municipalityGeoJsonPaths: [],

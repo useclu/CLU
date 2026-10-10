@@ -1,5 +1,6 @@
 import {
   computed,
+  watch,
 } from 'vue'
 
 import {
@@ -18,6 +19,8 @@ import {
   generateGeneratedTerritory,
   normalizeGeneratedTerritorySettings,
 } from '../engine/territory/generator'
+import { generateWorldTerritory, normalizeWorldTerritorySettings, worldPlaceAnchorsSignature } from '../engine/territory/world'
+import type { GameWorldPlaceAnchor } from '../types/worldTerritory'
 import { getRealTerritoryMunicipalityFallback } from '../engine/territory/realTerritories'
 
 import type {
@@ -35,6 +38,17 @@ import { useMetropoleGame } from './useMetropoleGame'
 
 const municipalityCache = new Map<string, GameMunicipality[]>()
 const municipalityLoadPromises = new Map<string, Promise<boolean>>()
+const MUNICIPALITY_CACHE_MAX_ENTRIES = 24
+
+function setMunicipalityCache(key: string, municipalities: GameMunicipality[]) {
+  municipalityCache.delete(key)
+  municipalityCache.set(key, municipalities)
+  while (municipalityCache.size > MUNICIPALITY_CACHE_MAX_ENTRIES) {
+    const oldest = municipalityCache.keys().next().value as string | undefined
+    if (!oldest) break
+    municipalityCache.delete(oldest)
+  }
+}
 
 function createGameTerritory() {
   const network = useGameNetwork()
@@ -63,15 +77,44 @@ function createGameTerritory() {
     () => normalizeGeneratedTerritorySettings(game.state.value.save?.data.generatedTerritory),
   )
 
-  const cacheKey = computed(() => territoryId.value === 'GENERATED'
-    ? `GENERATED:${game.state.value.save?.id ?? 'none'}:${generatedSettings.value?.seed ?? 'missing'}:${generatedSettings.value?.size ?? ''}:${generatedSettings.value?.density ?? ''}:${generatedSettings.value?.structure ?? ''}:${generatedSettings.value?.water ?? ''}`
-    : territoryId.value)
+  const worldSettings = computed(
+    () => normalizeWorldTerritorySettings(game.state.value.save?.data.worldTerritory),
+  )
+
+  const cacheKey = computed(() => {
+    if (territoryId.value === 'GENERATED') {
+      return `GENERATED:${game.state.value.save?.id ?? 'none'}:${generatedSettings.value?.seed ?? 'missing'}:${generatedSettings.value?.size ?? ''}:${generatedSettings.value?.density ?? ''}:${generatedSettings.value?.structure ?? ''}:${generatedSettings.value?.water ?? ''}`
+    }
+    if (territoryId.value === 'WORLD') {
+      const world = worldSettings.value
+      return world
+        ? `WORLD:${world.countryCode}:${world.cityName}:${world.latitude.toFixed(5)}:${world.longitude.toFixed(5)}:${world.radiusKm}:${worldPlaceAnchorsSignature(world.placeAnchors)}`
+        : 'WORLD:missing'
+    }
+    return territoryId.value
+  })
+
+  // WORLD est généré localement à partir de la sauvegarde. Lorsqu'un snapshot
+  // Online apporte de nouvelles ancres territoriales, le cache doit être prêt
+  // immédiatement : sinon les communes deviennent momentanément vides jusqu'à
+  // un nouvel appel explicite à ensureLoaded().
+  watch(cacheKey, key => {
+    if (territoryId.value !== 'WORLD') return
+    const settings = worldSettings.value
+    if (!settings || municipalityCache.has(key)) return
+    setMunicipalityCache(key, generateWorldTerritory(settings).municipalities)
+    revision.value += 1
+  }, { immediate: true })
 
   const territoryDefinition = computed(
     () => {
       if (territoryId.value === 'GENERATED') {
         if (!generatedSettings.value) throw new Error('La carte fictive ne contient pas de seed exploitable.')
         return generateGeneratedTerritory(generatedSettings.value).definition
+      }
+      if (territoryId.value === 'WORLD') {
+        if (!worldSettings.value) throw new Error('La zone mondiale ne contient pas de ville exploitable.')
+        return generateWorldTerritory(worldSettings.value).definition
       }
       return getGameTerritoryMapDefinition(territoryId.value)
     },
@@ -171,7 +214,15 @@ function createGameTerritory() {
       const settings = generatedSettings.value
       if (!settings) throw new Error('La carte fictive ne contient pas de seed exploitable.')
       const runtime = generateGeneratedTerritory(settings)
-      municipalityCache.set(cacheKey.value, runtime.municipalities)
+      setMunicipalityCache(cacheKey.value, runtime.municipalities)
+      revision.value += 1
+      return true
+    }
+    if (targetTerritory === 'WORLD') {
+      const settings = worldSettings.value
+      if (!settings) throw new Error('La zone mondiale ne contient pas de ville exploitable.')
+      const runtime = generateWorldTerritory(settings)
+      setMunicipalityCache(cacheKey.value, runtime.municipalities)
       revision.value += 1
       return true
     }
@@ -199,7 +250,7 @@ function createGameTerritory() {
     if ((localAdministrativeDataMissing || results.length === 0) && targetTerritory !== 'ILE_DE_FRANCE') {
       const fallback = getRealTerritoryMunicipalityFallback(targetTerritory)
       if (fallback) {
-        municipalityCache.set(cacheKey.value, fallback.municipalities)
+        setMunicipalityCache(cacheKey.value, fallback.municipalities)
         revision.value += 1
         return true
       }
@@ -229,7 +280,7 @@ function createGameTerritory() {
       )
     }
 
-    municipalityCache.set(cacheKey.value, loaded)
+    setMunicipalityCache(cacheKey.value, loaded)
     revision.value += 1
 
     return true
@@ -269,16 +320,56 @@ function createGameTerritory() {
     return await promise
   }
 
+
+  async function updateWorldPlaceAnchors(anchors: GameWorldPlaceAnchor[]) {
+    const save = game.state.value.save
+    if (!save || save.territory !== 'WORLD') return false
+    const current = normalizeWorldTerritorySettings(save.data.worldTerritory)
+    if (!current) return false
+
+    // Les localités servent à initialiser la géographie de simulation. Une fois
+    // le réseau commencé, on ne déplace jamais les zones parce que de nouvelles
+    // tuiles OSM viennent d'être chargées pendant un déplacement de la carte.
+    if ((save.data.network.lines ?? []).length > 0 && (current.placeAnchors?.length ?? 0) > 0) return false
+
+    const merged = new Map<string, GameWorldPlaceAnchor>()
+    for (const place of [...(current.placeAnchors ?? []), ...anchors]) {
+      const name = String(place?.name ?? '').trim()
+      const longitude = Number(place?.longitude)
+      const latitude = Number(place?.latitude)
+      if (!name || !Number.isFinite(longitude) || !Number.isFinite(latitude)) continue
+      const key = `${name.toLocaleLowerCase()}|${longitude.toFixed(3)}|${latitude.toFixed(3)}`
+      if (!merged.has(key)) merged.set(key, { ...place, name, longitude, latitude })
+    }
+    const rank = (kind?: GameWorldPlaceAnchor['kind']) => kind === 'CITY' ? 0 : kind === 'TOWN' ? 1 : kind === 'VILLAGE' ? 2 : kind === 'SUBURB' ? 3 : 4
+    const mergedAnchors = [...merged.values()]
+      .sort((a, b) => rank(a.kind) - rank(b.kind) || Number(b.population ?? 0) - Number(a.population ?? 0) || a.name.localeCompare(b.name))
+      .slice(0, 56)
+
+    const next = normalizeWorldTerritorySettings({ ...current, placeAnchors: mergedAnchors })
+    if (!next) return false
+    if (worldPlaceAnchorsSignature(current.placeAnchors) === worldPlaceAnchorsSignature(next.placeAnchors)) return false
+
+    save.data.worldTerritory = next
+    const runtime = generateWorldTerritory(next)
+    setMunicipalityCache(cacheKey.value, runtime.municipalities)
+    revision.value += 1
+    await game.persistCurrentGame()
+    return true
+  }
+
   return {
     territoryId,
     territoryDefinition,
     generatedSettings,
+    worldSettings,
     municipalities,
     isLoaded,
     isLoading,
     loadError,
     summary,
     ensureLoaded,
+    updateWorldPlaceAnchors,
   }
 }
 

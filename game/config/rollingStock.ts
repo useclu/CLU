@@ -39,6 +39,9 @@ Record<GameTransportMode, GameRollingStockDefinition> = {
   TRAM: { mode: 'TRAM', vehicleLabel: 'rame', vehicleLabelPlural: 'rames', purchaseCost: 4_000_000, maintenanceCostPerVehiclePerDay: 1_600, turnaroundMinutes: 6 },
   RER: { mode: 'RER', vehicleLabel: 'rame', vehicleLabelPlural: 'rames', purchaseCost: 18_000_000, maintenanceCostPerVehiclePerDay: 6_500, turnaroundMinutes: 10 },
   TRAIN: { mode: 'TRAIN', vehicleLabel: 'train', vehicleLabelPlural: 'trains', purchaseCost: 15_000_000, maintenanceCostPerVehiclePerDay: 5_500, turnaroundMinutes: 15 },
+  TER: { mode: 'TER', vehicleLabel: 'rame régionale', vehicleLabelPlural: 'rames régionales', purchaseCost: 12_500_000, maintenanceCostPerVehiclePerDay: 4_800, turnaroundMinutes: 14 },
+  TGV: { mode: 'TGV', vehicleLabel: 'rame grande vitesse', vehicleLabelPlural: 'rames grande vitesse', purchaseCost: 29_000_000, maintenanceCostPerVehiclePerDay: 9_500, turnaroundMinutes: 24 },
+  CAR: { mode: 'CAR', vehicleLabel: 'car', vehicleLabelPlural: 'cars', purchaseCost: 240_000, maintenanceCostPerVehiclePerDay: 145, turnaroundMinutes: 12 },
   BUS: { mode: 'BUS', vehicleLabel: 'bus', vehicleLabelPlural: 'bus', purchaseCost: 350_000, maintenanceCostPerVehiclePerDay: 180, turnaroundMinutes: 8 },
   BRT: { mode: 'BRT', vehicleLabel: 'véhicule', vehicleLabelPlural: 'véhicules', purchaseCost: 650_000, maintenanceCostPerVehiclePerDay: 300, turnaroundMinutes: 8 },
   CABLE: { mode: 'CABLE', vehicleLabel: 'cabine', vehicleLabelPlural: 'cabines', purchaseCost: 65_000, maintenanceCostPerVehiclePerDay: 22, turnaroundMinutes: 1 },
@@ -67,6 +70,18 @@ export const GAME_ROLLING_STOCK_MODELS: GameRollingStockModelDefinition[] = [
   { id: 'train-standard', mode: 'TRAIN', name: 'Train N20', generationLabel: 'Standard', introducedYear: 2011, composition: '8 voitures', lengthMeters: 205, capacity: 1_200, maxSpeedKmh: 160, commercialSpeedMultiplier: 1, reliability: .94, energyIndex: 1, purchaseCost: 15_000_000, maintenanceCostPerVehiclePerDay: 5_500 },
   { id: 'train-ng', mode: 'TRAIN', name: 'Train N30', generationLabel: 'Nouvelle génération', introducedYear: 2025, composition: '9 voitures', lengthMeters: 220, capacity: 1_380, maxSpeedKmh: 180, commercialSpeedMultiplier: 1.07, reliability: .98, energyIndex: .84, purchaseCost: 19_500_000, maintenanceCostPerVehiclePerDay: 5_100 },
 
+  { id: 'ter-classic', mode: 'TER', name: 'Régional R160', generationLabel: 'Classique', introducedYear: 2004, composition: '5 caisses', lengthMeters: 110, capacity: 520, maxSpeedKmh: 160, commercialSpeedMultiplier: .94, reliability: .89, energyIndex: 1.10, purchaseCost: 9_800_000, maintenanceCostPerVehiclePerDay: 5_250 },
+  { id: 'ter-standard', mode: 'TER', name: 'Régional R200', generationLabel: 'Standard', introducedYear: 2018, composition: '6 caisses', lengthMeters: 135, capacity: 720, maxSpeedKmh: 200, commercialSpeedMultiplier: 1, reliability: .95, energyIndex: 1, purchaseCost: 12_500_000, maintenanceCostPerVehiclePerDay: 4_800 },
+  { id: 'ter-ng', mode: 'TER', name: 'Régional RX', generationLabel: 'Nouvelle génération', introducedYear: 2026, composition: '7 caisses', lengthMeters: 150, capacity: 840, maxSpeedKmh: 200, commercialSpeedMultiplier: 1.08, reliability: .985, energyIndex: .80, purchaseCost: 16_800_000, maintenanceCostPerVehiclePerDay: 4_300 },
+
+  { id: 'tgv-classic', mode: 'TGV', name: 'GV 300', generationLabel: 'Classique', introducedYear: 2002, composition: '8 voitures', lengthMeters: 200, capacity: 510, maxSpeedKmh: 300, commercialSpeedMultiplier: .93, reliability: .89, energyIndex: 1.12, purchaseCost: 23_000_000, maintenanceCostPerVehiclePerDay: 10_800 },
+  { id: 'tgv-standard', mode: 'TGV', name: 'GV 320', generationLabel: 'Standard', introducedYear: 2020, composition: '9 voitures', lengthMeters: 210, capacity: 610, maxSpeedKmh: 320, commercialSpeedMultiplier: 1, reliability: .95, energyIndex: 1, purchaseCost: 29_000_000, maintenanceCostPerVehiclePerDay: 9_500 },
+  { id: 'tgv-ng', mode: 'TGV', name: 'GV X', generationLabel: 'Nouvelle génération', introducedYear: 2026, composition: '10 voitures', lengthMeters: 225, capacity: 700, maxSpeedKmh: 350, commercialSpeedMultiplier: 1.09, reliability: .985, energyIndex: .81, purchaseCost: 36_000_000, maintenanceCostPerVehiclePerDay: 8_700 },
+
+  { id: 'car-classic', mode: 'CAR', name: 'Coach C12', generationLabel: 'Classique', introducedYear: 2010, composition: '12 m', lengthMeters: 12, capacity: 49, maxSpeedKmh: 100, commercialSpeedMultiplier: .94, reliability: .90, energyIndex: 1.12, purchaseCost: 175_000, maintenanceCostPerVehiclePerDay: 165 },
+  { id: 'car-standard', mode: 'CAR', name: 'Coach C14', generationLabel: 'Standard', introducedYear: 2021, composition: '14 m', lengthMeters: 14, capacity: 55, maxSpeedKmh: 100, commercialSpeedMultiplier: 1, reliability: .96, energyIndex: 1, purchaseCost: 240_000, maintenanceCostPerVehiclePerDay: 145 },
+  { id: 'car-ng', mode: 'CAR', name: 'Coach E14', generationLabel: 'Électrique', introducedYear: 2026, composition: '14 m', lengthMeters: 14, capacity: 59, maxSpeedKmh: 100, commercialSpeedMultiplier: 1.04, reliability: .98, energyIndex: .68, purchaseCost: 365_000, maintenanceCostPerVehiclePerDay: 128 },
+
   { id: 'bus-classic', mode: 'BUS', name: 'Bus B12', generationLabel: 'Diesel classique', introducedYear: 2004, composition: '12 m', lengthMeters: 12, capacity: 70, maxSpeedKmh: 90, commercialSpeedMultiplier: .95, reliability: .88, energyIndex: 1.18, purchaseCost: 240_000, maintenanceCostPerVehiclePerDay: 220 },
   { id: 'bus-standard', mode: 'BUS', name: 'Bus B18', generationLabel: 'Standard', introducedYear: 2018, composition: '18 m articulé', lengthMeters: 18, capacity: 90, maxSpeedKmh: 90, commercialSpeedMultiplier: 1, reliability: .94, energyIndex: 1, purchaseCost: 350_000, maintenanceCostPerVehiclePerDay: 180 },
   { id: 'bus-ng', mode: 'BUS', name: 'Bus E18', generationLabel: 'Électrique', introducedYear: 2025, composition: '18 m articulé', lengthMeters: 18, capacity: 112, maxSpeedKmh: 90, commercialSpeedMultiplier: 1.04, reliability: .97, energyIndex: .66, purchaseCost: 560_000, maintenanceCostPerVehiclePerDay: 155 },
@@ -89,6 +104,9 @@ const DEFAULT_MODEL_BY_MODE: Record<GameTransportMode, string> = {
   TRAM: 'tram-standard',
   RER: 'rer-standard',
   TRAIN: 'train-standard',
+  TER: 'ter-standard',
+  TGV: 'tgv-standard',
+  CAR: 'car-standard',
   BUS: 'bus-standard',
   BRT: 'brt-standard',
   CABLE: 'cable-standard',
@@ -118,6 +136,9 @@ const GAME_DEPOT_SLOT_COST: Record<GameTransportMode, number> = {
   TRAM: 380_000,
   RER: 1_100_000,
   TRAIN: 1_000_000,
+  TER: 820_000,
+  TGV: 1_850_000,
+  CAR: 62_000,
   BUS: 85_000,
   BRT: 140_000,
   CABLE: 32_000,
@@ -128,7 +149,9 @@ export function calculateDepotConstructionCost(mode: GameTransportMode, capacity
   const requested = Number.isFinite(capacity) ? capacity : 1
   const slots = Math.min(500, Math.max(1, Math.floor(requested)))
   const fixed = mode === 'RER' || mode === 'TRAIN' ? 12_000_000
-    : mode === 'METRO' ? 10_000_000
+    : mode === 'TER' ? 9_000_000
+      : mode === 'TGV' ? 24_000_000
+        : mode === 'METRO' ? 10_000_000
       : mode === 'TRAM' ? 5_000_000
         : mode === 'CABLE' ? 3_500_000
           : mode === 'FERRY' ? 4_500_000

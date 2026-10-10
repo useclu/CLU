@@ -16,6 +16,13 @@ export const GAME_PROJECT_CREDIT_MAX = 20_000_000_000
 /** V41 : limite la taille des sauvegardes longue durée sans perdre les totaux cumulés. */
 export const GAME_ECONOMY_TRANSACTION_HISTORY_LIMIT = 1200
 
+/** V55 — accessibilité PMR : surcoût volontairement supérieur aux aides cumulées. */
+export const GAME_PMR_STATION_SURCHARGE_RATE = 0.35
+/** Au maximum 50 % du surcoût PMR peut être récupéré via les primes publiques. */
+export const GAME_PMR_SUBSIDY_RECOVERY_RATE = 0.50
+/** À chaque dotation publique, 10 % du surcoût initial peut être versé par station. */
+export const GAME_PMR_SUBSIDY_TRANCHE_RATE = 0.10
+
 export interface GameModeEconomyDefinition {
   mode: GameTransportMode
   infrastructurePerKm: number
@@ -52,6 +59,24 @@ Record<GameTransportMode, GameModeEconomyDefinition> = {
     mode: 'TRAIN',
     infrastructurePerKm: 70_000_000,
     stationCost: 25_000_000,
+  },
+
+  TER: {
+    mode: 'TER',
+    infrastructurePerKm: 55_000_000,
+    stationCost: 18_000_000,
+  },
+
+  TGV: {
+    mode: 'TGV',
+    infrastructurePerKm: 140_000_000,
+    stationCost: 80_000_000,
+  },
+
+  CAR: {
+    mode: 'CAR',
+    infrastructurePerKm: 260_000,
+    stationCost: 180_000,
   },
 
   BUS: {

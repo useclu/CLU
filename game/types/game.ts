@@ -39,6 +39,7 @@ import type {
 } from './generatedTerritory'
 
 import type { GameChallengeRuntime } from './challenges'
+import type { GameWorldTerritorySettings } from './worldTerritory'
 
 import type { GameOperationsState } from './operations'
 
@@ -57,6 +58,7 @@ export type GameMode =
   | 'CHALLENGE_FRIEND'
 
 export type GameTerritory =
+  | 'WORLD'
   | 'ILE_DE_FRANCE'
   | 'LONDON'
   | 'BERLIN'
@@ -126,6 +128,8 @@ export interface GameSaveData {
   assistant: GameAssistantState
   /** Présent uniquement pour une carte fictive. La carte complète est régénérée localement depuis cette seed. */
   generatedTerritory?: GameGeneratedTerritorySettings | null
+  /** V54 : zone choisie dans la carte mondiale (ville + pays + coordonnées + rayon). */
+  worldTerritory?: GameWorldTerritorySettings | null
   /** Présent uniquement pour les modes Défi. Persisté pour conserver timer, règles et résultat. */
   challenge?: GameChallengeRuntime | null
   /** Préférences d'interface propres à cette sauvegarde. */

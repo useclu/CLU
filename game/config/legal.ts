@@ -292,7 +292,7 @@ export const LEGAL_DOCUMENTS: Record<LegalDocumentId, LegalDocument> = {
       {
         title: '9. Prestataires, destinataires et transferts internationaux',
         paragraphs: [
-          'GitHub fournit l’hébergement du site statique. Cloudflare fournit notamment l’API, D1, R2, la distribution de cartes et des services réseau. Stripe fournit le paiement. Google fournit la connexion Google, Google Analytics et la messagerie Gmail utilisée pour le support.',
+          'GitHub fournit l’hébergement du site statique. Cloudflare fournit notamment l’API, D1, R2, la distribution de certaines cartes et des services réseau. OpenFreeMap fournit actuellement le fond cartographique mondial chargé par le navigateur dans les parties WORLD. Stripe fournit le paiement. Google fournit la connexion Google, Google Analytics et la messagerie Gmail utilisée pour le support.',
           'Ces prestataires peuvent traiter des données dans plusieurs pays. Lorsqu’un transfert de données personnelles hors de l’Espace économique européen nécessite une garantie particulière, il doit reposer sur un mécanisme reconnu par le droit applicable, tel qu’une décision d’adéquation, des clauses contractuelles types ou une autre garantie valable. Les informations détaillées sur les mécanismes utilisés par chaque prestataire figurent dans leurs documents de confidentialité et de traitement des données.',
         ],
       },
@@ -372,10 +372,10 @@ export const LEGAL_DOCUMENTS: Record<LegalDocumentId, LegalDocument> = {
     subtitle: 'Principales licences et attributions utilisées par CLU',
     sections: [
       {
-        title: 'OpenStreetMap & Protomaps',
+        title: 'OpenStreetMap, OpenFreeMap & Protomaps',
         paragraphs: [
           'Les fonds cartographiques réels utilisés par CLU Métropole s’appuient notamment sur des données OpenStreetMap, distribuées sous Open Data Commons Open Database License (ODbL).',
-          'Attribution cartographique : © OpenStreetMap contributors. Lorsqu’un fond Protomaps fondé sur OpenStreetMap est utilisé, les attributions Protomaps / OpenStreetMap applicables doivent rester visibles.',
+          'Attribution cartographique : © OpenStreetMap contributors. Le fond mondial WORLD utilise actuellement OpenFreeMap / OpenMapTiles ; les anciennes cartes compatibles peuvent encore utiliser Protomaps / PMTiles. Les attributions applicables doivent rester visibles.',
         ],
       },
       {

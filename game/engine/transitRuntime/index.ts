@@ -222,7 +222,7 @@ function bearingDegrees(a: { longitude: number; latitude: number }, b: { longitu
 }
 
 function visualKindForMode(mode: string): GameVisualVehicle['visualKind'] {
-  if (mode === 'BUS' || mode === 'BRT') return 'BUS'
+  if (mode === 'BUS' || mode === 'BRT' || mode === 'CAR') return 'BUS'
   if (mode === 'CABLE') return 'CABLE'
   if (mode === 'FERRY') return 'FERRY'
   return 'RAIL'

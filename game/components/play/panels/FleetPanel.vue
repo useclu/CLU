@@ -21,7 +21,7 @@ const canManageDepots = computed(() => !onlineSession.value || online.peut('gere
 const fleetLockedReason = computed(() => canManageFleet.value ? '' : translateGameText('Permission requise : gérer le matériel roulant.', currentGameLocale()))
 const depotsLockedReason = computed(() => canManageDepots.value ? '' : translateGameText('Permission requise : gérer les dépôts.', currentGameLocale()))
 
-const MODE_ORDER: GameTransportMode[] = ['RER', 'TRAIN', 'METRO', 'TRAM', 'CABLE', 'FERRY', 'BRT', 'BUS']
+const MODE_ORDER: GameTransportMode[] = ['TGV', 'TER', 'RER', 'TRAIN', 'METRO', 'TRAM', 'CAR', 'CABLE', 'FERRY', 'BRT', 'BUS']
 const modelDrafts = reactive<Record<string, string>>({})
 const transferTargets = reactive<Record<string, string>>({})
 const transferCounts = reactive<Record<string, number>>({})

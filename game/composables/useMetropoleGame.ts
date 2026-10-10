@@ -46,6 +46,7 @@ import { getGameTerritoryCatalogEntry, isGameTerritory, isGameTerritoryAvailable
 import { createStatisticsState, normalizeStatisticsState } from '../engine/statistics'
 import { createEmptyAssistantState, normalizeAssistantState } from '../engine/assistant'
 import { normalizeGeneratedTerritorySettings } from '../engine/territory/generator'
+import { normalizeWorldTerritorySettings } from '../engine/territory/world'
 import {
   assertCanCreateGameSave,
   backupGameSave,
@@ -79,6 +80,7 @@ import type { GameEventsState } from '../types/events'
 import type { GameSave, GameSaveData, GameState, GameTerritory } from '../types/game'
 import type { GameFreePlaySettings } from '../types/freePlay'
 import type { GameGeneratedTerritorySettings } from '../types/generatedTerritory'
+import type { GameWorldTerritorySettings } from '../types/worldTerritory'
 import type { GameMunicipalitiesState } from '../types/municipalities'
 import type { GameObjectivesState } from '../types/objectives'
 import type {
@@ -137,6 +139,19 @@ function normalizeStation(station: GameStation): GameStation {
     facilityLevel: isGameStationFacilityLevel(station.facilityLevel)
       ? station.facilityLevel
       : 'STANDARD',
+    accessiblePmr: station.accessiblePmr === true,
+    pmrSubsidyReceived: Math.max(0, Number(station.pmrSubsidyReceived ?? 0) || 0),
+    urbanContext: station.urbanContext && typeof station.urbanContext === 'object'
+      ? {
+          localityName: typeof station.urbanContext.localityName === 'string' ? station.urbanContext.localityName.trim().slice(0, 120) : undefined,
+          poiNames: Array.isArray(station.urbanContext.poiNames) ? station.urbanContext.poiNames.map(item => String(item).trim().slice(0, 120)).filter(Boolean).slice(0, 8) : [],
+          poiKinds: Array.isArray(station.urbanContext.poiKinds) ? station.urbanContext.poiKinds.map(item => String(item).trim().slice(0, 60)).filter(Boolean).slice(0, 8) : [],
+          roadNames: Array.isArray(station.urbanContext.roadNames) ? station.urbanContext.roadNames.map(item => String(item).trim().slice(0, 120)).filter(Boolean).slice(0, 6) : [],
+          waterNames: Array.isArray(station.urbanContext.waterNames) ? station.urbanContext.waterNames.map(item => String(item).trim().slice(0, 120)).filter(Boolean).slice(0, 4) : [],
+          parkNames: Array.isArray(station.urbanContext.parkNames) ? station.urbanContext.parkNames.map(item => String(item).trim().slice(0, 120)).filter(Boolean).slice(0, 4) : [],
+          demandMultiplier: Math.max(.85, Math.min(1.42, Number(station.urbanContext.demandMultiplier) || 1)),
+        }
+      : undefined,
     sharedStationId: typeof station.sharedStationId === 'string' && station.sharedStationId.trim()
       ? station.sharedStationId
       : station.id,
@@ -229,7 +244,7 @@ function normalizeLine(line: GameLine, index: number): GameLine {
       ? line.shortCode.trim().slice(0, 4)
       : String(index + 1),
     badgeStyle: normalizeBadgeStyle(line.badgeStyle),
-    emblem: normalizeLineEmblem(line.emblem ?? (mode === 'BRT' ? 'EXPRESS' : mode)),
+    emblem: normalizeLineEmblem(line.emblem ?? (mode === 'BRT' ? 'EXPRESS' : mode === 'TER' || mode === 'TGV' ? 'TRAIN' : mode === 'CAR' ? 'BUS' : mode)),
     mode,
     status,
     infrastructureType: normalizeInfrastructureType(line.infrastructureType),
@@ -766,6 +781,12 @@ function normalizeSave(save: GameSave): GameSave {
   if (territory === 'GENERATED' && !generatedTerritory) {
     throw new Error('Cette sauvegarde de carte fictive ne contient pas de seed exploitable.')
   }
+  const worldTerritory = territory === 'WORLD'
+    ? normalizeWorldTerritorySettings(save.data?.worldTerritory)
+    : null
+  if (territory === 'WORLD' && !worldTerritory) {
+    throw new Error('Cette sauvegarde mondiale ne contient pas de ville et de périmètre exploitables.')
+  }
 
   const simulationDay = Number.isFinite(save.data?.simulationDay)
     ? Math.max(1, Math.floor(save.data.simulationDay))
@@ -824,6 +845,7 @@ function normalizeSave(save: GameSave): GameSave {
     // Initialisé juste après : le moteur statistique a besoin du reste des données normalisées.
     statistics: undefined as never,
     generatedTerritory,
+    worldTerritory,
     challenge,
     uiState: {
       panelOpen: save.data?.uiState?.panelOpen === true,
@@ -912,8 +934,9 @@ export function useMetropoleGame() {
   async function createGame(
     name: string,
     freePlaySettings?: GameFreePlaySettings,
-    territory: GameTerritory = 'ILE_DE_FRANCE',
+    territory: GameTerritory = 'WORLD',
     generatedTerritoryInput?: GameGeneratedTerritorySettings | null,
+    worldTerritoryInput?: GameWorldTerritorySettings | null,
   ) {
     const normalizedName = name.trim()
     if (!normalizedName) throw new Error('Le nom de la partie est vide.')
@@ -926,6 +949,12 @@ export function useMetropoleGame() {
       : null
     if (territory === 'GENERATED' && !generatedTerritory) {
       throw new Error('Configurez la seed de la carte fictive avant de lancer la partie.')
+    }
+    const worldTerritory = territory === 'WORLD'
+      ? normalizeWorldTerritorySettings(worldTerritoryInput)
+      : null
+    if (territory === 'WORLD' && !worldTerritory) {
+      throw new Error('Choisissez une ville et un périmètre avant de lancer la partie.')
     }
     const settings = normalizeFreePlaySettings(freePlaySettings ?? createDefaultFreePlaySettings())
     const now = new Date().toISOString()
@@ -952,6 +981,7 @@ export function useMetropoleGame() {
         assistant: createEmptyAssistantState(),
         statistics: undefined as never,
         generatedTerritory,
+        worldTerritory,
         challenge: null,
         uiState: { panelOpen: false, selectedPanel: 'NETWORK' },
       },
@@ -974,7 +1004,11 @@ export function useMetropoleGame() {
     const generatedTerritory = definition.territory === 'GENERATED'
       ? normalizeGeneratedTerritorySettings(definition.generatedTerritory)
       : null
+    const worldTerritory = definition.territory === 'WORLD'
+      ? normalizeWorldTerritorySettings(definition.worldTerritory)
+      : null
     if (definition.territory === 'GENERATED' && !generatedTerritory) throw new Error('La carte fictive du défi est invalide.')
+    if (definition.territory === 'WORLD' && !worldTerritory) throw new Error('La zone mondiale du défi est invalide.')
 
     const settings = createChallengeFreePlaySettings(definition)
     const now = new Date()
@@ -1002,6 +1036,7 @@ export function useMetropoleGame() {
         assistant: createEmptyAssistantState(),
         statistics: undefined as never,
         generatedTerritory,
+        worldTerritory,
         challenge: createChallengeRuntime(definition, now),
         uiState: { panelOpen: false, selectedPanel: 'NETWORK' },
       },
@@ -1205,7 +1240,13 @@ export function useMetropoleGame() {
     // écraserait une sauvegarde locale sans rapport. Une vraie reprise fournit
     // explicitement preferredLocalId via la session Online.
     const previous = state.value.status === 'PLAYING' ? state.value.save : null
-    const incoming = normalizeSave(cloneSave(snapshot))
+    const snapshotCopy = cloneSave(snapshot)
+    // Un snapshot Online de version courante est déjà l'état autoritaire validé
+    // par le serveur. Le renormaliser uniquement chez le participant peut le
+    // faire diverger d'onlineShadowSave ; la prochaine action enverrait alors
+    // des patches parasites et serait refusée puis annulée par resynchronisation.
+    // Les anciennes versions gardent leur migration normale au chargement.
+    const incoming = compatibility === 'CURRENT' ? snapshotCopy : normalizeSave(snapshotCopy)
     incoming.id = preferredLocalId?.trim() || previous?.id || createSaveId()
     incoming.updatedAt = new Date().toISOString()
     // L'interface et CLU Assistant restent propres à chaque navigateur. Ils ne

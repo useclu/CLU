@@ -23,6 +23,7 @@ import {
   findLineStationLocation,
   getLineAllStations,
   getLineBranches,
+  getLineGeometrySequences,
 } from '../engine/network/geometry'
 
 import type {
@@ -35,6 +36,7 @@ import type {
   GameLineRoutingMode,
   GameServiceLevel,
   GameStation,
+  GameStationUrbanContext,
   GameTransportMode,
   GameWalkingTransfer,
 } from '../types/network'
@@ -42,7 +44,7 @@ import { useMetropoleGame } from './useMetropoleGame'
 import { canUseModeInSave } from '../utils/challengeState'
 import { registerLineDeleted, registerLineLaunched, registerLineModification } from '../engine/statistics'
 import { stationDistanceMeters } from '../engine/transitRuntime'
-import { getSegmentCoordinates, pruneOrphanRouteSegments, removeRouteSegmentsTouching, setRouteSegment, type GamePathCoordinate } from '../engine/network/pathGeometry'
+import { getRouteSegment, getSegmentCoordinates, pruneOrphanRouteSegments, removeRouteSegmentsTouching, setRouteSegment, type GamePathCoordinate } from '../engine/network/pathGeometry'
 
 export type GameNetworkMapAction =
   | { kind: 'NONE' }
@@ -282,7 +284,7 @@ function calculateModificationEstimate(original: GameLine, draft: GameLine) {
   const originalStations = getLineAllStations(original)
   const draftStations = getLineAllStations(draft)
   const originalIds = new Set(originalStations.map(station => station.id))
-  const addedCount = draftStations.filter(station => !originalIds.has(station.id)).length
+  const addedStations = draftStations.filter(station => !originalIds.has(station.id))
   let movedCount = 0
   for (const station of draftStations) {
     const old = originalStations.find(item => item.id === station.id)
@@ -296,7 +298,7 @@ function calculateModificationEstimate(original: GameLine, draft: GameLine) {
   return Math.max(
     0,
     Math.round(
-      addedCount * calculateStationConstructionCost(draft.mode)
+      addedStations.reduce((sum, station) => sum + calculateStationConstructionCost(draft.mode, station.accessiblePmr === true), 0)
       + lengthWorkKm * modeEconomy.infrastructurePerKm * infrastructure.constructionCostMultiplier,
     ),
   )
@@ -643,6 +645,44 @@ function createGameNetwork() {
     pendingStationNaming.value = { lineId: line.id, stationId: station.id, suggestedName: station.name, outsideLoadedTerritory }
     await game.persistCurrentGame()
     return station
+  }
+
+  async function setPendingStationUrbanContext(context: GameStationUrbanContext | null | undefined) {
+    const pending = pendingStationNaming.value
+    if (!pending || !context) return false
+    const line = editDraft.value?.id === pending.lineId
+      ? editDraft.value
+      : lines.value.find(item => item.id === pending.lineId)
+    const station = line ? findLineStation(line, pending.stationId) : null
+    if (!line || !station) return false
+    station.urbanContext = {
+      localityName: typeof context.localityName === 'string' ? context.localityName.trim().slice(0, 120) : undefined,
+      poiNames: Array.isArray(context.poiNames) ? context.poiNames.map(item => String(item).trim().slice(0, 120)).filter(Boolean).slice(0, 8) : [],
+      poiKinds: Array.isArray(context.poiKinds) ? context.poiKinds.map(item => String(item).trim().slice(0, 60)).filter(Boolean).slice(0, 8) : [],
+      roadNames: Array.isArray(context.roadNames) ? context.roadNames.map(item => String(item).trim().slice(0, 120)).filter(Boolean).slice(0, 6) : [],
+      waterNames: Array.isArray(context.waterNames) ? context.waterNames.map(item => String(item).trim().slice(0, 120)).filter(Boolean).slice(0, 4) : [],
+      parkNames: Array.isArray(context.parkNames) ? context.parkNames.map(item => String(item).trim().slice(0, 120)).filter(Boolean).slice(0, 4) : [],
+      demandMultiplier: Math.max(.85, Math.min(1.42, Number(context.demandMultiplier) || 1)),
+    }
+    line.updatedAt = new Date().toISOString()
+    if (!editDraft.value) await game.persistCurrentGame()
+    return true
+  }
+
+  async function setPendingStationAccessiblePmr(accessible: boolean) {
+    const pending = pendingStationNaming.value
+    if (!pending) return false
+    const line = editDraft.value?.id === pending.lineId
+      ? editDraft.value
+      : lines.value.find(item => item.id === pending.lineId)
+    const station = line ? findLineStation(line, pending.stationId) : null
+    if (!line || !station) return false
+    station.accessiblePmr = accessible === true
+    station.pmrSubsidyReceived = Math.max(0, Number(station.pmrSubsidyReceived ?? 0))
+    refreshProjectEstimate(line)
+    line.updatedAt = new Date().toISOString()
+    if (!editDraft.value) await game.persistCurrentGame()
+    return true
   }
 
   async function finalizePendingStationName(name: string) {
@@ -1108,16 +1148,52 @@ function createGameNetwork() {
   function removeDraftStation(stationId: string) {
     if (game.isReadOnly.value) return
     if (!editDraft.value || !canRemoveDraftStation(stationId)) return false
+    const draft = editDraft.value
+    // Une gare intermediaire peut avoir servi de point de guidage pour dessiner
+    // une courbe en mode Libre. La supprimer retire l'arret, pas les voies
+    // suivies : on fusionne uniquement ses DEUX segments contigus, dans la
+    // meme sequence (tronc ou branche), sans recoudre des branches entre elles.
+    let preservedRoute: {
+      from: GameStation
+      to: GameStation
+      coordinates: GamePathCoordinate[]
+      source: 'ASSISTED' | 'FREE'
+    } | null = null
+    for (const sequence of getLineGeometrySequences(draft)) {
+      const index = sequence.findIndex(station => station.id === stationId)
+      if (index <= 0 || index >= sequence.length - 1) continue
+      const from = sequence[index - 1]!
+      const removedStation = sequence[index]!
+      const to = sequence[index + 1]!
+      const first = getSegmentCoordinates(draft, from, removedStation)
+      const second = getSegmentCoordinates(draft, removedStation, to)
+      if (first || second) {
+        const fromPoint: GamePathCoordinate = [from.longitude, from.latitude]
+        const middlePoint: GamePathCoordinate = [removedStation.longitude, removedStation.latitude]
+        const toPoint: GamePathCoordinate = [to.longitude, to.latitude]
+        preservedRoute = {
+          from,
+          to,
+          coordinates: [
+            ...(first ?? [fromPoint, middlePoint]),
+            ...(second ?? [middlePoint, toPoint]).slice(1),
+          ],
+          source: getRouteSegment(draft, from.id, removedStation.id)?.segment.source === 'FREE'
+            || getRouteSegment(draft, removedStation.id, to.id)?.segment.source === 'FREE'
+            ? 'FREE' : 'ASSISTED',
+        }
+      }
+      break
+    }
     pushDraftHistory()
-    const removed = removeStationFromDraft(editDraft.value, stationId)
+    const removed = removeStationFromDraft(draft, stationId)
     if (!removed) return false
-    // Lorsqu'un arrêt est retiré, son ancien chemin routé doit disparaître lui aussi.
-    // On ne "recoud" plus automatiquement les deux voisins avec les coordonnées
-    // de l'ancien détour : cela créait des tracés fantômes passant encore par la
-    // station supprimée. Le nouveau segment voisin est donc recalculé/affiché
-    // directement, puis un raccordement explicite peut poser son propre tracé.
-    removeRouteSegmentsTouching(editDraft.value, [stationId])
-    pruneOrphanRouteSegments(editDraft.value)
+    removeRouteSegmentsTouching(draft, [stationId])
+    // La nouvelle paire est maintenant adjacente : on conserve son trace
+    // exact, y compris le passage par l'ancienne position de l'arret (sans
+    // recreer de station). Les segments des branches supprimees sont epures.
+    if (preservedRoute) setRouteSegment(draft, preservedRoute.from, preservedRoute.to, preservedRoute.coordinates, preservedRoute.source)
+    pruneOrphanRouteSegments(draft)
     if (editSelectedStationId.value === stationId) editSelectedStationId.value = null
     mapAction.value = { kind: 'NONE' }
     return true
@@ -1438,6 +1514,8 @@ function createGameNetwork() {
     clearDraftGuidePoints,
     startLine,
     addStation,
+    setPendingStationUrbanContext,
+    setPendingStationAccessiblePmr,
     finalizePendingStationName,
     cancelPendingStationName,
     useExistingStation,

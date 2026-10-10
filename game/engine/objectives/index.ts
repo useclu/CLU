@@ -109,7 +109,7 @@ function objectiveReward(base: number, save: GameSave, lineId?: string) {
   const investmentScale = 1 + Math.min(1, Math.max(0, save.data.economy.totalInvestment) / 8_000_000_000)
   const line = lineId ? save.data.network.lines.find(item => item.id === lineId) : null
   const modeMultiplier = line
-    ? ({ BUS: 0.72, BRT: 0.88, TRAM: 1, TRAIN: 1.12, RER: 1.22, METRO: 1.32 } as const)[line.mode]
+    ? ({ BUS: 0.72, CAR: 0.76, BRT: 0.88, TRAM: 1, TRAIN: 1.12, TER: 1.10, TGV: 1.24, RER: 1.22, METRO: 1.32, CABLE: 0.92, FERRY: 0.90 } as const)[line.mode]
     : 1
   return Math.round(base * investmentScale * modeMultiplier / 5_000_000) * 5_000_000
 }

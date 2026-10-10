@@ -83,7 +83,7 @@ const fleetPending = reactive<Record<string, boolean>>({})
 // V51 : garder "Mes lignes" lisible même sur un grand réseau. Les familles sont
 // regroupées dans un ordre stable, puis les indices sont triés naturellement
 // (1, 2, 10 / A, B / T1, T2...) sans modifier l'ordre persistant du réseau.
-const LINE_MODE_ORDER: GameLine['mode'][] = ['RER', 'TRAIN', 'METRO', 'TRAM', 'CABLE', 'FERRY', 'BRT', 'BUS']
+const LINE_MODE_ORDER: GameLine['mode'][] = ['TGV', 'TER', 'RER', 'TRAIN', 'METRO', 'TRAM', 'CAR', 'CABLE', 'FERRY', 'BRT', 'BUS']
 const lineGroups = computed(() => {
   const collator = new Intl.Collator(currentGameLocaleTag(), { numeric: true, sensitivity: 'base' })
   return LINE_MODE_ORDER

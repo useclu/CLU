@@ -40,6 +40,13 @@ function kindWeight(mode: GameTransportMode, kind: string, profile: SmartRouting
   // il suit exclusivement les voies ferrées déjà présentes sur la carte.
   if (profile === 'RAIL') return kind === 'rail' ? .30 : null
 
+  if (mode === 'CAR') {
+    if (kind === 'highway') return .42
+    if (kind === 'major_road') return .54
+    if (kind === 'minor_road') return .86
+    if (kind === 'street') return 1.20
+    return null
+  }
   if (mode === 'BUS') {
     if (kind === 'street') return .72
     if (kind === 'minor_road') return .66
@@ -61,7 +68,7 @@ function kindWeight(mode: GameTransportMode, kind: string, profile: SmartRouting
     if (kind === 'street') return .90
     return null
   }
-  if (mode === 'RER' || mode === 'TRAIN') {
+  if (mode === 'RER' || mode === 'TRAIN' || mode === 'TER' || mode === 'TGV') {
     if (profile === 'LIGHT') {
       // Assistance légère : la voie ferrée reste très fortement préférée,
       // mais les grands corridors peuvent servir de guide si le joueur
@@ -169,8 +176,14 @@ export function buildSmartRoutingGraph(collection: GeoJsonCollectionLike | null 
   const nodes: Node[] = []
   const bucket = new Map<string, number[]>()
   const strictRail = profile === 'RAIL'
-  const mergeMeters = strictRail ? 150 : mode === 'TRAIN' || mode === 'RER' ? 150 : mode === 'METRO' ? 135 : 118
-  const spacingMeters = strictRail ? 300 : mode === 'TRAIN' || mode === 'RER' ? 300 : mode === 'METRO' ? 250 : 180
+  const nativeRail = mode === 'TRAIN' || mode === 'RER' || mode === 'TER' || mode === 'TGV'
+  // En Rail auto, deux voies paralleles (RER A / J / E, par exemple)
+  // ne sont pas un aiguillage. L'ancienne tolerance de 150 m les fusionnait
+  // dans un meme noeud et inventait des connexions inexistantes.
+  // Une petite tolerance suffit pour raccorder les fragments de tuiles
+  // representant *la meme voie*, sans relier les faisceaux voisins.
+  const mergeMeters = strictRail ? 10 : nativeRail ? 150 : mode === 'METRO' ? 135 : 118
+  const spacingMeters = strictRail ? 300 : nativeRail ? 300 : mode === 'METRO' ? 250 : 180
 
   function nodeFor(point: SmartRouteCoordinate) {
     const p = project(point, origin)
@@ -236,7 +249,7 @@ export function buildSmartRoutingGraph(collection: GeoJsonCollectionLike | null 
   // Index spatial réutilisé à chaque déplacement de souris. Sans lui, chercher
   // le nœud le plus proche dans une grande métropole procédurale imposerait un
   // tri de dizaines de milliers de nœuds à chaque frame de prévisualisation.
-  const spatialCellMeters = profile === 'RAIL' || mode === 'TRAIN' || mode === 'RER' ? 900 : 650
+  const spatialCellMeters = profile === 'RAIL' || ['TRAIN', 'RER', 'TER', 'TGV'].includes(mode) ? 900 : 650
   const spatialIndex = new Map<string, number[]>()
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index]!
@@ -311,9 +324,15 @@ export function routeOnSmartGraph(
   // n'autorise jamais un raccordement libre de plusieurs kilomètres.
   const snapLimit = strictRail
     ? 850
-    : clamp(direct * .34, 650, graph.mode === 'TRAIN' || graph.mode === 'RER' ? 3500 : 2200)
-  const starts = startCandidates.filter(item => item.distance <= snapLimit)
-  const ends = endCandidates.filter(item => item.distance <= snapLimit)
+    : clamp(direct * .34, 650, ['TRAIN', 'RER', 'TER', 'TGV'].includes(graph.mode) ? 3500 : 2200)
+  // Les 8 candidats sont utiles en Aide legere. En Rail auto les autoriser
+  // tous revenait a accrocher le debut et la fin sur une autre voie proche,
+  // meme lorsque le point avait deja ete snappe exactement sur la bonne voie.
+  // Le chemin ferre part donc du noeud le plus proche de chaque extremite.
+  const starts = (strictRail ? startCandidates.slice(0, 1) : startCandidates)
+    .filter(item => item.distance <= snapLimit)
+  const ends = (strictRail ? endCandidates.slice(0, 1) : endCandidates)
+    .filter(item => item.distance <= snapLimit)
   if (!starts.length || !ends.length) return null
   const endSet = new Map(ends.map(item => [item.index, item.distance]))
 
@@ -404,11 +423,11 @@ export function routeOnSmartGraph(
   // tracé manuel. Rail auto est volontairement différent : s'il existe un chemin
   // ferré connecté, même très long, il doit le suivre et ne jamais "couper" hors rail.
   if (!strictRail) {
-    const maxDetour = graph.mode === 'BUS' || graph.mode === 'BRT'
+    const maxDetour = graph.mode === 'BUS' || graph.mode === 'BRT' || graph.mode === 'CAR'
       ? 1.24
       : graph.mode === 'TRAM'
         ? 1.2
-        : graph.mode === 'RER' || graph.mode === 'TRAIN'
+        : graph.mode === 'RER' || graph.mode === 'TRAIN' || graph.mode === 'TER' || graph.mode === 'TGV'
           ? 1.48
           : 1.16
     if (length > direct * maxDetour + 260) return null

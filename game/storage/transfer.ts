@@ -43,6 +43,16 @@ export function assertGameSaveShape(value: unknown): asserts value is GameSave {
       throw new Error('La sauvegarde de carte fictive ne contient pas de seed valide.')
     }
   }
+  if (value.territory === 'WORLD') {
+    if (!isRecord(value.data.worldTerritory)
+      || typeof value.data.worldTerritory.cityName !== 'string'
+      || typeof value.data.worldTerritory.countryCode !== 'string'
+      || typeof value.data.worldTerritory.latitude !== 'number'
+      || typeof value.data.worldTerritory.longitude !== 'number'
+      || typeof value.data.worldTerritory.radiusKm !== 'number') {
+      throw new Error('La sauvegarde mondiale ne contient pas de ville et de périmètre valides.')
+    }
+  }
   if (typeof value.data.simulationDay !== 'number' || !Number.isFinite(value.data.simulationDay)) throw new Error('Jour de simulation invalide.')
   if (!isRecord(value.data.network) || !Array.isArray(value.data.network.lines)) throw new Error('Réseau de la sauvegarde invalide.')
   if (!isRecord(value.data.economy)) throw new Error('Données financières manquantes.')
